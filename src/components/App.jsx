@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { motion } from "framer-motion";
-
+import DRNConfig from "@/components/DRNConfig";
 const models = [
  
   { 
@@ -102,14 +102,16 @@ function ModelExecution({ model, onBack }) {
       <Card className="shadow-lg rounded-2xl border border-gray-200 p-6">
         <CardContent>
           <h2 className="text-3xl font-bold text-gray-800">Run {model}</h2>
-          <input
-            type="text"
-            placeholder="Enter Parameters (JSON)"
-            value={params}
-            onChange={(e) => setParams(e.target.value)}
-            className="w-full p-3 mt-4 border border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500"
-          />
-          <Button onClick={runModel} className="mt-4 w-full bg-green-500 text-white hover:bg-green-600">Run Model</Button>
+          {model === "DRN" ? (
+            <DRNConfig />
+          ) : (
+            <div>
+              <p className="text-gray-600 mt-2">Configure the parameters below before running the model.</p>
+              <Button onClick={runModel} className="mt-4 bg-blue-500 text-white hover:bg-blue-600" >
+                Run Model
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
       {status && <p className="mt-4 text-lg text-gray-700">Status: {status}</p>}
