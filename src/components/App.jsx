@@ -99,9 +99,8 @@ function ModelExecution({ model, onBack }) {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
       <Button onClick={onBack} className="mb-6 bg-gray-500 text-white hover:bg-gray-600">Back</Button>
-      <Card className="shadow-lg rounded-2xl border border-gray-200 p-6">
+      <Card className="shadow-lg rounded-2xl border border-gray-200 p-6 py-18">
         <CardContent>
-          <h2 className="text-3xl font-bold text-gray-800">Run {model}</h2>
           {model === "DRN" ? (
             <DRNConfig />
           ) : (
