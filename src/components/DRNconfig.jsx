@@ -81,7 +81,7 @@ export default function DRNConfig({ onRun }) {
                   </div>
 
                 </div>
-                <Button onClick={() => onRun({ numStart, addFlag, yearRun, timeStep })} className="mt-4 bg-blue-500 text-white hover:bg-blue-600 rounded-md p-2 w-48" >
+                <Button onClick={() => onRun({ numStart, addFlag, yearRun, timeStep })} className="mt-4 bg-blue-500 text-white hover:bg-blue-600 rounded-md p-2 w-full" >
                   Run Model
                 </Button>
 

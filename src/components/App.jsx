@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { motion } from "framer-motion";
 import DRNConfig from "@/components/DRNConfig";
+import ATSConfig from "./ATSconfig";
 const models = [
  
   { 
@@ -103,6 +104,8 @@ function ModelExecution({ model, onBack }) {
         <CardContent>
           {model === "DRN" ? (
             <DRNConfig />
+          ) : model === "ATS" ? (
+            <ATSConfig /> 
           ) : (
             <div>
               <p className="text-gray-600 mt-2">Configure the parameters below before running the model.</p>
