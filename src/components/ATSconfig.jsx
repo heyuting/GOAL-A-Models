@@ -120,13 +120,12 @@ export default function ATSConfig() {
   const soilTypes = ['Sandy Loam', 'Clay Loam', 'Silt Loam', 'Loamy Sand', 'Peat'];
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-3xl mx-auto p-6">
-      <Card className="rounded-2xl shadow-lg p-6">
-        <CardContent className="space-y-6">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* AOI Inputs */}
-            <h2 className="text-xl font-semibold">Area of Interest</h2>
-            <div className="grid grid-cols-1 gap-4">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} >
+      <div className="flex gap-6">
+        <div className="w-1/2">
+          {/* AOI Inputs */}
+          <h2 className="text-xl font-bold text-center mb-6 text-gray-800">Area of Interest</h2>
+          <div className="grid grid-cols-1 gap-4">
               {/* Upload GeoJSON file */}
               <div>
                 <Label htmlFor="geoJsonFile">Upload GeoJSON File</Label>
@@ -147,7 +146,7 @@ export default function ATSConfig() {
               </div>
             </div>
             <div className="mt-6">
-               <MapContainer center={[39.8283, -98.5795]} zoom={4} style={{ height: '400px', width: '100%' }}>
+               <MapContainer center={[39.8283, -98.5795]} zoom={4} style={{ height: '500px', width: '100%' }}>
                   <TileLayer
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     attribution='&copy; OpenStreetMap contributors'
@@ -156,9 +155,34 @@ export default function ATSConfig() {
                   <MapController geoJsonData={geoJsonData} />
                 </MapContainer>
             </div>
-            
+         {/* MODIS LAI Inputs */}
+         <div className="grid grid-cols-1 gap-4 mt-6">
+              <div>
+                <Label htmlFor="modisLAIFile">MODIS LAI File</Label>
+                <div className="flex items-center gap-2">
+                  <span className="text-blue-600">{modisLAIFile ? modisLAIFile.name : "No file chosen"}</span>
+                  <div className="relative ml-auto">
+                    <Input
+                      name="modisLAIFile"
+                      type="file"
+                      accept=".nc"
+                      onChange={(e) => setMODISLAIFile(e.target.files[0])}
+                      required
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                    />
+                    <Button className="bg-blue-400 text-white py-1 px-3 text-sm rounded">Choose File</Button>
+                  </div>
+                </div>
+              </div>
+            </div> 
+      </div>
+      <div className="w-1/2">
+       <h2 className="text-xl font-bold text-center mb-6 text-gray-800">Simulation Settings</h2>
+        <Card className="mt-25 rounded-2xl shadow-lg p-6">
+         <CardContent className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-6">
             {/* Simulation Duration Input */}
-          <h2 className="text-xl font-semibold">Simulation Settings</h2>
+          
             <div className="flex items-center gap-4">
               <Label htmlFor="simulationName" className="min-w-fit">Simulation Name</Label>
               <Input name="simulationName" type="string" value={simulationName} onChange={(e) => setSimulationName(e.target.value)} required  className="w-32 md:w-40"/>
@@ -217,35 +241,8 @@ export default function ATSConfig() {
               </div>
             </div>
 
-         {/* MODIS LAI Inputs */}
-         {/* 
-          <h2 className="text-xl font-semibold">MODIS LAI</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="modisLAIFile">MODIS LAI File</Label>
-                <div className="flex items-center gap-2">
-                  <span className="text-blue-600">{modisLAIFile ? modisLAIFile.name : "No file chosen"}</span>
-                  <div className="relative ml-auto">
-                    <Input
-                      name="modisLAIFile"
-                      type="file"
-                      accept=".nc"
-                      onChange={(e) => setMODISLAIFile(e.target.files[0])}
-                      required
-                      className="absolute inset-0 opacity-0 cursor-pointer"
-                    />
-                    <Button className="bg-blue-400 text-white py-1 px-3 text-sm rounded">Choose File</Button>
-                  </div>
-                </div>
-              </div>
-            </div> 
-            */}
-
             {/* 
-
-            <h2 className="text-xl font-semibold pt-8">Soil & Hydrological Parameters</h2>
-
-            
+            <h2 className="text-xl font-semibold pt-8">Soil & Hydrological Parameters</h2>   
             {layers.map((layer, index) => (
               <div key={index} className="border-b py-4">
                 <h3 className="font-semibold text-lg mb-2">{layer.name}</h3>
@@ -345,12 +342,19 @@ export default function ATSConfig() {
             />
             */}
             <div className="pt-6">
-              <Button type="submit" className="mt-4 bg-blue-500 text-white hover:bg-blue-600 rounded-md p-2 w-full">Generate Inputs for ATS</Button>
+              <Button 
+                type="submit" 
+                className="mt-4 bg-blue-500 text-white hover:bg-blue-600 rounded-md p-2 w-full disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!geoJsonData}
+              >
+                Generate Inputs for ATS
+              </Button>
             </div>
           </form>
         </CardContent>
       </Card>
-
+      </div>
+    </div>
     </motion.div>
   );
 }
