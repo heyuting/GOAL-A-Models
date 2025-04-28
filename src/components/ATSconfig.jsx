@@ -25,7 +25,7 @@ function MapController({ geoJsonData }) {
 
 export default function ATSConfig() {
   // Initialize form data state with default values, including layers
-  const [layers, setLayers] = useState([
+  /* const [layers, setLayers] = useState([
     {
       name: 'Layer 1',
       soilType: 'Sandy Loam',
@@ -35,17 +35,18 @@ export default function ATSConfig() {
       vanGenuchtenAlpha: '0.08',
       vanGenuchtenN: '1.6',
     },
-  ]);
+  ]); */
   const [simulationName, setSimulationName] = useState('Coweeta')
   const [simulationStartYear, setSimulationStartYear] = useState('2010'); 
   const [simulationEndYear, setSimulationEndYear] = useState('2015');
   const [modisLAIFile, setMODISLAIFile] = useState();
-  const [showLayerModal, setShowLayerModal] = useState(false);
+  //const [showLayerModal, setShowLayerModal] = useState(false);
   const [geoJsonData, setGeoJsonData] = useState(null);
   const [geoJsonFileName, setGeoJsonFileName] = useState(null);
   const [minPorosity, setMinPorosity] = useState(0.05);
   const [maxPermeability, setMaxPermeability] = useState(1e-10);
   const [includeRivers, setIncludeRivers] = useState(true);
+  const [useGeologicalLayer, setUseGeologicalLayer] = useState(true);
 
   const handleGeoJsonUpload = async (file) => {
     setGeoJsonFileName(file.name);
@@ -64,7 +65,7 @@ export default function ATSConfig() {
     };
     reader.readAsText(file);
   };
-
+/* 
   // Handle changes to layer parameters
   const handleLayerChange = (e, layerIndex) => {
     const { name, value } = e.target;
@@ -101,15 +102,15 @@ export default function ATSConfig() {
       setLayers(updatedLayers);
     }
   };
-
+ */
   const handleSubmit = async (e) => {
     e.preventDefault();
     const data = new FormData();
-    layers.forEach((layer,index) => {
+    /* layers.forEach((layer,index) => {
         Object.entries(layer).forEach(([key, value])=>{
             data.append(`layer_${index}_${key}`, value);
         });
-    });
+    }); */
     await fetch('/api/run-ats', {
       method: 'POST',
       body: data,
@@ -117,18 +118,18 @@ export default function ATSConfig() {
   };
 
   // Soil types for the dropdown
-  const soilTypes = ['Sandy Loam', 'Clay Loam', 'Silt Loam', 'Loamy Sand', 'Peat'];
+  // const soilTypes = ['Sandy Loam', 'Clay Loam', 'Silt Loam', 'Loamy Sand', 'Peat'];
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} >
       <div className="flex gap-6">
-        <div className="w-1/2">
+        <div className="w-3/5">
           {/* AOI Inputs */}
           <h2 className="text-xl font-bold text-center mb-6 text-gray-800">Area of Interest</h2>
           <div className="grid grid-cols-1 gap-4">
               {/* Upload GeoJSON file */}
               <div>
-                <Label htmlFor="geoJsonFile">Upload GeoJSON File</Label>
+                <Label htmlFor="geoJsonFile" className="text-xl font-semibold">Upload GeoJSON File</Label>
                 <div className="flex items-center gap-2">
                   <span className="text-blue-600">{geoJsonFileName || "No file chosen"}</span>
                   <div className="relative ml-auto">
@@ -158,7 +159,7 @@ export default function ATSConfig() {
          {/* MODIS LAI Inputs */}
          <div className="grid grid-cols-1 gap-4 mt-6">
               <div>
-                <Label htmlFor="modisLAIFile">MODIS LAI File</Label>
+                <Label htmlFor="modisLAIFile" className="text-xl font-semibold">MODIS LAI File</Label>
                 <div className="flex items-center gap-2">
                   <span className="text-blue-600">{modisLAIFile ? modisLAIFile.name : "No file chosen"}</span>
                   <div className="relative ml-auto">
@@ -176,70 +177,69 @@ export default function ATSConfig() {
               </div>
             </div> 
       </div>
-      <div className="w-1/2">
+      
+      <div className="w-2/5">
        <h2 className="text-xl font-bold text-center mb-6 text-gray-800">Simulation Settings</h2>
-        <Card className="mt-25 rounded-2xl shadow-lg p-6">
+        <Card className="mt-27 rounded-2xl shadow-lg p-6">
          <CardContent className="space-y-6">
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Simulation Duration Input */}
           
             <div className="flex items-center gap-4">
-              <Label htmlFor="simulationName" className="min-w-fit">Simulation Name</Label>
+              <Label htmlFor="simulationName" className="min-w-fit font-semibold">Simulation Name</Label>
               <Input name="simulationName" type="string" value={simulationName} onChange={(e) => setSimulationName(e.target.value)} required  className="w-32 md:w-40"/>
             </div>
 
             <div className="flex items-center gap-4"> 
-              <Label htmlFor="simulationStartYear" className="min-w-fit">Simulation Start Year</Label>
+              <Label htmlFor="simulationStartYear" className="min-w-fit font-semibold">Simulation Start Year</Label>
               <Input name="simulationStartYear" type="number" value={simulationStartYear} onChange={(e) => setSimulationStartYear(e.target.value)} required  className="w-32 md:w-24"/>
             </div>
             
             <div className="flex items-center gap-4"> 
-              <Label htmlFor="simulationEndYear" className="min-w-fit">Simulation End Year</Label>
+              <Label htmlFor="simulationEndYear" className="min-w-fit font-semibold">Simulation End Year</Label>
               <Input name="simulationEndYear" type="number" value={simulationEndYear} onChange={(e) => setSimulationEndYear(e.target.value)} required  className="w-32 md:w-24"/>
             </div>
 
-            <div>
-              <Label htmlFor="minPorosity">Min Porosity</Label>
-              <Input
-                name="minPorosity"
-                type="number"
-                value={minPorosity}
-                onChange={(e) => setMinPorosity(e.target.value)}
-                step="0.01"
-                min="0"
-                max="1"
-                required
-                className="w-full p-2 border rounded-md"
-              />
+            <div className="flex items-center gap-4">
+              <Label htmlFor="minPorosity" className="min-w-fit font-semibold">Min Porosity</Label>
+              <Input name="minPorosity"  type="number" value={minPorosity} onChange={(e) => setMinPorosity(e.target.value)} step="0.01" min="0" max="1" required className="w-32 md:w-24"/>
             </div>
 
-            <div>
-              <Label htmlFor="maxPermeability">Max Permeability</Label>
-              <Input
-                name="maxPermeability"
-                type="number"
-                value={maxPermeability}
-                onChange={(e) => setMaxPermeability(e.target.value)}
-                step="1e-10"
-                min="0"
-                required
-                className="w-full p-2 border rounded-md"
-              />
+            <div className="flex items-center gap-4">
+              <Label htmlFor="maxPermeability" className="min-w-fit font-semibold">Max Permeability</Label>
+              <Input name="maxPermeability" type="number" value={maxPermeability} onChange={(e) => setMaxPermeability(e.target.value)} step="1e-10" min="0" required className="w-32 md:w-24"/>
             </div>
 
-            <div>
-              <Label htmlFor="includeRivers">Include Rivers in Simulation</Label>
+            <div className="flex items-center gap-4">
+              <Label htmlFor="includeRivers" className="min-w-fit font-semibold">Include Rivers in Simulation</Label>
               <div className="flex items-center">
-                <input
-                  type="checkbox"
+                <select
                   id="includeRivers"
-                  checked={includeRivers}
-                  onChange={(e) => setIncludeRivers(e.target.checked)}
-                  className="mr-2"
-                />
-                <span>Yes, include rivers</span>
+                  value={includeRivers}
+                  onChange={(e) => setIncludeRivers(e.target.value === "true")}
+                  className="w-full p-2 rounded border text-sm"
+                >
+                  <option value="true">Yes</option>
+                  <option value="false">No</option>
+                </select>
               </div>
             </div>
+
+            <div className="flex items-center gap-4">
+              <Label htmlFor="useGeologicalLayer" className="min-w-fit font-semibold">Use Geological Layer?</Label>
+              <div className="flex items-center">
+                <select
+                  id="useGeologicalLayer"
+                  value={useGeologicalLayer}
+                  onChange={(e) => setUseGeologicalLayer(e.target.value === "true")}
+                  className="w-full p-2 rounded border text-sm"
+                >
+                  <option value="true">Yes</option>
+                  <option value="false">No</option>
+                </select>
+              </div>
+            </div>
+            
 
             {/* 
             <h2 className="text-xl font-semibold pt-8">Soil & Hydrological Parameters</h2>   
@@ -341,10 +341,10 @@ export default function ATSConfig() {
                 onAddLayer={addLayer}
             />
             */}
-            <div className="pt-6">
+            <div className="pt-4">
               <Button 
                 type="submit" 
-                className="mt-4 bg-blue-500 text-white hover:bg-blue-600 rounded-md p-2 w-full disabled:opacity-50 disabled:cursor-not-allowed"
+                className="bg-blue-500 text-white hover:bg-blue-600 rounded-md p-2 w-full disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={!geoJsonData}
               >
                 Generate Inputs for ATS

@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { motion } from "framer-motion";
 import DRNConfig from "@/components/DRNConfig";
 import ATSConfig from "./ATSconfig";
+import SCEPTERConfig from "./SCEPTERconfig";
 const models = [
  
   { 
@@ -68,56 +69,20 @@ export default function ModelRunner() {
 }
 
 function ModelExecution({ model, onBack }) {
-  const [params, setParams] = useState("");
-  const [runId, setRunId] = useState(null);
-  const [status, setStatus] = useState(null);
-  const [results, setResults] = useState(null);
-
-  const runModel = async () => {
-    const response = await fetch("/api/run_model", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model_name: model, parameters: JSON.parse(params) })
-    });
-    const data = await response.json();
-    setRunId(data.job_id);
-    checkStatus(data.job_id);
-  };
-
-  const checkStatus = async (id) => {
-    const response = await fetch(`/api/status/${id}`);
-    const data = await response.json();
-    setStatus(data.status);
-    if (data.status === "completed") fetchResults(id);
-  };
-
-  const fetchResults = async (id) => {
-    const response = await fetch(`/api/results/${id}`);
-    const data = await response.json();
-    setResults(data);
-  };
-
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
       <Button onClick={onBack} className="mb-6 bg-gray-500 text-white hover:bg-gray-600">Back</Button>
       <Card className="shadow-lg rounded-2xl border border-gray-200 p-6 py-18">
         <CardContent>
-          {model === "DRN" ? (
+          {model === "DRN" ? 
             <DRNConfig />
-          ) : model === "ATS" ? (
+           : model === "ATS" ? 
             <ATSConfig /> 
-          ) : (
-            <div>
-              <p className="text-gray-600 mt-2">Configure the parameters below before running the model.</p>
-              <Button onClick={runModel} className="mt-4 bg-blue-500 text-white hover:bg-blue-600" >
-                Run Model
-              </Button>
-            </div>
-          )}
+           : 
+            <SCEPTERConfig />
+          }
         </CardContent>
       </Card>
-      {status && <p className="mt-4 text-lg text-gray-700">Status: {status}</p>}
-      {results && <pre className="mt-4 p-4 bg-gray-200 rounded-lg overflow-auto">{JSON.stringify(results, null, 2)}</pre>}
     </motion.div>
   );
 }

@@ -17,16 +17,16 @@ export default function DRNConfig({ onRun }) {
   return (
     <div>
       <div className="flex gap-6">
-        <div className="w-1/2">
+        <div className="w-3/5">
           <h3 className="text-xl font-bold text-center mb-6 text-gray-800">Select a Location on the Map</h3>
           <MapComponent onLocationSelect={handleLocationSelect} />
         </div>
-        <div className="w-1/2">
+        <div className="w-2/5">
           <h3 className="text-xl font-bold text-center mb-6 text-gray-800">DRN Model Configuration</h3>
           <Card className="mt-17 p-6 shadow-lg rounded-2xl border border-gray-200">
             <CardContent>
               <h3 className="text-xl font-semibold">Model Parameters</h3>
-              <p className="text-gray-500 mb-4">
+              <p className="text-gray-500 mb-4 mt-6">
                 {selectedLocation 
                   ? `Selected Location: ${selectedLocation.lat.toFixed(3)}, ${selectedLocation.lng.toFixed(3)}`
                   : "No location selected"}
