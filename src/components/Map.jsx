@@ -55,7 +55,10 @@ export default function MapComponent({ onLocationSelect }) {
         </label>
       </div>
       <MapContainer center={[40, -100]} zoom={4} className="w-full h-full">
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        <TileLayer
+                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
+                attribution='© Esri, DeLorme, NAVTEQ, TomTom, Intermap, iPC, USGS, FAO, NPS, NRCAN, GeoBase, Kadaster NL, Ordnance Survey, Esri Japan, METI, Esri China (Hong Kong), and the GIS User Community'
+        />
 
         {/* Show a loading indicator until the GeoJSON data is loaded */}
         {loading ? (

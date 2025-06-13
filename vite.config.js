@@ -11,4 +11,14 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  server: {
+    proxy: {
+      '/api/usgs': {
+        target: 'https://waterservices.usgs.gov',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/usgs/, ''),
+        secure: false,
+      }
+    }
+  }
 })
