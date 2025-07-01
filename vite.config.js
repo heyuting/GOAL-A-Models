@@ -18,6 +18,18 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/usgs/, ''),
         secure: false,
+      },
+      '/api/wqp': {
+        target: 'https://www.waterqualitydata.us',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/wqp/, ''),
+        secure: false,
+      },
+      '/api/usgs-dv': {
+        target: 'https://waterservices.usgs.gov',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/usgs-dv/, ''),
+        secure: false,
       }
     }
   }

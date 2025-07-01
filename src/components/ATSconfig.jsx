@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import Modal from '@/components/ui/modal';
 import { motion } from "framer-motion";
+import { useAuth } from '@/contexts/AuthContext';
+import userService from '@/services/userService';
 import 'leaflet/dist/leaflet.css';
 
 // Component to handle map zooming to GeoJSON bounds
@@ -23,7 +25,8 @@ function MapController({ geoJsonData }) {
   return null;
 }
 
-export default function ATSConfig() {
+export default function ATSConfig({ savedData }) {
+  const { user } = useAuth();
   // Initialize form data state with default values, including layers
   /* const [layers, setLayers] = useState([
     {
@@ -47,6 +50,30 @@ export default function ATSConfig() {
   const [maxPermeability, setMaxPermeability] = useState(1e-10);
   const [includeRivers, setIncludeRivers] = useState(true);
   const [useGeologicalLayer, setUseGeologicalLayer] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+
+  // Load saved data when component mounts or savedData changes
+  useEffect(() => {
+    if (savedData) {
+      const params = savedData.parameters || {};
+      setSimulationName(params.simulationName || 'Coweeta');
+      setSimulationStartYear(params.simulationStartYear || '2010');
+      setSimulationEndYear(params.simulationEndYear || '2015');
+      setMinPorosity(params.minPorosity || 0.05);
+      setMaxPermeability(params.maxPermeability || 1e-10);
+      setIncludeRivers(params.includeRivers !== undefined ? params.includeRivers : true);
+      setUseGeologicalLayer(params.useGeologicalLayer !== undefined ? params.useGeologicalLayer : true);
+      
+      // Load saved files info
+      if (savedData.geoJsonFileName) {
+        setGeoJsonFileName(savedData.geoJsonFileName);
+      }
+      if (savedData.modisLAIFileName) {
+        setMODISLAIFile({ name: savedData.modisLAIFileName });
+      }
+    }
+  }, [savedData]);
 
   const handleGeoJsonUpload = async (file) => {
     setGeoJsonFileName(file.name);
@@ -115,6 +142,68 @@ export default function ATSConfig() {
       method: 'POST',
       body: data,
     });
+  };
+
+  const handleSaveModel = async () => {
+    if (!user) {
+      setSaveMessage('Please log in to save models');
+      return;
+    }
+
+    if (!geoJsonData) {
+      setSaveMessage('Please upload a GeoJSON file first');
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveMessage('');
+
+    try {
+      const modelData = {
+        name: `ATS - ${simulationName}`,
+        model: 'ATS',
+        location: 'Custom GeoJSON Area',
+        status: 'saved',
+        parameters: {
+          simulationName,
+          simulationStartYear,
+          simulationEndYear,
+          minPorosity,
+          maxPermeability,
+          includeRivers,
+          useGeologicalLayer
+        },
+        geoJsonFileName: geoJsonFileName,
+        modisLAIFileName: modisLAIFile?.name
+      };
+
+      let savedModel;
+      
+      if (savedData) {
+        // Update existing model
+        savedModel = userService.updateUserModel(user.id, savedData.id, modelData);
+        if (savedModel) {
+          setSaveMessage('Model updated successfully!');
+        } else {
+          setSaveMessage('Failed to update model');
+        }
+      } else {
+        // Create new model
+        savedModel = userService.saveUserModel(user.id, modelData);
+        if (savedModel) {
+          setSaveMessage('Model saved successfully!');
+        } else {
+          setSaveMessage('Failed to save model');
+        }
+      }
+      
+      setTimeout(() => setSaveMessage(''), 3000);
+    } catch (error) {
+      console.error('Error saving model:', error);
+      setSaveMessage('Error saving model');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Soil types for the dropdown
@@ -341,14 +430,37 @@ export default function ATSConfig() {
                 onAddLayer={addLayer}
             />
             */}
-            <div className="pt-4">
-              <Button 
-                type="submit" 
-                className="bg-blue-500 text-white hover:bg-blue-600 rounded-md p-2 w-full disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={!geoJsonData}
-              >
-                Generate Inputs for ATS
-              </Button>
+            <div className="pt-4 space-y-2">
+              <div className="flex gap-4">
+
+                <Button
+                  type="button"
+                  onClick={handleSaveModel}
+                  disabled={isSaving || !geoJsonData}
+                  className="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 rounded-md font-semibold"
+                >
+                  {isSaving ? 'Saving...' : savedData ? 'Update Model Configuration' : 'Save Model Configuration'}
+                </Button>
+                
+                <Button 
+                  type="submit" 
+                  className="flex-1 bg-blue-500 text-white hover:bg-blue-600 rounded-md p-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={!geoJsonData}
+                >
+                  Generate Inputs for ATS
+                </Button>
+                
+              </div>
+              
+              {saveMessage && (
+                <div className={`text-center p-3 rounded-lg text-sm ${
+                  saveMessage.includes('successfully') 
+                    ? 'bg-green-100 text-green-700' 
+                    : 'bg-red-100 text-red-700'
+                }`}>
+                  {saveMessage}
+                </div>
+              )}
             </div>
           </form>
         </CardContent>

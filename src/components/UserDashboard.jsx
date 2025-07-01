@@ -74,13 +74,22 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
             <h1 className="text-3xl font-bold text-gray-800">Welcome back, {user.name}!</h1>
             <p className="text-gray-600">Manage your models and configurations</p>
           </div>
-          <Button
-            onClick={onLogout}
-            variant="outline"
-            className="border-red-300 text-red-600 hover:bg-red-50"
-          >
-            Sign Out
-          </Button>
+          <div className="flex items-center space-x-3">
+            <Button
+              variant="outline"
+              onClick={onNavigateToModels}
+              className="border-blue-300 text-blue-600 hover:bg-blue-50"
+            >
+              Back to Models
+            </Button>
+            <Button
+              onClick={onLogout}
+              variant="outline"
+              className="border-red-300 text-red-600 hover:bg-red-50"
+            >
+              Sign Out
+            </Button>
+          </div>
         </div>
 
         {/* Tabs */}
