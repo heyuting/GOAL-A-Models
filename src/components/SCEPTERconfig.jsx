@@ -24,38 +24,54 @@ function MapZoomHandler({ center, zoom }) {
   return null;
 }
 
-// Create custom markers for different alkalinity data recency
-const createCustomIcon = (color) => {
+// Create custom markers for different alkalinity data recency and sample count
+const createCustomIcon = (color, sampleCount = 0) => {
+  // Calculate size based on sample count (minimum 8px, maximum 20px)
+  const minSize = 8;
+  const maxSize = 20;
+  const maxSamples = 100; // Adjust this based on your data range
+  
+  // Logarithmic scaling for better visual distribution
+  const normalizedSamples = Math.min(sampleCount, maxSamples);
+  const sizeMultiplier = normalizedSamples > 0 
+    ? Math.log(normalizedSamples + 1) / Math.log(maxSamples + 1)
+    : 0;
+  const size = Math.max(minSize, minSize + (maxSize - minSize) * sizeMultiplier);
+  
+  const radius = size / 2 - 1; // Account for stroke width
+  const center = size / 2;
+  
   return new L.Icon({
     iconUrl: `data:image/svg+xml;base64,${btoa(`
-      <svg width="12" height="12" viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg">
-        <circle fill="${color}" stroke="#000" stroke-width="1" cx="6" cy="6" r="5"/>
+      <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
+        <circle fill="${color}" stroke="#000" stroke-width="1" cx="${center}" cy="${center}" r="${radius}"/>
       </svg>
     `)}`,
-    iconSize: [12, 12],
-    iconAnchor: [6, 6],
-    popupAnchor: [0, -6],
+    iconSize: [size, size],
+    iconAnchor: [center, center],
+    popupAnchor: [0, -center],
   });
 };
 // Time series plots are in TimeSeriesPlot.jsx
 // Alkalinity scatter plot is in AlkalinityScatterPlot.jsx
 
-const USGSSiteSelector = ({ handleSiteSelect, handlePickPointClick, isPickingPoint, location, onSitesLoaded, onStateSelect }) => {
+const USGSSiteSelector = ({ handleSiteSelect, handlePickPointClick, isPickingPoint, location, onSitesLoaded, onStateSelect, onSiteTypeChange }) => {
   const [usgsSites, setUsgsSites] = useState([]);
   const [stateCd, setStateCd] = useState('');
+  const [siteType, setSiteType] = useState('stream'); // New state for site type
   const [isLoadingSites, setIsLoadingSites] = useState(false);
   const [allSitesWithAlkalinity, setAllSitesWithAlkalinity] = useState([]);
 
   // Function to determine marker color based on alkalinity data recency
   const getMarkerColor = (mostRecentAlkalinityDate) => {
-    if (!mostRecentAlkalinityDate) return 'red'; // No alkalinity data
+    if (!mostRecentAlkalinityDate) return 'gray'; // No alkalinity data
     
     const now = new Date();
     const sampleDate = new Date(mostRecentAlkalinityDate);
     const yearsDiff = (now - sampleDate) / (1000 * 60 * 60 * 24 * 365.25);
     
     if (yearsDiff <= 2) return 'green';   // Within last 1-2 years
-    if (yearsDiff <= 5) return 'orange';  // Within last 5 years
+    if (yearsDiff <= 5) return 'yellow';  // Within last 5 years
     return 'red';                         // Older than 5 years
   };
 
@@ -76,7 +92,7 @@ const USGSSiteSelector = ({ handleSiteSelect, handlePickPointClick, isPickingPoi
           
           if (!response.ok) {
             console.log(`Failed to fetch data for site ${site.id}: ${response.status}`);
-            return { ...site, markerColor: 'red', alkalinityInfo: `No data available (HTTP ${response.status})` };
+            return { ...site, markerColor: 'gray', alkalinityInfo: `No data available (HTTP ${response.status})` };
           }
 
           const csvText = await response.text();
@@ -130,10 +146,10 @@ const USGSSiteSelector = ({ handleSiteSelect, handlePickPointClick, isPickingPoi
           }
           
           console.log(`No valid alkalinity data found for site ${site.id}`);
-          return { ...site, markerColor: 'red', alkalinityInfo: 'No alkalinity data available' };
+          return { ...site, markerColor: 'gray', alkalinityInfo: 'No alkalinity data available' };
         } catch (error) {
           console.error(`Error fetching alkalinity data for site ${site.id}:`, error);
-          return { ...site, markerColor: 'red', alkalinityInfo: 'Error loading data' };
+          return { ...site, markerColor: 'gray', alkalinityInfo: 'Error loading data' };
         }
       })
     );
@@ -142,22 +158,40 @@ const USGSSiteSelector = ({ handleSiteSelect, handlePickPointClick, isPickingPoi
     return sitesWithAlkalinity;
   };
 
-  // Load sites from JSON file on component mount
+  // Load sites from JSON file based on site type
   useEffect(() => {
     const loadSitesFromJSON = async () => {
       try {
-        const response = await fetch('/site_list.json');
+        const fileName = siteType === 'groundwater' ? '/groundwater_site_list.json' : '/stream_site_list.json';
+        const response = await fetch(fileName);
         const sitesData = await response.json();
-        setAllSitesWithAlkalinity(sitesData);
-        console.log(`Loaded ${sitesData.length} sites with alkalinity data from JSON`);
+        
+        // Normalize the data structure - convert stream sites to match groundwater format
+        const normalizedSites = sitesData.map(site => {
+          if (siteType === 'stream') {
+            // Convert stream site format to match groundwater format
+            const siteId = site.site_no.replace('USGS-', ''); // Remove USGS- prefix
+            return {
+              id: siteId,
+              name: `${siteId} - USGS Site`,
+              hasAlkalinityData: true
+            };
+          } else {
+            // Groundwater sites already have the correct format
+            return site;
+          }
+        });
+        
+        setAllSitesWithAlkalinity(normalizedSites);
+        console.log(`Loaded ${normalizedSites.length} ${siteType} sites with alkalinity data from JSON`);
       } catch (error) {
-        console.error('Error loading sites from JSON:', error);
+        console.error(`Error loading ${siteType} sites from JSON:`, error);
         setAllSitesWithAlkalinity([]);
       }
     };
 
     loadSitesFromJSON();
-  }, []);
+  }, [siteType]); // Re-run when site type changes
 
   useEffect(() => {
     const fetchSitesForState = async () => {
@@ -168,7 +202,7 @@ const USGSSiteSelector = ({ handleSiteSelect, handlePickPointClick, isPickingPoi
 
       setIsLoadingSites(true);
       try {
-        console.log(`Fetching sites for state ${stateCd} using a more efficient approach...`);
+        console.log(`Fetching ${siteType} sites for state ${stateCd} using a more efficient approach...`);
         
         // Use the simpler approach: fetch all sites for the state and then filter for alkalinity
         const response = await fetch(`/api/usgs/nwis/iv/?format=json&stateCd=${stateCd}&siteStatus=all`);
@@ -194,7 +228,7 @@ const USGSSiteSelector = ({ handleSiteSelect, handlePickPointClick, isPickingPoi
           }
         });
 
-        // Filter to only sites that are in our alkalinity list
+        // Filter to only sites that are in our alkalinity list for the selected site type
         const alkalinityIds = new Set(allSitesWithAlkalinity.map(site => site.id));
         const sitesInState = Object.values(siteGroups)
           .filter(site => alkalinityIds.has(site.id))
@@ -207,25 +241,25 @@ const USGSSiteSelector = ({ handleSiteSelect, handlePickPointClick, isPickingPoi
           }))
           .sort((a, b) => a.id.localeCompare(b.id));
 
-        console.log(`Found ${sitesInState.length} sites with alkalinity data in ${stateCd} (filtered from ${Object.keys(siteGroups).length} total sites)`);
+        console.log(`Found ${sitesInState.length} ${siteType} sites with alkalinity data in ${stateCd} (filtered from ${Object.keys(siteGroups).length} total sites)`);
         
-        // For now, assign test colors to make it load quickly, then fetch real alkalinity data in background
-        const sitesWithTestColors = sitesInState.map((site, index) => ({
+        // Start with gray markers and let real data fetching update the colors
+        const sitesWithDefaultColors = sitesInState.map((site) => ({
           ...site,
-          markerColor: index % 3 === 0 ? 'green' : index % 3 === 1 ? 'orange' : 'red',
+          markerColor: 'gray', // Default to gray until real data is fetched
           alkalinityInfo: 'Loading alkalinity data...',
-          totalAlkalinitySamples: 0
+          totalAlkalinitySamples: 0 // Default to 0 until real data is fetched
         }));
         
-        // Show sites immediately with test colors
-        setUsgsSites(sitesWithTestColors);
+        // Show sites immediately with default gray colors
+        setUsgsSites(sitesWithDefaultColors);
         
-        // Fetch real alkalinity data in the background (limit to first 20 sites for testing)
-        console.log('Starting background alkalinity data fetch for first 20 sites...');
-        const sitesToFetch = sitesInState.slice(0, 20);
+        // Fetch real alkalinity data in the background for all sites
+        console.log(`Starting background alkalinity data fetch for all ${sitesInState.length} ${siteType} sites...`);
+        const sitesToFetch = sitesInState;
         const sitesWithRealData = await fetchAlkalinityDataForSites(sitesToFetch);
         
-        // Update the first 20 sites with real data
+        // Update all sites with real data
         setUsgsSites(prev => {
           const updated = [...prev];
           sitesWithRealData.forEach(realSite => {
@@ -237,7 +271,7 @@ const USGSSiteSelector = ({ handleSiteSelect, handlePickPointClick, isPickingPoi
           return updated;
         });
         
-        console.log('Updated first 20 sites with real alkalinity data');
+        console.log(`Updated all ${sitesWithRealData.length} ${siteType} sites with real alkalinity data`);
         
       } catch (error) {
         console.error('Error fetching sites for state:', error);
@@ -248,7 +282,7 @@ const USGSSiteSelector = ({ handleSiteSelect, handlePickPointClick, isPickingPoi
     };
 
     fetchSitesForState();
-  }, [stateCd, allSitesWithAlkalinity]);
+  }, [stateCd, allSitesWithAlkalinity, siteType]);
 
   useEffect(() => {
     onSitesLoaded(usgsSites);
@@ -262,6 +296,25 @@ const USGSSiteSelector = ({ handleSiteSelect, handlePickPointClick, isPickingPoi
     const selectedState = usStates.find(state => state.code === newStateCd);
     if (selectedState) {
       onStateSelect(selectedState);
+    }
+  };
+
+  const handleSiteTypeChange = (newSiteType) => {
+    setSiteType(newSiteType);
+    handleSiteSelect(''); // Reset selected site when site type changes
+    setUsgsSites([]); // Clear current sites
+    
+    // Call parent callback to clear selected site and point
+    if (onSiteTypeChange) {
+      onSiteTypeChange();
+    }
+    
+    // If there's a selected state, zoom back to state level
+    if (stateCd) {
+      const selectedState = usStates.find(state => state.code === stateCd);
+      if (selectedState) {
+        onStateSelect(selectedState); // This will reset map center and zoom
+      }
     }
   };
 
@@ -281,7 +334,18 @@ const USGSSiteSelector = ({ handleSiteSelect, handlePickPointClick, isPickingPoi
           ))}
         </select>
       </div>
-     
+      <div className="mb-4">
+        <Label className="block mb-2">Site Type</Label>
+        <select
+          className="w-full border rounded-xl p-2"
+          value={siteType}
+          onChange={(e) => handleSiteTypeChange(e.target.value)}
+        >
+          <option value="stream">Stream Sites</option>
+          <option value="groundwater">Groundwater Sites</option>
+        </select>
+      </div>
+      <Label className="block mb-2">Select USGS Site</Label>
       <select
         className="w-full border rounded-xl p-2"
         value={location}
@@ -289,7 +353,7 @@ const USGSSiteSelector = ({ handleSiteSelect, handlePickPointClick, isPickingPoi
         disabled={!stateCd || isLoadingSites}
       >
         <option value="" disabled>
-          {stateCd ? (isLoadingSites ? 'Loading water quality sites...' : 'Choose USGS Water Quality Site') : 'Select a state first'}
+          {stateCd ? (isLoadingSites ? `Loading ${siteType} sites...` : `Choose USGS ${siteType === 'stream' ? 'Stream' : 'Groundwater'} Site`) : 'Select a state first'}
         </option>
         {stateCd && !isLoadingSites && usgsSites.map(site => (
           <option key={site.id} value={site.id}>
@@ -309,19 +373,49 @@ const USGSSiteSelector = ({ handleSiteSelect, handlePickPointClick, isPickingPoi
       
       {/* Alkalinity Data Legend */}
       <div className="mt-4 p-3 bg-gray-50 rounded-xl">
-        <h3 className="text-sm font-semibold mb-2">Alkalinity Data Recency</h3>
-        <div className="space-y-1 text-xs">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-            <span>Recent (≤2 years)</span>
+        <h3 className="text-sm font-semibold mb-2">Alkalinity Data Legend ({siteType === 'stream' ? 'Stream' : 'Groundwater'} Sites)</h3>
+        
+        <div className="grid grid-cols-2 gap-4">
+          {/* Color Legend */}
+          <div>
+            <h4 className="text-xs font-semibold mb-1">Data Recency (Color)</h4>
+            <div className="space-y-1 text-xs">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                <span>Recent (≤2 years)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
+                <span>Moderate (2-5 years)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                <span>Old (&gt;5 years)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-gray-500 rounded-full"></div>
+                <span>No data available</span>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
-            <span>Moderate (2-5 years)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-            <span>Old (&gt;5 years or no data)</span>
+          
+          {/* Size Legend */}
+          <div>
+            <h4 className="text-xs font-semibold mb-1">Sample Count (Size)</h4>
+            <div className="space-y-1 text-xs">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-gray-500 rounded-full"></div>
+                <span>Few samples</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-gray-500 rounded-full"></div>
+                <span>Moderate samples</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 bg-gray-500 rounded-full"></div>
+                <span>Many samples</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -339,7 +433,7 @@ export default function SCEPTERConfig({ savedData }) {
   const [selectedSite, setSelectedSite] = useState(null);
   const [isPickingPoint, setIsPickingPoint] = useState(false);
   const [selectedPoint, setSelectedPoint] = useState(null);
-  const [editedAlkalinity, setEditedAlkalinity] = useState(0);
+  //const [editedAlkalinity, setEditedAlkalinity] = useState(0);
   const [usgsSites, setUsgsSites] = useState([]);
   const [isLoadingSiteData, setIsLoadingSiteData] = useState(false);
   const [mapCenter, setMapCenter] = useState([39.8283, -98.5795]); // Default US center
@@ -360,9 +454,9 @@ export default function SCEPTERConfig({ savedData }) {
       setTargetPH(params.targetPH || '');
       setSelectedStatistic(params.selectedStatistic || 'most_recent');
       setStatisticPeriod(params.statisticPeriod || '7d');
-      
+      //setEditedAlkalinity(params.alkalinity || 0);
+
       // Load saved measurements
-      setEditedAlkalinity(params.alkalinity || 0);
       
       // Load saved site data
       if (savedData.siteData) {
@@ -425,13 +519,13 @@ export default function SCEPTERConfig({ savedData }) {
           particleSize,
           applicationRate,
           targetPH,
-          selectedStatistic,
-          statisticPeriod,
-          discharge: editedDischarge,
-          alkalinity: editedAlkalinity,
-          temperature: editedTemperature,
-          ph: editedPH,
-          bicarbonate: editedBicarbonate
+          // selectedStatistic,
+          // statisticPeriod,
+          // discharge: editedDischarge,
+          // alkalinity: editedAlkalinity,
+          // temperature: editedTemperature,
+          // ph: editedPH,
+          // bicarbonate: editedBicarbonate
         },
         siteData: selectedSite
       };
@@ -465,7 +559,7 @@ export default function SCEPTERConfig({ savedData }) {
     }
   };
 
-  const calculateStatistic = (values, statistic) => {
+/*   const calculateStatistic = (values, statistic) => {
     if (!values || values.length === 0) return null;
     const numericValues = values.map(v => parseFloat(v.value)).filter(v => !isNaN(v));
     if (numericValues.length === 0) return null;
@@ -482,31 +576,44 @@ export default function SCEPTERConfig({ savedData }) {
       default:
         return null;
     }
-  };
+  }; */
 
   const fetchAlkalinityData = async (siteId) => {
     if (!siteId) return;
     
     setIsLoadingSiteData(true);
     try {
+      console.log(`Fetching alkalinity data for selected site: ${siteId}`);
+      
       // Fetch alkalinity data from WQP API
-      const response = await fetch(
-        `/api/wqp/data/Result/search?siteid=USGS-${siteId}&characteristicName=Alkalinity&mimeType=csv`
-      );
+      const apiUrl = `/api/wqp/data/Result/search?siteid=USGS-${siteId}&characteristicName=Alkalinity&mimeType=csv`;
+      console.log(`API URL: ${apiUrl}`);
+      
+      const response = await fetch(apiUrl);
+      
+      console.log(`Response status for site ${siteId}: ${response.status}`);
       
       if (!response.ok) {
+        console.log(`Failed to fetch data for site ${siteId}: ${response.status} ${response.statusText}`);
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const csvText = await response.text();
+      console.log(`Raw CSV response for site ${siteId}:`, csvText.slice(0, 500));
       
       // Parse CSV data
       const lines = csvText.trim().split('\n');
+      console.log(`CSV has ${lines.length} lines (including header)`);
+      
       if (lines.length > 1) { // Check if we have data beyond the header
         const headers = lines[0].split(',').map(h => h.replace(/"/g, ''));
+        console.log(`CSV headers:`, headers.slice(0, 10)); // Log first 10 headers
+        
         const resultMeasureIndex = headers.indexOf('ResultMeasureValue');
         const activityStartDateIndex = headers.indexOf('ActivityStartDate');
         const measureUnitIndex = headers.indexOf('ResultMeasure/MeasureUnitCode');
+        
+        console.log(`Column indices - ResultMeasureValue: ${resultMeasureIndex}, ActivityStartDate: ${activityStartDateIndex}, MeasureUnit: ${measureUnitIndex}`);
         
         if (resultMeasureIndex >= 0 && activityStartDateIndex >= 0) {
           const validSamples = [];
@@ -515,6 +622,10 @@ export default function SCEPTERConfig({ savedData }) {
             const measureValue = values[resultMeasureIndex];
             const dateValue = values[activityStartDateIndex];
             const unitValue = measureUnitIndex >= 0 ? values[measureUnitIndex] : 'mg/L';
+            
+            if (i <= 3) { // Log first few data rows for debugging
+              console.log(`Row ${i}: measureValue="${measureValue}", dateValue="${dateValue}", unit="${unitValue}"`);
+            }
             
             if (measureValue && !isNaN(parseFloat(measureValue)) && dateValue) {
               validSamples.push({
@@ -528,42 +639,72 @@ export default function SCEPTERConfig({ savedData }) {
           // Sort by date descending to get most recent
           validSamples.sort((a, b) => b.date - a.date);
           
+          console.log(`Found ${validSamples.length} valid alkalinity samples for site ${siteId}`);
+          
           if (validSamples.length > 0) {
             const mostRecent = validSamples[0];
+            console.log(`Most recent sample: ${mostRecent.value} ${mostRecent.unit} on ${mostRecent.date.toLocaleDateString()}`);
             
-            setEditedAlkalinity(mostRecent.value);
+            // Calculate average alkalinity
+            const averageAlkalinity = validSamples.reduce((sum, sample) => sum + sample.value, 0) / validSamples.length;
+            
+            //setEditedAlkalinity(mostRecent.value);
             setSelectedSite(prev => ({
               ...prev,
               alkalinity: mostRecent.value,
+              averageAlkalinity: averageAlkalinity,
               alkalinityDateTime: mostRecent.date.toISOString(),
               hasAlkalinity: true,
               alkalinityUnit: mostRecent.unit,
               totalAlkalinitySamples: validSamples.length
             }));
           } else {
+            console.log(`No valid alkalinity samples found for site ${siteId}`);
             setSelectedSite(prev => ({
               ...prev,
               hasAlkalinity: false
             }));
           }
         } else {
+          console.log(`Required columns not found in CSV for site ${siteId}. ResultMeasureValue index: ${resultMeasureIndex}, ActivityStartDate index: ${activityStartDateIndex}`);
           setSelectedSite(prev => ({
             ...prev,
             hasAlkalinity: false
           }));
         }
       } else {
+        console.log(`CSV for site ${siteId} has no data rows (only ${lines.length} lines total)`);
         setSelectedSite(prev => ({
           ...prev,
           hasAlkalinity: false
         }));
+        
+        // Update the marker color to gray in the sites array
+        setUsgsSites(prev => 
+          prev.map(s => 
+            s.id === siteId 
+              ? { ...s, markerColor: 'gray', hasAlkalinity: false, totalAlkalinitySamples: 0, alkalinityInfo: 'No alkalinity data available' }
+              : s
+          )
+        );
       }
     } catch (error) {
-      console.error('Error fetching alkalinity data:', error);
+      console.error(`Error fetching alkalinity data for site ${siteId}:`, error);
+      console.error('Error details:', error.message, error.stack);
       setSelectedSite(prev => ({
         ...prev,
-        hasAlkalinity: false
+        hasAlkalinity: false,
+        errorMessage: error.message
       }));
+      
+      // Update the marker color to gray in the sites array
+      setUsgsSites(prev => 
+        prev.map(s => 
+          s.id === siteId 
+            ? { ...s, markerColor: 'gray', hasAlkalinity: false, totalAlkalinitySamples: 0, alkalinityInfo: 'Error loading data' }
+            : s
+        )
+      );
     } finally {
       setIsLoadingSiteData(false);
     }
@@ -632,6 +773,13 @@ export default function SCEPTERConfig({ savedData }) {
     setMapZoom(state.zoom);
   }, []);
 
+  const handleSiteTypeChange = useCallback(() => {
+    // Clear selected site and point when site type changes
+    setSelectedSite(null);
+    setSelectedPoint(null);
+    setLocation('');
+  }, []);
+
   useEffect(() => {
     if (location) {
       fetchAlkalinityData(location);
@@ -652,12 +800,12 @@ export default function SCEPTERConfig({ savedData }) {
               <MapClickHandler />
               <MapZoomHandler center={mapCenter} zoom={mapZoom} />
               
-              {/* Render all USGS sites with color-coded markers */}
+              {/* Render all USGS sites with color-coded and size-coded markers */}
               {usgsSites.map(site => (
                 <Marker 
                   key={site.id}
                   position={[site.latitude, site.longitude]}
-                  icon={createCustomIcon(site.markerColor)}
+                  icon={createCustomIcon(site.markerColor, site.totalAlkalinitySamples || 0)}
                   eventHandlers={{
                     click: () => handleSiteSelect(site.id)
                   }}
@@ -666,7 +814,13 @@ export default function SCEPTERConfig({ savedData }) {
                     <div>
                       <strong>{site.name}</strong><br />
                       Lat: {site.latitude.toFixed(4)}<br />
-                      Lng: {site.longitude.toFixed(4)}
+                      Lng: {site.longitude.toFixed(4)}<br />
+                      {site.totalAlkalinitySamples > 0 && (
+                        <>Alkalinity Samples: {site.totalAlkalinitySamples}</>
+                      )}
+                      {site.alkalinityInfo && site.alkalinityInfo !== 'Loading alkalinity data...' && (
+                        <><br />{site.alkalinityInfo}</>
+                      )}
                     </div>
                   </Popup>
                 </Marker>
@@ -704,6 +858,7 @@ export default function SCEPTERConfig({ savedData }) {
                   location={location}
                   onSitesLoaded={handleSitesLoaded}
                   onStateSelect={handleStateSelect}
+                  onSiteTypeChange={handleSiteTypeChange}
                 />
 
                 <div className="bg-white p-4 rounded-2xl shadow-md">
@@ -717,20 +872,22 @@ export default function SCEPTERConfig({ savedData }) {
                   ) : selectedSite?.hasAlkalinity ? (
                     <div className="space-y-4">
                       <div className="bg-gray-50 p-4 rounded-xl">
-                        <h3 className="font-semibold text-lg mb-2">Alkalinity Information</h3>
-                        <div className="grid grid-cols-1 gap-2 text-sm">
-                          <div><strong>Most Recent Value:</strong> {selectedSite.alkalinity?.toFixed(2)} mg/L</div>
-                          <div><strong>Last Measured:</strong> {selectedSite.alkalinityDateTime ? new Date(selectedSite.alkalinityDateTime).toLocaleDateString() : 'Unknown'}</div>
-                          <div><strong>Total Samples:</strong> {selectedSite.totalAlkalinitySamples || 'Loading...'}</div>
+                          <div className="grid grid-cols-1 gap-2 text-sm">
+                            <div><strong>Most Recent Value:</strong> {selectedSite.alkalinity?.toFixed(2)} {selectedSite.alkalinityUnit || 'mg/L'}</div>
+                            <div><strong>Average Value:</strong> {selectedSite.averageAlkalinity?.toFixed(2) || 'Calculating...'} {selectedSite.alkalinityUnit || 'mg/L'}</div>
+                            <div><strong>Last Measured:</strong> {selectedSite.alkalinityDateTime ? new Date(selectedSite.alkalinityDateTime).toLocaleDateString() : 'Unknown'}</div>
+                            <div><strong>Total Samples:</strong> {selectedSite.totalAlkalinitySamples || 'Loading...'}</div>
                           <div><strong>Data Recency:</strong> 
                             <span className={`ml-2 px-2 py-1 rounded text-xs font-medium ${
                               selectedSite.markerColor === 'green' ? 'bg-green-100 text-green-800' :
-                              selectedSite.markerColor === 'orange' ? 'bg-orange-100 text-orange-800' :
-                              'bg-red-100 text-red-800'
+                              selectedSite.markerColor === 'yellow' ? 'bg-yellow-100 text-yellow-800' :
+                              selectedSite.markerColor === 'red' ? 'bg-red-100 text-red-800' :
+                              'bg-gray-100 text-gray-800'
                             }`}>
                               {selectedSite.markerColor === 'green' ? 'Recent (≤2 years)' :
-                               selectedSite.markerColor === 'orange' ? 'Moderate (2-5 years)' :
-                               'Old (>5 years)'}
+                               selectedSite.markerColor === 'yellow' ? 'Moderate (2-5 years)' :
+                               selectedSite.markerColor === 'red' ? 'Old (>5 years)' :
+                               'No data available'}
                             </span>
                           </div>
                         </div>
@@ -738,7 +895,16 @@ export default function SCEPTERConfig({ savedData }) {
                     </div>
                   ) : (
                     <div className="text-center py-8 text-gray-500">
-                      {selectedSite ? 'No alkalinity data available for this site' : 'Select a site to view alkalinity data'}
+                      {selectedSite ? (
+                        <div>
+                          <p>No alkalinity data available for this site</p>
+                          {selectedSite.errorMessage && (
+                            <p className="text-red-500 text-xs mt-2">Error: {selectedSite.errorMessage}</p>
+                          )}
+                        </div>
+                      ) : (
+                        'Select a site to view alkalinity data'
+                      )}
                     </div>
                   )}
                 </div>
