@@ -85,7 +85,7 @@ const USGSSiteSelector = ({ handleSiteSelect, handlePickPointClick, isPickingPoi
           console.log(`Fetching alkalinity data for site ${site.id} (${index + 1}/${sites.length})`);
           
           const response = await fetch(
-            `/api/wqp/data/Result/search?siteid=USGS-${site.id}&characteristicName=Alkalinity&mimeType=csv`
+            `https://www.waterqualitydata.us/data/Result/search?siteid=USGS-${site.id}&characteristicName=Alkalinity&mimeType=csv`
           );
           
           console.log(`Response status for site ${site.id}: ${response.status}`);
@@ -205,7 +205,7 @@ const USGSSiteSelector = ({ handleSiteSelect, handlePickPointClick, isPickingPoi
         console.log(`Fetching ${siteType} sites for state ${stateCd} using a more efficient approach...`);
         
         // Use the simpler approach: fetch all sites for the state and then filter for alkalinity
-        const response = await fetch(`/api/usgs/nwis/iv/?format=json&stateCd=${stateCd}&siteStatus=all`);
+        const response = await fetch(`https://waterservices.usgs.gov/nwis/iv/?format=json&stateCd=${stateCd}&siteStatus=all`);
         const data = await response.json();
 
         if (!data.value || !data.value.timeSeries) {
@@ -586,7 +586,7 @@ export default function SCEPTERConfig({ savedData }) {
       console.log(`Fetching alkalinity data for selected site: ${siteId}`);
       
       // Fetch alkalinity data from WQP API
-      const apiUrl = `/api/wqp/data/Result/search?siteid=USGS-${siteId}&characteristicName=Alkalinity&mimeType=csv`;
+      const apiUrl = `https://www.waterqualitydata.us/data/Result/search?siteid=USGS-${siteId}&characteristicName=Alkalinity&mimeType=csv`;
       console.log(`API URL: ${apiUrl}`);
       
       const response = await fetch(apiUrl);

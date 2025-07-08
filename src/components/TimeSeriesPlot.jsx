@@ -54,7 +54,7 @@ function TimeSeriesPlot({ siteId, selectedStatistic, statisticPeriod }) {
 
         // Fetch discharge, temperature, pH, dissolved oxygen, and bicarbonate data
         const response = await fetch(
-          `/api/usgs/nwis/iv/?format=json&sites=${siteId}&parameterCd=00060,00010,00400,00300,00440&siteStatus=all&startDT=${startDateStr}&endDT=${endDateStr}`
+          `https://waterservices.usgs.gov/nwis/iv/?format=json&sites=${siteId}&parameterCd=00060,00010,00400,00300,00440&siteStatus=all&startDT=${startDateStr}&endDT=${endDateStr}`
         );
         
         if (!response.ok) {

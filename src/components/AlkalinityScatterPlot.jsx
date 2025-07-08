@@ -29,7 +29,7 @@ function AlkalinityScatterPlot({ siteId }) {
       try {
         // Fetch alkalinity data from WQP API
         const response = await fetch(
-          `/api/wqp/data/Result/search?siteid=USGS-${siteId}&characteristicName=Alkalinity&mimeType=csv`
+          `https://www.waterqualitydata.us/data/Result/search?siteid=USGS-${siteId}&characteristicName=Alkalinity&mimeType=csv`
         );
         
         if (!response.ok) {
