@@ -3,7 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { motion } from "framer-motion";
-import DRNConfig from "@/components/DRNConfig";
+import DRNConfig from "@/components/DRNconfig";
 import ATSConfig from "./ATSconfig";
 import SCEPTERConfig from "./SCEPTERconfig";
 import Login from "./Login";
