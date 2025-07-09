@@ -73,11 +73,15 @@ export default function App() {
   if (showDashboard) {
     return (
       <UserDashboard 
-        onLogout={() => {
-          logout();
-          setShowDashboard(false);
-          setSelectedModel(null);
-          setSavedModelData(null);
+        onLogout={async () => {
+          try {
+            await logout();
+            setShowDashboard(false);
+            setSelectedModel(null);
+            setSavedModelData(null);
+          } catch (error) {
+            console.error('Logout error:', error);
+          }
         }}
         onNavigateToModels={() => {
           setShowDashboard(false);
@@ -112,9 +116,13 @@ export default function App() {
           </Button>
           <Button
             variant="outline"
-            onClick={() => {
-              logout();
-              setSelectedModel(null);
+            onClick={async () => {
+              try {
+                await logout();
+                setSelectedModel(null);
+              } catch (error) {
+                console.error('Logout error:', error);
+              }
             }}
             className="border-red-300 text-red-600 hover:bg-red-50"
           >

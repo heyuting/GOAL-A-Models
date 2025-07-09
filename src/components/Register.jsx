@@ -51,16 +51,14 @@ export default function Register({ onSwitchToLogin }) {
         throw new Error('Passwords do not match');
       }
 
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Register the user
+      // Register the user with Firebase
       const userData = {
         name: formData.name,
-        email: formData.email
+        email: formData.email,
+        password: formData.password
       };
 
-      register(userData);
+      await register(userData);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -172,7 +170,7 @@ export default function Register({ onSwitchToLogin }) {
 
           <div className="mt-4 text-center">
             <p className="text-sm text-gray-500">
-              Demo: Registration is simulated for demonstration purposes
+              Secure registration powered by Firebase
             </p>
           </div>
         </CardContent>

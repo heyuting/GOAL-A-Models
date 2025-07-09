@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import userService from '@/services/userService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,7 +11,9 @@ export default function Login({ onSwitchToRegister }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetMessage, setResetMessage] = useState('');
+  const { login, forgotPassword } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -33,18 +34,33 @@ export default function Login({ onSwitchToRegister }) {
         throw new Error('Password must be at least 6 characters long');
       }
 
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Sign in with Firebase
+      await login(email, password);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-      // Check if user exists
-      const existingUser = userService.findUserByEmail(email);
-      if (!existingUser) {
-        throw new Error('User not found. Please register first.');
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setError('');
+    setResetMessage('');
+    setIsLoading(true);
+
+    try {
+      if (!email) {
+        throw new Error('Please enter your email address');
       }
 
-      // For demo purposes, we'll accept any password for existing users
-      // In a real app, this would validate the password hash
-      login(existingUser);
+      if (!email.includes('@')) {
+        throw new Error('Please enter a valid email address');
+      }
+
+      await forgotPassword(email);
+      setResetMessage('Password reset email sent! Check your inbox.');
+      setShowForgotPassword(false);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -62,10 +78,13 @@ export default function Login({ onSwitchToRegister }) {
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold text-gray-800">
-            Welcome to GOAL-A
+            {showForgotPassword ? 'Reset Password' : 'Welcome to GOAL-A'}
           </CardTitle>
           <p className="text-gray-600 mt-2">
-            Sign in to access your models and saved configurations
+            {showForgotPassword 
+              ? 'Enter your email address to receive a password reset link'
+              : 'Sign in to access your models and saved configurations'
+            }
           </p>
         </CardHeader>
         <CardContent>
@@ -83,18 +102,20 @@ export default function Login({ onSwitchToRegister }) {
               />
             </div>
             
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="Enter your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={isLoading}
-                className="w-full"
-              />
-            </div>
+            {!showForgotPassword && (
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={isLoading}
+                  className="w-full"
+                />
+              </div>
+            )}
 
             {error && (
               <div className="text-red-500 text-sm bg-red-50 p-3 rounded-lg">
@@ -102,13 +123,59 @@ export default function Login({ onSwitchToRegister }) {
               </div>
             )}
 
-            <Button
-              type="submit"
-              className="w-full bg-blue-500 hover:bg-blue-600 text-white"
-              disabled={isLoading}
-            >
-              {isLoading ? 'Signing in...' : 'Sign In'}
-            </Button>
+            {resetMessage && (
+              <div className="text-green-500 text-sm bg-green-50 p-3 rounded-lg">
+                {resetMessage}
+              </div>
+            )}
+
+            {!showForgotPassword ? (
+              <>
+                <Button
+                  type="submit"
+                  className="w-full bg-blue-500 hover:bg-blue-600 text-white"
+                  disabled={isLoading}
+                >
+                  {isLoading ? 'Signing in...' : 'Sign In'}
+                </Button>
+                
+                <div className="text-center">
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotPassword(true)}
+                    className="text-blue-500 hover:text-blue-600 text-sm"
+                    disabled={isLoading}
+                  >
+                    Forgot your password?
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <Button
+                  onClick={handleForgotPassword}
+                  className="w-full bg-green-500 hover:bg-green-600 text-white"
+                  disabled={isLoading}
+                >
+                  {isLoading ? 'Sending...' : 'Send Reset Email'}
+                </Button>
+                
+                <div className="text-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowForgotPassword(false);
+                      setError('');
+                      setResetMessage('');
+                    }}
+                    className="text-gray-500 hover:text-gray-600 text-sm"
+                    disabled={isLoading}
+                  >
+                    Back to Sign In
+                  </button>
+                </div>
+              </>
+            )}
           </form>
 
           <div className="mt-6 text-center">
@@ -126,7 +193,7 @@ export default function Login({ onSwitchToRegister }) {
 
           <div className="mt-4 text-center">
             <p className="text-sm text-gray-500">
-              Demo: Use any registered email and password (6+ characters)
+              Secure authentication powered by Firebase
             </p>
           </div>
         </CardContent>
