@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { motion } from 'framer-motion';
 
 export default function Login({ onSwitchToRegister }) {
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -36,6 +38,9 @@ export default function Login({ onSwitchToRegister }) {
 
       // Sign in with Firebase
       await login(email, password);
+      
+      // Redirect to home page after successful login
+      navigate('/');
     } catch (err) {
       setError(err.message);
     } finally {

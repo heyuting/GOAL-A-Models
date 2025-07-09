@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { motion } from 'framer-motion';
 
 export default function Register({ onSwitchToLogin }) {
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -59,6 +61,9 @@ export default function Register({ onSwitchToLogin }) {
       };
 
       await register(userData);
+      
+      // Redirect to home page after successful registration
+      navigate('/');
     } catch (err) {
       setError(err.message);
     } finally {

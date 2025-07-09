@@ -1,4 +1,5 @@
-import { useState } from "react";
+import React, { useState } from "react";
+import { Routes, Route, useNavigate, useParams, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -41,12 +42,8 @@ const models = [
   },
 ];
 
-export default function App() {
-  const { user, loading, logout } = useAuth();
-  const [selectedModel, setSelectedModel] = useState(null);
-  const [authMode, setAuthMode] = useState('login'); // 'login' or 'register'
-  const [showDashboard, setShowDashboard] = useState(false);
-  const [savedModelData, setSavedModelData] = useState(null);
+function AuthWrapper() {
+  const { user, loading } = useAuth();
 
   // Show loading screen while checking authentication
   if (loading) {
@@ -60,44 +57,36 @@ export default function App() {
     );
   }
 
-  // Show authentication screens if not logged in
-  if (!user) {
-    return authMode === 'login' ? (
-      <Login onSwitchToRegister={() => setAuthMode('register')} />
-    ) : (
-      <Register onSwitchToLogin={() => setAuthMode('login')} />
-    );
-  }
+  // Show authentication screens or main app based on user status
+  return user ? <AppRoutes /> : <AuthRoutes />;
+}
 
-  // Show dashboard if user is logged in and dashboard is active
-  if (showDashboard) {
-    return (
-      <UserDashboard 
-        onLogout={async () => {
-          try {
-            await logout();
-            setShowDashboard(false);
-            setSelectedModel(null);
-            setSavedModelData(null);
-          } catch (error) {
-            console.error('Logout error:', error);
-          }
-        }}
-        onNavigateToModels={() => {
-          setShowDashboard(false);
-          setSelectedModel(null);
-          setSavedModelData(null);
-        }}
-        onViewModel={(model) => {
-          setSavedModelData(model);
-          setSelectedModel(model.model);
-          setShowDashboard(false);
-        }}
-      />
-    );
-  }
+function AuthRoutes() {
+  return (
+    <Routes>
+      <Route path="/" element={<LoginPage />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/signup" element={<SignupPage />} />
+      <Route path="/register" element={<SignupPage />} />
+      <Route path="*" element={<LoginPage />} />
+    </Routes>
+  );
+}
 
-  // Show model selection or model execution
+function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/" element={<HomePage />} />
+      <Route path="/dashboard" element={<DashboardPage />} />
+      <Route path="/model/:modelName" element={<ModelPage />} />
+    </Routes>
+  );
+}
+
+function HomePage() {
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
+
   return (
     <div className="p-10 bg-gray-100 min-h-screen">
       {/* Header with user info and navigation */}
@@ -109,7 +98,7 @@ export default function App() {
         <div className="flex items-center space-x-4">
           <Button
             variant="outline"
-            onClick={() => setShowDashboard(true)}
+            onClick={() => navigate('/dashboard')}
             className="border-blue-300 text-blue-600 hover:bg-blue-50"
           >
             Dashboard
@@ -119,7 +108,6 @@ export default function App() {
             onClick={async () => {
               try {
                 await logout();
-                setSelectedModel(null);
               } catch (error) {
                 console.error('Logout error:', error);
               }
@@ -131,66 +119,122 @@ export default function App() {
         </div>
       </div>
 
-      {!selectedModel ? (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
-          <div className="grid gap-6 grid-cols-1 md:grid-cols-3">
-            {models.map((model) => (
-              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} key={model.name}>
-                <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col">
-                  <CardContent className="p-6 flex flex-col flex-grow">
-                    <h3 className="text-2xl font-semibold text-gray-700">{model.name}</h3>
-                    <p className="text-gray-500 mt-2 flex-grow">{model.description}</p>
-                    <Button 
-                      className="mt-4 w-full bg-blue-500 text-white hover:bg-blue-600" 
-                      onClick={() => setSelectedModel(model.name)}
-                    >
-                      Run {model.name}
-                    </Button>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
-          </div>
-        </motion.div>
-      ) : (
-        <ModelExecution 
-          model={selectedModel} 
-          onBack={() => setSelectedModel(null)}
-          user={user}
-          savedModelData={savedModelData}
-        />
-      )}
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
+        <div className="grid gap-6 grid-cols-1 md:grid-cols-3">
+          {models.map((model) => (
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} key={model.name}>
+              <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col">
+                <CardContent className="p-6 flex flex-col flex-grow">
+                  <h3 className="text-2xl font-semibold text-gray-700">{model.name}</h3>
+                  <p className="text-gray-500 mt-2 flex-grow">{model.description}</p>
+                  <Button 
+                    className="mt-4 w-full bg-blue-500 text-white hover:bg-blue-600" 
+                    onClick={() => navigate(`/model/${model.name.toLowerCase()}`)}
+                  >
+                    Run {model.name}
+                  </Button>
+                </CardContent>
+              </Card>
+            </motion.div>
+          ))}
+        </div>
+      </motion.div>
     </div>
   );
 }
 
-function ModelExecution({ model, onBack, user, savedModelData }) {
+function LoginPage() {
+  const navigate = useNavigate();
+  
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
-      <div className="flex justify-between items-center mb-6">
-        <Button onClick={onBack} className="bg-gray-500 text-white hover:bg-gray-600">
-          ← Back to Models
-        </Button>
-        <div className="text-sm text-gray-600">
-          Running as: {user.name}
-          {savedModelData && (
-            <span className="ml-2 text-blue-600">
-              (Viewing saved configuration: {savedModelData.name})
-            </span>
-          )}
-        </div>
-      </div>
-      <Card className="shadow-lg rounded-2xl border border-gray-200 p-6 py-18">
-        <CardContent>
-          {model === "DRN" ? 
-            <DRNConfig savedData={savedModelData} />
-           : model === "ATS" ? 
-            <ATSConfig savedData={savedModelData} /> 
-           : 
-            <SCEPTERConfig savedData={savedModelData} />
-          }
-        </CardContent>
-      </Card>
-    </motion.div>
+    <Login onSwitchToRegister={() => navigate('/signup')} />
   );
+}
+
+function SignupPage() {
+  const navigate = useNavigate();
+  
+  return (
+    <Register onSwitchToLogin={() => navigate('/login')} />
+  );
+}
+
+function DashboardPage() {
+  const navigate = useNavigate();
+  const { logout } = useAuth();
+
+  return (
+    <UserDashboard 
+      onLogout={async () => {
+        try {
+          await logout();
+          navigate('/');
+        } catch (error) {
+          console.error('Logout error:', error);
+        }
+      }}
+      onNavigateToModels={() => {
+        navigate('/');
+      }}
+      onViewModel={(model) => {
+        navigate(`/model/${model.model.toLowerCase()}`, { 
+          state: { savedModelData: model } 
+        });
+      }}
+    />
+  );
+}
+
+function ModelPage() {
+  const { modelName } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { user } = useAuth();
+  const [savedModelData, setSavedModelData] = useState(null);
+
+  // Get saved model data from navigation state if available
+  React.useEffect(() => {
+    if (location.state?.savedModelData) {
+      setSavedModelData(location.state.savedModelData);
+    }
+  }, [location.state]);
+
+  const modelNameUpperCase = modelName?.toUpperCase();
+
+  return (
+    <div className="p-10 bg-gray-100 min-h-screen">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
+        <div className="flex justify-between items-center mb-6">
+          <Button onClick={() => navigate('/')} className="bg-gray-500 text-white hover:bg-gray-600">
+            ← Back to Models
+          </Button>
+          <div className="text-sm text-gray-600">
+            Running as: {user.name}
+            {savedModelData && (
+              <span className="ml-2 text-blue-600">
+                (Viewing saved configuration: {savedModelData.name})
+              </span>
+            )}
+          </div>
+        </div>
+        <Card className="shadow-lg rounded-2xl border border-gray-200 p-6 py-18">
+          <CardContent>
+            {modelNameUpperCase === "DRN" ? 
+              <DRNConfig savedData={savedModelData} />
+             : modelNameUpperCase === "ATS" ? 
+              <ATSConfig savedData={savedModelData} /> 
+             : modelNameUpperCase === "SCEPTER" ?
+              <SCEPTERConfig savedData={savedModelData} />
+             :
+              <div className="text-center text-gray-500">Model not found</div>
+            }
+          </CardContent>
+        </Card>
+      </motion.div>
+    </div>
+  );
+}
+
+export default function App() {
+  return <AuthWrapper />;
 }
