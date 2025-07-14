@@ -4,7 +4,8 @@ import {
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
   signOut,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  deleteUser
 } from 'firebase/auth';
 import { auth } from '@/firebase';
 import userService from '@/services/userService';
@@ -154,6 +155,29 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const deleteAccount = async () => {
+    try {
+      if (!user || !auth.currentUser) {
+        throw new Error('No user is currently signed in');
+      }
+
+      // Delete user profile and models from localStorage first
+      const localDeleteSuccess = userService.deleteUserAccount(user.id);
+      if (!localDeleteSuccess) {
+        throw new Error('Failed to delete user data from local storage');
+      }
+
+      // Delete user from Firebase authentication
+      await deleteUser(auth.currentUser);
+      
+      // The user state will be automatically updated by onAuthStateChanged
+      return { success: true, message: 'Account deleted successfully' };
+    } catch (error) {
+      console.error('Delete account error:', error);
+      throw new Error(error.message);
+    }
+  };
+
   const value = {
     user,
     login,
@@ -161,6 +185,7 @@ export const AuthProvider = ({ children }) => {
     register,
     updateProfile,
     forgotPassword,
+    deleteAccount,
     loading
   };
 

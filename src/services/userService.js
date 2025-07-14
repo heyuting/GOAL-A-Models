@@ -156,6 +156,37 @@ class UserService {
     const models = this.getUserModels(userId);
     return models.find(model => model.id === modelId);
   }
+
+  // Delete user account and all associated data
+  deleteUserAccount(userId) {
+    try {
+      // Remove user from users list
+      const users = this.getUsers();
+      const userIndex = users.findIndex(user => user.id === userId);
+      
+      if (userIndex === -1) {
+        return false; // User not found
+      }
+      
+      // Remove user from users array
+      users.splice(userIndex, 1);
+      this.saveUsers(users);
+      
+      // Remove all user's models
+      const allModels = localStorage.getItem(this.modelsKey);
+      const models = allModels ? JSON.parse(allModels) : {};
+      
+      if (models[userId]) {
+        delete models[userId];
+        localStorage.setItem(this.modelsKey, JSON.stringify(models));
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error deleting user account:', error);
+      return false;
+    }
+  }
 }
 
 export default new UserService(); 

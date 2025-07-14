@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default function UserDashboard({ onLogout, onNavigateToModels, onViewModel }) {
-  const { user } = useAuth();
+  const { user, deleteAccount } = useAuth();
   const [activeTab, setActiveTab] = useState('profile');
   const [savedModels, setSavedModels] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -51,6 +51,30 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
   const handleViewModel = (model) => {
     if (onViewModel) {
       onViewModel(model);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    const confirmMessage = `Are you sure you want to delete your account?\n\nThis action will permanently delete:\n• Your profile and account information\n• All saved models and configurations\n• Model run history and results\n• All associated data and preferences\n\nThis action cannot be undone.`;
+    
+    if (window.confirm(confirmMessage)) {
+      const secondConfirm = window.confirm('This is your final warning. Are you absolutely sure you want to delete your account? Type "DELETE" in the next prompt to confirm.');
+      
+      if (secondConfirm) {
+        const finalConfirm = window.prompt('Please type "DELETE" to confirm account deletion:');
+        
+        if (finalConfirm === 'DELETE') {
+          try {
+            await deleteAccount();
+            alert('Your account has been successfully deleted.');
+            // No need to call onLogout() - the user will be automatically signed out
+          } catch (error) {
+            alert(`There was an error deleting your account: ${error.message}. Please try again or contact support.`);
+          }
+        } else {
+          alert('Account deletion cancelled - confirmation text did not match.');
+        }
+      }
     }
   };
 
@@ -226,27 +250,57 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
         )}
 
         {activeTab === 'settings' && (
-          <Card className="shadow-lg">
-            <CardHeader>
-              <CardTitle>Account Settings</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-lg font-medium text-gray-800 mb-2">Preferences</h3>
-                  <p className="text-gray-600">Settings and preferences will be available here.</p>
+          <div className="space-y-6">
+            <Card className="shadow-lg">
+              <CardHeader>
+                <CardTitle>Account Settings</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-800 mb-2">Preferences</h3>
+                    <p className="text-gray-600">Settings and preferences will be available here.</p>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-800 mb-2">Data Management</h3>
+                    <p className="text-gray-600">Manage your saved data and model configurations.</p>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-800 mb-2">Notifications</h3>
+                    <p className="text-gray-600">Configure email notifications for model completion.</p>
+                  </div>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Danger Zone */}
+            <Card className="shadow-lg border-red-200">
+              <CardContent className="space-y-4 p-6">
                 <div>
-                  <h3 className="text-lg font-medium text-gray-800 mb-2">Data Management</h3>
-                  <p className="text-gray-600">Manage your saved data and model configurations.</p>
+                  <h3 className="text-lg font-medium text-red-800 mb-2">Delete Account</h3>
+                  <p className="text-red-600 mb-4">
+                    Permanently delete your account and all associated data. This action cannot be undone.
+                  </p>
+                  <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-4">
+                    <h4 className="text-sm font-medium text-red-800 mb-2">What will be deleted:</h4>
+                    <ul className="text-sm text-red-700 space-y-1">
+                      <li>• Your profile and account information</li>
+                      <li>• All saved models and configurations</li>
+                      <li>• Model run history and results</li>
+                      <li>• All associated data and preferences</li>
+                    </ul>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={handleDeleteAccount}
+                    className="bg-red-600 text-white border-red-600 hover:bg-red-700 hover:border-red-700"
+                  >
+                    Delete My Account
+                  </Button>
                 </div>
-                <div>
-                  <h3 className="text-lg font-medium text-gray-800 mb-2">Notifications</h3>
-                  <p className="text-gray-600">Configure email notifications for model completion.</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </div>
         )}
       </div>
     </div>
