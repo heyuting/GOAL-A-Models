@@ -17,6 +17,9 @@ export default function Register({ onSwitchToLogin }) {
   });
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showVerificationMessage, setShowVerificationMessage] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState('');
+  const [isUnverifiedEmail, setIsUnverifiedEmail] = useState(false);
   const { register } = useAuth();
 
   const handleChange = (e) => {
@@ -60,16 +63,120 @@ export default function Register({ onSwitchToLogin }) {
         password: formData.password
       };
 
-      await register(userData);
+      const result = await register(userData);
       
-      // Redirect to home page after successful registration
-      navigate('/');
+      if (result.emailVerificationSent) {
+        // Show verification message instead of redirecting
+        setRegisteredEmail(formData.email);
+        setShowVerificationMessage(true);
+        setIsUnverifiedEmail(false);
+        // Clear form
+        setFormData({
+          name: '',
+          email: '',
+          password: '',
+          confirmPassword: ''
+        });
+      }
     } catch (err) {
-      setError(err.message);
+      if (err.message.includes('UNVERIFIED_EMAIL')) {
+        // Handle unverified email case
+        const message = err.message.split('|')[1]; // Get the message after the pipe
+        setRegisteredEmail(formData.email);
+        setShowVerificationMessage(true);
+        setIsUnverifiedEmail(true);
+        setError('');
+        // Clear form
+        setFormData({
+          name: '',
+          email: '',
+          password: '',
+          confirmPassword: ''
+        });
+      } else {
+        setError(err.message);
+        setIsUnverifiedEmail(false);
+      }
     } finally {
       setIsLoading(false);
     }
   };
+
+  if (showVerificationMessage) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="min-h-screen flex items-center justify-center bg-gray-100 p-4"
+      >
+        <Card className="w-full max-w-md shadow-xl">
+          <CardHeader className="text-center">
+            <CardTitle className={`text-2xl font-bold ${isUnverifiedEmail ? 'text-orange-600' : 'text-green-600'}`}>
+              {isUnverifiedEmail ? 'Account Needs Verification!' : 'Check Your Email!'}
+            </CardTitle>
+            <p className="text-gray-600 mt-2">
+              {isUnverifiedEmail 
+                ? 'Your account exists but needs email verification' 
+                : 'We\'ve sent a verification email to your inbox'
+              }
+            </p>
+          </CardHeader>
+          <CardContent className="text-center space-y-4">
+            <div className={`border rounded-lg p-4 ${
+              isUnverifiedEmail 
+                ? 'bg-orange-50 border-orange-200' 
+                : 'bg-green-50 border-green-200'
+            }`}>
+              <p className={`font-medium mb-2 ${
+                isUnverifiedEmail ? 'text-orange-800' : 'text-green-800'
+              }`}>
+                Email sent to: {registeredEmail}
+              </p>
+              <p className={`text-sm ${
+                isUnverifiedEmail ? 'text-orange-700' : 'text-green-700'
+              }`}>
+                {isUnverifiedEmail 
+                  ? 'We\'ve sent a new verification email to your account. Please check your email and click the verification link to activate your account.'
+                  : 'Please check your email and click the verification link to activate your account. You\'ll need to verify your email before you can sign in.'
+                }
+              </p>
+            </div>
+            
+            <div className="space-y-3">
+              <Button
+                onClick={onSwitchToLogin}
+                className="w-full bg-blue-500 hover:bg-blue-600"
+              >
+                Go to Sign In
+              </Button>
+              
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowVerificationMessage(false);
+                  setIsUnverifiedEmail(false);
+                  setError('');
+                }}
+                className="w-full"
+              >
+                Register Another Account
+              </Button>
+            </div>
+
+            <div className="text-sm text-gray-500">
+              <p>
+                {isUnverifiedEmail 
+                  ? 'Still didn\'t receive the email? Check your spam folder. You can also try signing in again to get another verification email.'
+                  : 'Didn\'t receive the email? Check your spam folder or contact support.'
+                }
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div

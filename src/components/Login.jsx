@@ -15,11 +15,15 @@ export default function Login({ onSwitchToRegister }) {
   const [isLoading, setIsLoading] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetMessage, setResetMessage] = useState('');
-  const { login, forgotPassword } = useAuth();
+  const [verificationError, setVerificationError] = useState(false);
+  const [verificationMessage, setVerificationMessage] = useState('');
+  const { login, forgotPassword, resendVerificationEmail } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setVerificationError(false);
+    setVerificationMessage('');
     setIsLoading(true);
 
     try {
@@ -42,7 +46,19 @@ export default function Login({ onSwitchToRegister }) {
       // Redirect to home page after successful login
       navigate('/');
     } catch (err) {
-      setError(err.message);
+      if (err.message.includes('verify your email')) {
+        setVerificationError(true);
+        setError('');
+      } else if (err.message.includes('user-not-found')) {
+        setError('No account found with this email address. Please check your email or sign up for a new account.');
+        setVerificationError(false);
+      } else if (err.message.includes('wrong-password') || err.message.includes('invalid-credential')) {
+        setError('Incorrect password. Please try again or use the forgot password option.');
+        setVerificationError(false);
+      } else {
+        setError(err.message);
+        setVerificationError(false);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -68,6 +84,24 @@ export default function Login({ onSwitchToRegister }) {
       setShowForgotPassword(false);
     } catch (err) {
       setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setVerificationMessage('');
+    setIsLoading(true);
+
+    try {
+      if (!email || !password) {
+        throw new Error('Please enter your email and password to resend verification');
+      }
+
+      const result = await resendVerificationEmail(email, password);
+      setVerificationMessage(result.message);
+    } catch (err) {
+      setVerificationMessage(`Error: ${err.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -125,6 +159,35 @@ export default function Login({ onSwitchToRegister }) {
             {error && (
               <div className="text-red-500 text-sm bg-red-50 p-3 rounded-lg">
                 {error}
+              </div>
+            )}
+
+            {verificationError && (
+              <div className="text-orange-600 text-sm bg-orange-50 border border-orange-200 p-4 rounded-lg">
+                <p className="font-medium mb-2">Email Verification Required</p>
+                <p className="mb-3">
+                  Your account exists but your email address hasn't been verified yet. 
+                  Please check your inbox for the verification email and click the link to activate your account.
+                </p>
+                <Button
+                  onClick={handleResendVerification}
+                  variant="outline"
+                  size="sm"
+                  disabled={isLoading}
+                  className="text-orange-600 border-orange-300 hover:bg-orange-50"
+                >
+                  {isLoading ? 'Sending...' : 'Resend Verification Email'}
+                </Button>
+              </div>
+            )}
+
+            {verificationMessage && (
+              <div className={`text-sm p-3 rounded-lg ${
+                verificationMessage.includes('Error') 
+                  ? 'text-red-500 bg-red-50' 
+                  : 'text-green-500 bg-green-50'
+              }`}>
+                {verificationMessage}
               </div>
             )}
 

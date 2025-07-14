@@ -5,7 +5,8 @@ import {
   createUserWithEmailAndPassword, 
   signOut,
   sendPasswordResetEmail,
-  deleteUser
+  deleteUser,
+  sendEmailVerification
 } from 'firebase/auth';
 import { auth } from '@/firebase';
 import userService from '@/services/userService';
@@ -27,8 +28,8 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     // Listen for authentication state changes
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        // User is signed in, get additional profile data from userService
+      if (firebaseUser && firebaseUser.emailVerified) {
+        // User is signed in AND email is verified, get additional profile data from userService
         try {
           let userData = userService.findUserByEmail(firebaseUser.email);
           
@@ -55,7 +56,7 @@ export const AuthProvider = ({ children }) => {
           setUser(null);
         }
       } else {
-        // User is signed out
+        // User is signed out OR email is not verified
         setUser(null);
       }
       setLoading(false);
@@ -69,6 +70,13 @@ export const AuthProvider = ({ children }) => {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const firebaseUser = userCredential.user;
+      
+      // Check if email is verified
+      if (!firebaseUser.emailVerified) {
+        // Sign out the user since email is not verified
+        await signOut(auth);
+        throw new Error('Please verify your email address before signing in. Check your inbox for the verification email.');
+      }
       
       // Get additional profile data from userService
       let userData = userService.findUserByEmail(firebaseUser.email);
@@ -105,7 +113,28 @@ export const AuthProvider = ({ children }) => {
       // Check if user already exists in userService
       const existingUser = userService.findUserByEmail(userData.email);
       if (existingUser) {
-        throw new Error('User with this email already exists');
+        // Try to sign in the user to check verification status
+        try {
+          const userCredential = await signInWithEmailAndPassword(auth, userData.email, userData.password);
+          const firebaseUser = userCredential.user;
+          
+          if (!firebaseUser.emailVerified) {
+            // User exists but email not verified - send verification email again
+            await sendEmailVerification(firebaseUser);
+            await signOut(auth);
+            throw new Error('UNVERIFIED_EMAIL|Your account exists but email is not verified. We\'ve sent a new verification email - please check your inbox.');
+          } else {
+            // Email is verified, sign them out and tell them to use login
+            await signOut(auth);
+            throw new Error('User with this email already exists and is verified. Please use the sign in form instead.');
+          }
+        } catch (signInError) {
+          if (signInError.message.includes('UNVERIFIED_EMAIL')) {
+            throw signInError; // Re-throw our custom error
+          }
+          // If sign in failed for other reasons (wrong password, etc), this might be a different user
+          throw new Error('User with this email already exists. If this is your account, please use the sign in form.');
+        }
       }
 
       // Create Firebase user
@@ -116,6 +145,9 @@ export const AuthProvider = ({ children }) => {
       );
       const firebaseUser = userCredential.user;
 
+      // Send email verification
+      await sendEmailVerification(firebaseUser);
+
       // Create user profile in userService
       const newUser = userService.createUser({
         ...userData,
@@ -123,8 +155,13 @@ export const AuthProvider = ({ children }) => {
         email: firebaseUser.email
       });
 
-      // The user state will be updated by onAuthStateChanged
-      return newUser;
+      // Sign out the user until they verify their email
+      await signOut(auth);
+
+      return { 
+        ...newUser, 
+        emailVerificationSent: true 
+      };
     } catch (error) {
       console.error('Registration error:', error);
       throw new Error(error.message);
@@ -178,6 +215,29 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const resendVerificationEmail = async (email, password) => {
+    try {
+      // Sign in the user temporarily to send verification email
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const firebaseUser = userCredential.user;
+
+      if (firebaseUser.emailVerified) {
+        throw new Error('Email is already verified. You can now sign in normally.');
+      }
+
+      // Send verification email
+      await sendEmailVerification(firebaseUser);
+      
+      // Sign out the user again
+      await signOut(auth);
+      
+      return { success: true, message: 'Verification email sent successfully!' };
+    } catch (error) {
+      console.error('Resend verification error:', error);
+      throw new Error(error.message);
+    }
+  };
+
   const value = {
     user,
     login,
@@ -186,6 +246,7 @@ export const AuthProvider = ({ children }) => {
     updateProfile,
     forgotPassword,
     deleteAccount,
+    resendVerificationEmail,
     loading
   };
 
