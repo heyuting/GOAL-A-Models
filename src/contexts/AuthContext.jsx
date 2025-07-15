@@ -31,7 +31,7 @@ export const AuthProvider = ({ children }) => {
       if (firebaseUser && firebaseUser.emailVerified) {
         // User is signed in AND email is verified, get additional profile data from userService
         try {
-          let userData = userService.findUserByEmail(firebaseUser.email);
+          let userData = userService.findUserByFirebaseUid(firebaseUser.uid);
           
           // If user doesn't exist in userService, create a basic profile
           if (!userData) {
@@ -42,10 +42,10 @@ export const AuthProvider = ({ children }) => {
             });
           }
           
-          // Combine Firebase user data with local profile data
+          // Use Firebase UID as primary ID
           const combinedUser = {
             ...userData,
-            uid: firebaseUser.uid,
+            id: firebaseUser.uid,  // Firebase UID as primary ID
             email: firebaseUser.email,
             emailVerified: firebaseUser.emailVerified
           };
@@ -79,7 +79,7 @@ export const AuthProvider = ({ children }) => {
       }
       
       // Get additional profile data from userService
-      let userData = userService.findUserByEmail(firebaseUser.email);
+      let userData = userService.findUserByFirebaseUid(firebaseUser.uid);
       
       if (!userData) {
         // Create user profile if it doesn't exist

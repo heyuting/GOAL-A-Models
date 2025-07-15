@@ -29,7 +29,7 @@ class UserService {
   createUser(userData) {
     const users = this.getUsers();
     const newUser = {
-      id: Date.now().toString(),
+      id: userData.firebaseUid, // Use Firebase UID as primary ID
       ...userData,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -44,6 +44,12 @@ class UserService {
   findUserByEmail(email) {
     const users = this.getUsers();
     return users.find(user => user.email === email);
+  }
+
+  // Find user by Firebase UID
+  findUserByFirebaseUid(firebaseUid) {
+    const users = this.getUsers();
+    return users.find(user => user.id === firebaseUid);
   }
 
   // Update user
