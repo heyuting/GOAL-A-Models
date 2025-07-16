@@ -32,6 +32,8 @@ export default function Register({ onSwitchToLogin }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setShowVerificationMessage(false);
+    setIsUnverifiedEmail(false);
     setIsLoading(true);
 
     try {
@@ -64,8 +66,16 @@ export default function Register({ onSwitchToLogin }) {
       };
 
       console.log('About to call register function...');
-      const result = await register(userData);
-      console.log('Register function returned:', result);
+      
+      let result;
+      try {
+        result = await register(userData);
+        console.log('Register function returned:', result);
+      } catch (registerError) {
+        console.log('Caught error from register function:', registerError);
+        console.log('Re-throwing for outer catch block...');
+        throw registerError;
+      }
       
       if (result.emailVerificationSent) {
         // Show verification message instead of redirecting

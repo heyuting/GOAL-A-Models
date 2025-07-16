@@ -162,7 +162,7 @@ export const AuthProvider = ({ children }) => {
             await signOut(auth);
             throw new Error('An account with this email already exists and is verified. Please use the sign in form instead.');
           }
-        } catch (signInError) {
+                } catch (signInError) {
           console.log('Sign in failed during verification check:', signInError.message);
           if (signInError.message.includes('UNVERIFIED_EMAIL')) {
             console.log('Re-throwing UNVERIFIED_EMAIL error...');
@@ -170,14 +170,22 @@ export const AuthProvider = ({ children }) => {
           }
           // If sign in failed (wrong password, etc.), still tell them account exists
           console.log('Throwing account exists error...');
-          throw new Error('An account with this email already exists. If this is your account, please use the sign in form. If you forgot your password, use the "Forgot Password" option.');
+          const customError = new Error('An account with this email already exists. If this is your account, please use the sign in form. If you forgot your password, use the "Forgot Password" option.');
+          console.log('About to throw:', customError.message);
+          throw customError;
         }
-             } else if (error.code === 'auth/weak-password' || error.message.includes('weak-password')) {
-        throw new Error('Password is too weak. Please choose a stronger password with at least 6 characters.');
+      } else if (error.code === 'auth/weak-password' || error.message.includes('weak-password')) {
+        const customError = new Error('Password is too weak. Please choose a stronger password with at least 6 characters.');
+        console.log('About to throw weak password error:', customError.message);
+        throw customError;
       } else if (error.code === 'auth/invalid-email' || error.message.includes('invalid-email')) {
-        throw new Error('Please enter a valid email address.');
+        const customError = new Error('Please enter a valid email address.');
+        console.log('About to throw invalid email error:', customError.message);
+        throw customError;
       } else {
-        throw new Error(error.message);
+        const customError = new Error(error.message);
+        console.log('About to throw generic error:', customError.message);
+        throw customError;
       }
     }
   };
