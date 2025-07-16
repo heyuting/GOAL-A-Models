@@ -110,34 +110,7 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (userData) => {
     try {
-      // Check if user already exists in userService
-      const existingUser = userService.findUserByEmail(userData.email);
-      if (existingUser) {
-        // Try to sign in the user to check verification status
-        try {
-          const userCredential = await signInWithEmailAndPassword(auth, userData.email, userData.password);
-          const firebaseUser = userCredential.user;
-          
-          if (!firebaseUser.emailVerified) {
-            // User exists but email not verified - send verification email again
-            await sendEmailVerification(firebaseUser);
-            await signOut(auth);
-            throw new Error('UNVERIFIED_EMAIL|Your account exists but email is not verified. We\'ve sent a new verification email - please check your inbox.');
-          } else {
-            // Email is verified, sign them out and tell them to use login
-            await signOut(auth);
-            throw new Error('User with this email already exists and is verified. Please use the sign in form instead.');
-          }
-        } catch (signInError) {
-          if (signInError.message.includes('UNVERIFIED_EMAIL')) {
-            throw signInError; // Re-throw our custom error
-          }
-          // If sign in failed for other reasons (wrong password, etc), this might be a different user
-          throw new Error('User with this email already exists. If this is your account, please use the sign in form.');
-        }
-      }
-
-      // Create Firebase user
+      // Try to create Firebase user first - let Firebase handle duplicate detection
       const userCredential = await createUserWithEmailAndPassword(
         auth, 
         userData.email, 
@@ -164,7 +137,48 @@ export const AuthProvider = ({ children }) => {
       };
     } catch (error) {
       console.error('Registration error:', error);
-      throw new Error(error.message);
+      console.error('Error code:', error.code);
+      console.error('Error message:', error.message);
+      
+      // Handle specific Firebase errors
+      if (error.code === 'auth/email-already-in-use' || error.message.includes('email-already-in-use')) {
+        console.log('Detected email-already-in-use error, checking verification status...');
+        // Check if user exists but is unverified
+        try {
+          console.log('Attempting to sign in to check verification status...');
+          const userCredential = await signInWithEmailAndPassword(auth, userData.email, userData.password);
+          const firebaseUser = userCredential.user;
+          console.log('Sign in successful, emailVerified:', firebaseUser.emailVerified);
+          
+          if (!firebaseUser.emailVerified) {
+            // User exists but email not verified - send verification email again
+            console.log('User unverified, sending verification email...');
+            await sendEmailVerification(firebaseUser);
+            await signOut(auth);
+            throw new Error('UNVERIFIED_EMAIL|This email is already registered but not verified. We\'ve sent a new verification email - please check your inbox and verify your account before signing in.');
+          } else {
+            // Email is verified, sign them out and tell them to use login
+            console.log('User verified, throwing verified error...');
+            await signOut(auth);
+            throw new Error('An account with this email already exists and is verified. Please use the sign in form instead.');
+          }
+        } catch (signInError) {
+          console.log('Sign in failed during verification check:', signInError.message);
+          if (signInError.message.includes('UNVERIFIED_EMAIL')) {
+            console.log('Re-throwing UNVERIFIED_EMAIL error...');
+            throw signInError; // Re-throw our custom error
+          }
+          // If sign in failed (wrong password, etc.), still tell them account exists
+          console.log('Throwing account exists error...');
+          throw new Error('An account with this email already exists. If this is your account, please use the sign in form. If you forgot your password, use the "Forgot Password" option.');
+        }
+             } else if (error.code === 'auth/weak-password' || error.message.includes('weak-password')) {
+        throw new Error('Password is too weak. Please choose a stronger password with at least 6 characters.');
+      } else if (error.code === 'auth/invalid-email' || error.message.includes('invalid-email')) {
+        throw new Error('Please enter a valid email address.');
+      } else {
+        throw new Error(error.message);
+      }
     }
   };
 

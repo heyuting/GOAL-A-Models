@@ -63,7 +63,9 @@ export default function Register({ onSwitchToLogin }) {
         password: formData.password
       };
 
+      console.log('About to call register function...');
       const result = await register(userData);
+      console.log('Register function returned:', result);
       
       if (result.emailVerificationSent) {
         // Show verification message instead of redirecting
@@ -79,9 +81,13 @@ export default function Register({ onSwitchToLogin }) {
         });
       }
     } catch (err) {
+      console.log('Register component caught error:', err);
+      console.log('Error message:', err.message);
+      console.log('Error type:', typeof err);
+      console.log('Error constructor:', err.constructor.name);
+      
       if (err.message.includes('UNVERIFIED_EMAIL')) {
         // Handle unverified email case
-        const message = err.message.split('|')[1]; // Get the message after the pipe
         setRegisteredEmail(formData.email);
         setShowVerificationMessage(true);
         setIsUnverifiedEmail(true);
@@ -94,8 +100,10 @@ export default function Register({ onSwitchToLogin }) {
           confirmPassword: ''
         });
       } else {
+        console.log('Setting error message:', err.message);
         setError(err.message);
         setIsUnverifiedEmail(false);
+        setShowVerificationMessage(false); // Ensure verification message is hidden
       }
     } finally {
       setIsLoading(false);
@@ -191,7 +199,7 @@ export default function Register({ onSwitchToLogin }) {
             Create Account
           </CardTitle>
           <p className="text-gray-600 mt-2">
-            Join GOAL-A to save your models and configurations
+            Join GOAL-A to run your ERW models 
           </p>
         </CardHeader>
         <CardContent>
