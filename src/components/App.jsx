@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Routes, Route, useNavigate, useParams, useLocation } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { Routes, Route, Navigate, useNavigate, useParams, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -42,10 +42,9 @@ const models = [
   },
 ];
 
-function AuthWrapper() {
+export default function App() {
   const { user, loading } = useAuth();
 
-  // Show loading screen while checking authentication
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -57,29 +56,41 @@ function AuthWrapper() {
     );
   }
 
-  // Show authentication screens or main app based on user status
-  return user ? <AppRoutes /> : <AuthRoutes />;
-}
-
-function AuthRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<LoginPage />} />
+      {/* Public Routes */}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/register" element={<SignupPage />} />
-      <Route path="*" element={<LoginPage />} />
+
+      {/* Protected Routes */}
+      {user ? (
+        <>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/model/:modelName" element={<ModelPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </>
+      ) : (
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      )}
     </Routes>
   );
 }
 
-function AppRoutes() {
+function LoginPage() {
+  const navigate = useNavigate();
+  
   return (
-    <Routes>
-      <Route path="/" element={<HomePage />} />
-      <Route path="/dashboard" element={<DashboardPage />} />
-      <Route path="/model/:modelName" element={<ModelPage />} />
-    </Routes>
+    <Login onSwitchToRegister={() => navigate('/signup')} />
+  );
+}
+
+function SignupPage() {
+  const navigate = useNavigate();
+  
+  return (
+    <Register onSwitchToLogin={() => navigate('/login')} />
   );
 }
 
@@ -89,7 +100,6 @@ function HomePage() {
 
   return (
     <div className="p-10 bg-gray-100 min-h-screen">
-      {/* Header with user info and navigation */}
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-800">GOAL-A Models</h1>
@@ -143,22 +153,6 @@ function HomePage() {
   );
 }
 
-function LoginPage() {
-  const navigate = useNavigate();
-  
-  return (
-    <Login onSwitchToRegister={() => navigate('/signup')} />
-  );
-}
-
-function SignupPage() {
-  const navigate = useNavigate();
-  
-  return (
-    <Register onSwitchToLogin={() => navigate('/login')} />
-  );
-}
-
 function DashboardPage() {
   const navigate = useNavigate();
   const { logout } = useAuth();
@@ -168,7 +162,7 @@ function DashboardPage() {
       onLogout={async () => {
         try {
           await logout();
-          navigate('/');
+          navigate('/login');
         } catch (error) {
           console.error('Logout error:', error);
         }
@@ -192,8 +186,7 @@ function ModelPage() {
   const { user } = useAuth();
   const [savedModelData, setSavedModelData] = useState(null);
 
-  // Get saved model data from navigation state if available
-  React.useEffect(() => {
+  useEffect(() => {
     if (location.state?.savedModelData) {
       setSavedModelData(location.state.savedModelData);
     }
@@ -233,8 +226,4 @@ function ModelPage() {
       </motion.div>
     </div>
   );
-}
-
-export default function App() {
-  return <AuthWrapper />;
 }

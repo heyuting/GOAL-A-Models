@@ -65,24 +65,12 @@ export default function Register({ onSwitchToLogin }) {
         password: formData.password
       };
 
-      console.log('About to call register function...');
-      
-      let result;
-      try {
-        result = await register(userData);
-        console.log('Register function returned:', result);
-      } catch (registerError) {
-        console.log('Caught error from register function:', registerError);
-        console.log('Re-throwing for outer catch block...');
-        throw registerError;
-      }
-      
+      let result = await register(userData);
+
       if (result.emailVerificationSent) {
-        // Show verification message instead of redirecting
         setRegisteredEmail(formData.email);
         setShowVerificationMessage(true);
         setIsUnverifiedEmail(false);
-        // Clear form
         setFormData({
           name: '',
           email: '',
@@ -91,18 +79,11 @@ export default function Register({ onSwitchToLogin }) {
         });
       }
     } catch (err) {
-      console.log('Register component caught error:', err);
-      console.log('Error message:', err.message);
-      console.log('Error type:', typeof err);
-      console.log('Error constructor:', err.constructor.name);
-      
-      if (err.message.includes('UNVERIFIED_EMAIL')) {
-        // Handle unverified email case
+      if (err.message?.includes('UNVERIFIED_EMAIL')) {
         setRegisteredEmail(formData.email);
         setShowVerificationMessage(true);
         setIsUnverifiedEmail(true);
         setError('');
-        // Clear form
         setFormData({
           name: '',
           email: '',
@@ -110,10 +91,23 @@ export default function Register({ onSwitchToLogin }) {
           confirmPassword: ''
         });
       } else {
-        console.log('Setting error message:', err.message);
-        setError(err.message);
+        let errorMsg;
+        switch (err.code) {
+          case 'auth/email-already-in-use':
+            errorMsg = 'This email is already registered. Please sign in or use a different email.';
+            break;
+          case 'auth/invalid-email':
+            errorMsg = 'Invalid email address.';
+            break;
+          case 'auth/weak-password':
+            errorMsg = 'Password is too weak. It should be at least 6 characters.';
+            break;
+          default:
+            errorMsg = err.message || err.code || 'An unexpected error occurred. Please try again.';
+        }
+        setError(errorMsg);
         setIsUnverifiedEmail(false);
-        setShowVerificationMessage(false); // Ensure verification message is hidden
+        setShowVerificationMessage(false);
       }
     } finally {
       setIsLoading(false);
