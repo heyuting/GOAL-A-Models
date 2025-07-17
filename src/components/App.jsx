@@ -10,6 +10,7 @@ import SCEPTERConfig from "./SCEPTERconfig";
 import Login from "./Login";
 import Register from "./Register";
 import UserDashboard from "./UserDashboard";
+import VerifyEmail from "./VerifyEmail";
 
 const models = [
   { 
@@ -56,26 +57,27 @@ export default function App() {
     );
   }
 
-  return (
-    <Routes>
-      {/* Public Routes */}
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/signup" element={<SignupPage />} />
-      <Route path="/register" element={<SignupPage />} />
+      return (
+      <Routes>
+        {/* Public Routes */}
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
+        <Route path="/register" element={<SignupPage />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
 
-      {/* Protected Routes */}
-      {user ? (
-        <>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/model/:modelName" element={<ModelPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </>
-      ) : (
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      )}
-    </Routes>
-  );
+        {/* Protected Routes */}
+        {user ? (
+          <>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/model/:modelName" element={<ModelPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </>
+        ) : (
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        )}
+      </Routes>
+    );
 }
 
 function LoginPage() {
