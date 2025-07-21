@@ -17,7 +17,7 @@ export default function Login({ onSwitchToRegister }) {
   const [resetMessage, setResetMessage] = useState('');
   const [verificationError, setVerificationError] = useState(false);
   const [verificationMessage, setVerificationMessage] = useState('');
-  const { login, forgotPassword, resendVerificationEmail } = useAuth();
+  const { login, forgotPassword } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -89,22 +89,11 @@ export default function Login({ onSwitchToRegister }) {
     }
   };
 
-  const handleResendVerification = async () => {
-    setVerificationMessage('');
-    setIsLoading(true);
-
-    try {
-      if (!email || !password) {
-        throw new Error('Please enter your email and password to resend verification');
-      }
-
-      const result = await resendVerificationEmail(email, password);
-      setVerificationMessage(result.message);
-    } catch (err) {
-      setVerificationMessage(`Error: ${err.message}`);
-    } finally {
-      setIsLoading(false);
-    }
+  const handleResendVerification = () => {
+    setVerificationMessage(
+      'To get a new verification email, please go to the registration page and create your account again. ' +
+      'If your email is already registered, you\'ll receive a new verification email automatically.'
+    );
   };
 
   return (

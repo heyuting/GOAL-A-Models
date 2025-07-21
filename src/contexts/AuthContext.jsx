@@ -144,40 +144,10 @@ export const AuthProvider = ({ children }) => {
       
       // Handle specific Firebase errors
       if (error.code === 'auth/email-already-in-use' || error.message.includes('email-already-in-use')) {
-        console.log('Detected email-already-in-use error, checking verification status...');
-        // Check if user exists but is unverified
-        try {
-          console.log('Attempting to sign in to check verification status...');
-          const userCredential = await signInWithEmailAndPassword(auth, userData.email, userData.password);
-          const firebaseUser = userCredential.user;
-          console.log('Sign in successful, emailVerified:', firebaseUser.emailVerified);
-          
-          if (!firebaseUser.emailVerified) {
-            // User exists but email not verified - send verification email again
-            console.log('User unverified, sending verification email...');
-            await sendEmailVerification(firebaseUser, {
-              url: `${window.location.origin}/verified`
-            });
-            await signOut(auth);
-            throw new Error('UNVERIFIED_EMAIL|This email is already registered but not verified. We\'ve sent a new verification email - please check your inbox and verify your account before signing in.');
-          } else {
-            // Email is verified, sign them out and tell them to use login
-            console.log('User verified, throwing verified error...');
-            await signOut(auth);
-            throw new Error('An account with this email already exists and is verified. Please use the sign in form instead.');
-          }
-                } catch (signInError) {
-          console.log('Sign in failed during verification check:', signInError.message);
-          if (signInError.message.includes('UNVERIFIED_EMAIL')) {
-            console.log('Re-throwing UNVERIFIED_EMAIL error...');
-            throw signInError; // Re-throw our custom error
-          }
-          // If sign in failed (wrong password, etc.), still tell them account exists
-          console.log('Throwing account exists error...');
-          const customError = new Error('An account with this email already exists. If this is your account, please use the sign in form. If you forgot your password, use the "Forgot Password" option.');
-          console.log('About to throw:', customError.message);
-          throw customError;
-        }
+        // Don't temporarily sign in to check verification status - this causes race conditions
+        // that can make unverified users appear authenticated
+        console.log('Email already in use - providing clear error message without authentication');
+        throw new Error('An account with this email already exists. Please use the sign in form to access your account. If you haven\'t verified your email yet, sign in and we\'ll send a new verification email.');
       } else if (error.code === 'auth/weak-password' || error.message.includes('weak-password')) {
         const customError = new Error('Password is too weak. Please choose a stronger password with at least 6 characters.');
         console.log('About to throw weak password error:', customError.message);
@@ -241,30 +211,8 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const resendVerificationEmail = async (email, password) => {
-    try {
-      // Sign in the user temporarily to send verification email
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const firebaseUser = userCredential.user;
-
-      if (firebaseUser.emailVerified) {
-        throw new Error('Email is already verified. You can now sign in normally.');
-      }
-
-      // Send verification email
-      await sendEmailVerification(firebaseUser, {
-        url: `${window.location.origin}/verified`
-      });
-      
-      // Sign out the user again
-      await signOut(auth);
-      
-      return { success: true, message: 'Verification email sent successfully!' };
-    } catch (error) {
-      console.error('Resend verification error:', error);
-      throw new Error(error.message);
-    }
-  };
+  // Removed resendVerificationEmail to eliminate temporary authentication
+  // Users should register again if they need a new verification email
 
   const value = {
     user,
@@ -274,7 +222,6 @@ export const AuthProvider = ({ children }) => {
     updateProfile,
     forgotPassword,
     deleteAccount,
-    resendVerificationEmail,
     loading
   };
 
