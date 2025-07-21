@@ -120,7 +120,7 @@ export const AuthProvider = ({ children }) => {
 
       // Send email verification
       await sendEmailVerification(firebaseUser, {
-        url: `${window.location.origin}/verify-email`
+        url: `${window.location.origin}/verified`
       });   
 
       // Create user profile in userService
@@ -156,7 +156,7 @@ export const AuthProvider = ({ children }) => {
             // User exists but email not verified - send verification email again
             console.log('User unverified, sending verification email...');
             await sendEmailVerification(firebaseUser, {
-              url: `${window.location.origin}/verify-email`
+              url: `${window.location.origin}/verified`
             });
             await signOut(auth);
             throw new Error('UNVERIFIED_EMAIL|This email is already registered but not verified. We\'ve sent a new verification email - please check your inbox and verify your account before signing in.');
@@ -253,7 +253,7 @@ export const AuthProvider = ({ children }) => {
 
       // Send verification email
       await sendEmailVerification(firebaseUser, {
-        url: `${window.location.origin}/verify-email`
+        url: `${window.location.origin}/verified`
       });
       
       // Sign out the user again
