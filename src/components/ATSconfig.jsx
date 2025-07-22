@@ -218,7 +218,7 @@ export default function ATSConfig({ savedData }) {
           <div className="grid grid-cols-1 gap-4">
               {/* Upload GeoJSON file */}
               <div>
-                <Label htmlFor="geoJsonFile" className="text-xl font-semibold">Upload GeoJSON File</Label>
+                <Label htmlFor="geoJsonFile" className="text-xl font-semibold">Upload GeoJSON File of the Watershed</Label>
                 <div className="flex items-center gap-2">
                   <span className="text-blue-600">{geoJsonFileName || "No file chosen"}</span>
                   <div className="relative ml-auto">
@@ -275,58 +275,54 @@ export default function ATSConfig({ savedData }) {
             {/* Simulation Duration Input */}
           
             <div className="flex items-center gap-4">
-              <Label htmlFor="simulationName" className="min-w-fit font-semibold">Simulation Name</Label>
-              <Input name="simulationName" type="string" value={simulationName} onChange={(e) => setSimulationName(e.target.value)} required  className="w-32 md:w-40"/>
+              <Label htmlFor="simulationName" className="w-44 font-semibold">Simulation Name</Label>
+              <Input name="simulationName" type="string" value={simulationName} onChange={(e) => setSimulationName(e.target.value)} required  className="flex-1"/>
             </div>
 
             <div className="flex items-center gap-4"> 
-              <Label htmlFor="simulationStartYear" className="min-w-fit font-semibold">Simulation Start Year</Label>
-              <Input name="simulationStartYear" type="number" value={simulationStartYear} onChange={(e) => setSimulationStartYear(e.target.value)} required  className="w-32 md:w-24"/>
+              <Label htmlFor="simulationStartYear" className="w-44 font-semibold">Simulation Start Year</Label>
+              <Input name="simulationStartYear" type="number" value={simulationStartYear} onChange={(e) => setSimulationStartYear(e.target.value)} required  className="flex-1"/>
             </div>
             
             <div className="flex items-center gap-4"> 
-              <Label htmlFor="simulationEndYear" className="min-w-fit font-semibold">Simulation End Year</Label>
-              <Input name="simulationEndYear" type="number" value={simulationEndYear} onChange={(e) => setSimulationEndYear(e.target.value)} required  className="w-32 md:w-24"/>
+              <Label htmlFor="simulationEndYear" className="w-44 font-semibold">Simulation End Year</Label>
+              <Input name="simulationEndYear" type="number" value={simulationEndYear} onChange={(e) => setSimulationEndYear(e.target.value)} required  className="flex-1"/>
             </div>
 
             <div className="flex items-center gap-4">
-              <Label htmlFor="minPorosity" className="min-w-fit font-semibold">Min Porosity</Label>
-              <Input name="minPorosity"  type="number" value={minPorosity} onChange={(e) => setMinPorosity(e.target.value)} step="0.01" min="0" max="1" required className="w-32 md:w-24"/>
+              <Label htmlFor="minPorosity" className="w-44 font-semibold">Min Porosity</Label>
+              <Input name="minPorosity"  type="number" value={minPorosity} onChange={(e) => setMinPorosity(e.target.value)} step="0.01" min="0" max="1" required className="flex-1"/>
             </div>
 
             <div className="flex items-center gap-4">
-              <Label htmlFor="maxPermeability" className="min-w-fit font-semibold">Max Permeability</Label>
-              <Input name="maxPermeability" type="number" value={maxPermeability} onChange={(e) => setMaxPermeability(e.target.value)} step="1e-10" min="0" required className="w-32 md:w-24"/>
+              <Label htmlFor="maxPermeability" className="w-44 font-semibold">Max Permeability</Label>
+              <Input name="maxPermeability" type="number" value={maxPermeability} onChange={(e) => setMaxPermeability(e.target.value)} step="1e-10" min="0" required className="flex-1"/>
             </div>
 
             <div className="flex items-center gap-4">
-              <Label htmlFor="includeRivers" className="min-w-fit font-semibold">Include Rivers in Simulation</Label>
-              <div className="flex items-center">
-                <select
-                  id="includeRivers"
-                  value={includeRivers}
-                  onChange={(e) => setIncludeRivers(e.target.value === "true")}
-                  className="w-full p-2 rounded border text-sm"
-                >
-                  <option value="true">Yes</option>
-                  <option value="false">No</option>
-                </select>
-              </div>
+              <Label htmlFor="includeRivers" className="w-44 font-semibold">Include Rivers in Simulation</Label>
+              <select
+                id="includeRivers"
+                value={includeRivers}
+                onChange={(e) => setIncludeRivers(e.target.value === "true")}
+                className="flex-1 p-2 rounded border text-sm"
+              >
+                <option value="true">Yes</option>
+                <option value="false">No</option>
+              </select>
             </div>
 
             <div className="flex items-center gap-4">
-              <Label htmlFor="useGeologicalLayer" className="min-w-fit font-semibold">Use Geological Layer?</Label>
-              <div className="flex items-center">
-                <select
-                  id="useGeologicalLayer"
-                  value={useGeologicalLayer}
-                  onChange={(e) => setUseGeologicalLayer(e.target.value === "true")}
-                  className="w-full p-2 rounded border text-sm"
-                >
-                  <option value="true">Yes</option>
-                  <option value="false">No</option>
-                </select>
-              </div>
+              <Label htmlFor="useGeologicalLayer" className="w-44 font-semibold">Use Geological Layer?</Label>
+              <select
+                id="useGeologicalLayer"
+                value={useGeologicalLayer}
+                onChange={(e) => setUseGeologicalLayer(e.target.value === "true")}
+                className="flex-1 p-2 rounded border text-sm"
+              >
+                <option value="true">Yes</option>
+                <option value="false">No</option>
+              </select>
             </div>
             
 

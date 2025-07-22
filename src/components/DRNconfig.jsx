@@ -2,6 +2,9 @@ import { useState, useEffect } from "react";
 import MapComponent from "./Map";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from '@/contexts/AuthContext';
 import userService from '@/services/userService';
 
@@ -122,14 +125,21 @@ export default function DRNConfig({ onRun, savedData }) {
                   : "No location selected"}
               </p>
               <h3 className="text-xl font-semibold">Model Parameters</h3>
-              <div className="grid grid-cols-2 gap-4 mt-4">
-                <div className="mb-4">
-                  <label className="block mb-2">Start Index of Flow Paths</label>
-                  <input type="number" value={numStart} onChange={(e) => setNumStart(e.target.value)} className="p-2 border rounded mt-2 w-48" />
+              
+                <div className="flex items-center gap-4 mb-4">
+                  <Label htmlFor="numStart" className="w-44 font-semibold">Start Index of Flow Paths</Label>
+                  <Input
+                    id="numStart"
+                    name="numStart"
+                    type="number" 
+                    value={numStart} 
+                    onChange={(e) => setNumStart(e.target.value)} 
+                    className="flex-1" 
+                  />
                 </div>
 
-                <div className="mb-4">
-                  <label className="block mb-2 flex items-center relative">
+                <div className="flex items-center gap-4 mb-4">
+                  <Label htmlFor="addFlag" className="w-44 font-semibold flex items-center">
                     EW Scenario
                     <div 
                       className="ml-1 text-gray-500 hover:text-gray-700 group relative inline-block"
@@ -153,25 +163,43 @@ export default function DRNConfig({ onRun, savedData }) {
                         <div className="absolute top-full left-0 border-8 border-transparent border-t-gray-200"></div>
                       </div>
                     </div>
-                  </label>
-                  <select value={addFlag} onChange={(e) => setAddFlag(e.target.value)} className="p-2 border rounded mt-2 w-48">
-                    <option value="min">Min (~0.5 ton/ha/yr)</option>
-                    <option value="middle">Middle (~1 ton/ha/yr)</option>
-                    <option value="max">Max (~1.5 ton/ha/yr)</option>
-                  </select>
+                  </Label>
+                  <Select value={addFlag} onValueChange={setAddFlag}>
+                    <SelectTrigger id="addFlag" className="flex-1">
+                      <SelectValue placeholder="Select a scenario" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="min">Min (~0.5 ton/ha/yr)</SelectItem>
+                      <SelectItem value="middle">Middle (~1 ton/ha/yr)</SelectItem>
+                      <SelectItem value="max">Max (~1.5 ton/ha/yr)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
-                <div className="mb-4">
-                  <label className="block mb-2">Simulation Years</label>
-                  <input type="number" value={yearRun} onChange={(e) => setYearRun(e.target.value)} className="p-2 border rounded mt-2 w-48" />
+                <div className="flex items-center gap-4 mb-4">
+                  <Label htmlFor="yearRun" className="w-44 font-semibold">Simulation Years</Label>
+                  <Input
+                    id="yearRun"
+                    name="yearRun"
+                    type="number" 
+                    value={yearRun} 
+                    onChange={(e) => setYearRun(e.target.value)} 
+                    className="flex-1" 
+                  />
                 </div>
 
-                <div className="mb-4">
-                  <label className="block mb-2">Output Timestep (days)</label>
-                  <input type="number" step="0.1" value={timeStep} onChange={(e) => setTimeStep(e.target.value)} className="p-2 border rounded mt-2 w-48" />
+                <div className="flex items-center gap-4 mb-4">
+                  <Label htmlFor="timeStep" className="w-44 font-semibold">Output Timestep (days)</Label>
+                  <Input
+                    id="timeStep"
+                    name="timeStep"
+                    type="number" 
+                    step="0.1" 
+                    value={timeStep} 
+                    onChange={(e) => setTimeStep(e.target.value)} 
+                    className="flex-1" 
+                  />
                 </div>
-              </div>
-              <div className="mt-4 space-y-2">
                 <div className="flex gap-4">
                   <Button
                     type="button"
@@ -200,7 +228,6 @@ export default function DRNConfig({ onRun, savedData }) {
                     {saveMessage}
                   </div>
                 )}
-              </div>
             </CardContent>
           </Card>
         </div>
