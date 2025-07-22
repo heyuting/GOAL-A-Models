@@ -65,11 +65,30 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
         
         if (finalConfirm === 'DELETE') {
           try {
+            // First attempt without password
             await deleteAccount();
             alert('Your account has been successfully deleted.');
             // No need to call onLogout() - the user will be automatically signed out
           } catch (error) {
-            alert(`There was an error deleting your account: ${error.message}. Please try again or contact support.`);
+            if (error.message === 'REQUIRES_RECENT_LOGIN') {
+              // Need to re-authenticate - prompt for password
+              const password = window.prompt('For security reasons, please enter your password to confirm account deletion:');
+              
+              if (password) {
+                try {
+                  // Retry with password
+                  await deleteAccount(password);
+                  alert('Your account has been successfully deleted.');
+                  // No need to call onLogout() - the user will be automatically signed out
+                } catch (reauthError) {
+                  alert(`There was an error deleting your account: ${reauthError.message}. Please try again or contact support.`);
+                }
+              } else {
+                alert('Account deletion cancelled - password is required for security verification.');
+              }
+            } else {
+              alert(`There was an error deleting your account: ${error.message}. Please try again or contact support.`);
+            }
           }
         } else {
           alert('Account deletion cancelled - confirmation text did not match.');

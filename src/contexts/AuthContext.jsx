@@ -6,7 +6,9 @@ import {
   signOut,
   sendPasswordResetEmail,
   deleteUser,
-  sendEmailVerification
+  sendEmailVerification,
+  reauthenticateWithCredential,
+  EmailAuthProvider
 } from 'firebase/auth';
 import { auth } from '@/firebase';
 import userService from '@/services/userService';
@@ -29,6 +31,8 @@ export const AuthProvider = ({ children }) => {
     // Listen for authentication state changes
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser && firebaseUser.emailVerified) {
+        // User is signed in AND email is verified
+        
         // User is signed in AND email is verified, get additional profile data from userService
         try {
           let userData = userService.findUserByFirebaseUid(firebaseUser.uid);
@@ -70,6 +74,9 @@ export const AuthProvider = ({ children }) => {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const firebaseUser = userCredential.user;
+      
+      // Reload user to get latest state from Firebase servers
+      await firebaseUser.reload();
       
       // Check if email is verified
       if (!firebaseUser.emailVerified) {
@@ -118,10 +125,12 @@ export const AuthProvider = ({ children }) => {
       );
       const firebaseUser = userCredential.user;
 
-      // Send email verification
+      // Send email verification with safer flow
+      // NOTE: Using /email-verification-pending prevents auto-verification by email scanners
+      // The actual verification only happens when user explicitly clicks a button
       await sendEmailVerification(firebaseUser, {
-        url: `${window.location.origin}/verified`
-      });   
+        url: `${window.location.origin}/email-verification-pending`
+      });
 
       // Create user profile in userService
       const newUser = userService.createUser({
@@ -188,23 +197,51 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const deleteAccount = async () => {
+  const deleteAccount = async (password = null) => {
     try {
       if (!user || !auth.currentUser) {
         throw new Error('No user is currently signed in');
       }
 
-      // Delete user profile and models from localStorage first
-      const localDeleteSuccess = userService.deleteUserAccount(user.id);
-      if (!localDeleteSuccess) {
-        throw new Error('Failed to delete user data from local storage');
-      }
+      // Check if we need to re-authenticate
+      if (!password) {
+        // First attempt without re-authentication
+        try {
+          // Delete user profile and models from localStorage first
+          const localDeleteSuccess = userService.deleteUserAccount(user.id);
+          if (!localDeleteSuccess) {
+            throw new Error('Failed to delete user data from local storage');
+          }
 
-      // Delete user from Firebase authentication
-      await deleteUser(auth.currentUser);
-      
-      // The user state will be automatically updated by onAuthStateChanged
-      return { success: true, message: 'Account deleted successfully' };
+          // Delete user from Firebase authentication
+          await deleteUser(auth.currentUser);
+          
+          // The user state will be automatically updated by onAuthStateChanged
+          return { success: true, message: 'Account deleted successfully' };
+        } catch (error) {
+          if (error.code === 'auth/requires-recent-login') {
+            // Need to re-authenticate, throw special error to indicate this
+            throw new Error('REQUIRES_RECENT_LOGIN');
+          }
+          throw error;
+        }
+      } else {
+        // Re-authenticate with provided password
+        const credential = EmailAuthProvider.credential(user.email, password);
+        await reauthenticateWithCredential(auth.currentUser, credential);
+
+        // Delete user profile and models from localStorage first
+        const localDeleteSuccess = userService.deleteUserAccount(user.id);
+        if (!localDeleteSuccess) {
+          throw new Error('Failed to delete user data from local storage');
+        }
+
+        // Now delete user from Firebase authentication
+        await deleteUser(auth.currentUser);
+        
+        // The user state will be automatically updated by onAuthStateChanged
+        return { success: true, message: 'Account deleted successfully' };
+      }
     } catch (error) {
       console.error('Delete account error:', error);
       throw new Error(error.message);

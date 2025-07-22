@@ -11,6 +11,7 @@ import Login from "./Login";
 import Register from "./Register";
 import UserDashboard from "./UserDashboard";
 import VerifyEmail from "./VerifyEmail";
+import EmailVerificationPending from "./EmailVerificationPending";
 import Verified from "./Verified";
 
 const models = [
@@ -65,6 +66,7 @@ export default function App() {
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/register" element={<SignupPage />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route path="/email-verification-pending" element={<EmailVerificationPending />} />
         <Route path="/verified" element={<Verified />} />
 
         {/* Protected Routes */}

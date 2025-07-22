@@ -170,15 +170,13 @@ class UserService {
       const users = this.getUsers();
       const userIndex = users.findIndex(user => user.id === userId);
       
-      if (userIndex === -1) {
-        return false; // User not found
+      if (userIndex !== -1) {
+        // Remove user from users array only if found
+        users.splice(userIndex, 1);
+        this.saveUsers(users);
       }
       
-      // Remove user from users array
-      users.splice(userIndex, 1);
-      this.saveUsers(users);
-      
-      // Remove all user's models
+      // Remove all user's models (regardless of whether user was found in users list)
       const allModels = localStorage.getItem(this.modelsKey);
       const models = allModels ? JSON.parse(allModels) : {};
       
@@ -187,6 +185,8 @@ class UserService {
         localStorage.setItem(this.modelsKey, JSON.stringify(models));
       }
       
+      // Always return true for successful cleanup
+      // Even if user wasn't found in localStorage, that's fine for deletion purposes
       return true;
     } catch (error) {
       console.error('Error deleting user account:', error);

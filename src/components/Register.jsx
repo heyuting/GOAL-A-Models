@@ -150,9 +150,14 @@ export default function Register({ onSwitchToLogin }) {
               }`}>
                 {isUnverifiedEmail 
                   ? 'We\'ve sent a new verification email to your account. Please check your email and click the verification link to activate your account.'
-                  : 'Please check your email and click the verification link to activate your account. You\'ll need to verify your email before you can sign in.'
+                  : 'Please check your email and click the verification link. You\'ll need to complete the verification process before you can sign in.'
                 }
               </p>
+              <div className="mt-3 pt-3 border-t border-green-300">
+                <p className="text-xs text-green-600">
+                  🔐 For security, you'll need to explicitly confirm your verification by clicking a button on the verification page.
+                </p>
+              </div>
             </div>
             
             <div className="space-y-3">
