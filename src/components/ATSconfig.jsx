@@ -710,7 +710,7 @@ export default function ATSConfig({ savedData }) {
       
       <div className="w-2/5">
        <h2 className="text-xl font-bold text-center mb-6 text-gray-800">Simulation Settings</h2>
-        <Card className="mt-27 rounded-2xl shadow-lg p-6">
+        <Card className="mt-18 rounded-2xl shadow-lg p-6">
          <CardContent className="space-y-6">
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Simulation Duration Input */}
