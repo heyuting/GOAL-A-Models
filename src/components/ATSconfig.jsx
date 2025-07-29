@@ -80,11 +80,11 @@ export default function ATSConfig({ savedData }) {
   useEffect(() => {
     if (savedData) {
       const params = savedData.parameters || {};
-      setSimulationName(params.simulationName || 'Coweeta');
-      setSimulationStartYear(params.simulationStartYear || '2010');
-      setSimulationEndYear(params.simulationEndYear || '2015');
-      setMinPorosity(params.minPorosity || 0.05);
-      setMaxPermeability(params.maxPermeability || 1e-10);
+      setSimulationName(params.simulationName || '');
+      setSimulationStartYear(params.simulationStartYear || '');
+      setSimulationEndYear(params.simulationEndYear || '');
+      setMinPorosity(params.minPorosity || '');
+      setMaxPermeability(params.maxPermeability || '');
       setIncludeRivers(params.includeRivers !== undefined ? params.includeRivers : true);
       setUseGeologicalLayer(params.useGeologicalLayer !== undefined ? params.useGeologicalLayer : true);
       
@@ -243,28 +243,46 @@ export default function ATSConfig({ savedData }) {
       // Success message with dynamic HUC level
       const feature = wbdData.features[0];
       const properties = feature?.properties || {};
-      const watershedName = properties?.NAME || 'Unknown';
       
-      // Determine which HUC level we got
+      // Debug: Log all available properties
+      console.log('Available watershed properties:', Object.keys(properties));
+      console.log('Full properties object:', properties);
+      
+      const watershedName = properties?.NAME || properties?.name || 'Unknown';
+      
+      // Determine which HUC level we got - check for different possible field names
       let hucCode = 'Unknown';
       let hucLevel = 'Unknown';
-      if (properties.HUC12) {
-        hucCode = properties.HUC12;
+      
+      if (properties.HUC12 || properties.huc12) {
+        hucCode = properties.HUC12 || properties.huc12;
         hucLevel = 'HUC12';
-      } else if (properties.HUC10) {
-        hucCode = properties.HUC10;
+      } else if (properties.HUC10 || properties.huc10) {
+        hucCode = properties.HUC10 || properties.huc10;
         hucLevel = 'HUC10';
-      } else if (properties.HUC8) {
-        hucCode = properties.HUC8;
+      } else if (properties.HUC8 || properties.huc8) {
+        hucCode = properties.HUC8 || properties.huc8;
         hucLevel = 'HUC8';
       }
       
       console.log(`Found watershed: ${watershedName} (${hucLevel}: ${hucCode})`);
+      console.log('Selected HUC level was:', selectedHucLevel);
       
       // Add HUC level info to the data for display
       if (wbdData.features[0]) {
         wbdData.features[0].properties.HUC_LEVEL = hucLevel;
         wbdData.features[0].properties.HUC_CODE = hucCode;
+        wbdData.features[0].properties.WATERSHED_NAME = watershedName;
+      }
+      
+      // Auto-populate simulation name with watershed name and HUC ID (if not already set by user)
+      if (watershedName && watershedName !== 'Unknown' && !simulationName.trim()) {
+        let newSimulationName = watershedName;
+        if (hucLevel !== 'Unknown' && hucCode !== 'Unknown') {
+          newSimulationName = `${watershedName} (${hucLevel}: ${hucCode})`;
+        }
+        setSimulationName(newSimulationName);
+        console.log(`Auto-set simulation name to: ${newSimulationName}`);
       }
       
     } catch (error) {
@@ -498,25 +516,24 @@ export default function ATSConfig({ savedData }) {
       <div className="flex gap-6">
         <div className="w-3/5">
           {/* AOI Inputs */}
-          <h2 className="text-xl font-bold text-center mb-6 text-gray-800">Area of Interest</h2>
+          <h2 className="text-xl font-bold text-center mb-6 text-gray-800">Watershed Delineation</h2>
 
             <div className="mt-6">
                <div className="mb-4 space-y-2">
-               <Label htmlFor="geoJsonFile" className="text-xl font-semibold">Watershed Delineation</Label>
                  <div className="flex gap-4 items-center">
                    <div className="text-sm text-gray-600">
                      {isLoadingWatershed && `Loading ${hucLevelMap[selectedHucLevel]?.name || 'watershed'} data...`}
                      {clickedLocation && !isLoadingWatershed && watershedData && (
                        <div>
                          <div>Location: {clickedLocation.lat.toFixed(4)}, {clickedLocation.lng.toFixed(4)}</div>
-                         {watershedData.features?.[0]?.properties && (
-                           <div className="text-xs mt-1">
-                             {watershedData.features[0].properties.NAME || 'Watershed'} 
-                             {watershedData.features[0].properties.HUC_LEVEL && watershedData.features[0].properties.HUC_CODE && 
-                               ` (${watershedData.features[0].properties.HUC_LEVEL}: ${watershedData.features[0].properties.HUC_CODE})`
-                             }
-                           </div>
-                         )}
+                                                    {watershedData.features?.[0]?.properties && (
+                             <div className="text-xs mt-1">
+                               {watershedData.features[0].properties.WATERSHED_NAME || watershedData.features[0].properties.NAME || watershedData.features[0].properties.name || 'Watershed'} 
+                               {watershedData.features[0].properties.HUC_LEVEL && watershedData.features[0].properties.HUC_CODE && 
+                                 ` (${watershedData.features[0].properties.HUC_LEVEL}: ${watershedData.features[0].properties.HUC_CODE})`
+                               }
+                             </div>
+                           )}
                        </div>
                      )}
                      {clickedLocation && !isLoadingWatershed && !watershedData && (
@@ -524,7 +541,6 @@ export default function ATSConfig({ savedData }) {
                          ⚠️ Click map again to load {hucLevelMap[selectedHucLevel]?.name?.toLowerCase() || 'watershed'} at {clickedLocation.lat.toFixed(4)}, {clickedLocation.lng.toFixed(4)}
                        </div>
                      )}
-                     {!clickedLocation && !isLoadingWatershed && "Click on the map to delineate watershed and streams"}
                    </div>
                    {watershedData && (
                      <Button 
@@ -535,7 +551,8 @@ export default function ATSConfig({ savedData }) {
                      </Button>
                    )}
                  </div>
-                 {/* HUC Level Selector */}
+                 
+                 {/* HUC Level Selector - back in its own section */}
                  <div className="flex items-center gap-4 mt-4 p-3 bg-gray-50 rounded-lg">
                    <Label htmlFor="hucLevel" className="font-semibold text-sm">Watershed Detail Level:</Label>
                    <select
@@ -548,13 +565,6 @@ export default function ATSConfig({ savedData }) {
                      <option value="10">HUC10 - Watershed (~400 km²)</option>
                      <option value="8">HUC8 - Subbasin (~1,800 km²)</option>
                    </select>
-                   <div className="text-xs text-gray-500">
-                     {clickedLocation ? (
-                       watershedData ? 
-                         'Change level and click map again to see difference' : 
-                         '⚠️ Click the map again to load watershed at this level'
-                     ) : 'Choose level before clicking map'}
-                   </div>
                  </div>
                </div>
                <MapContainer center={[39.8283, -98.5795]} zoom={4} style={{ height: '500px', width: '100%' }}>
