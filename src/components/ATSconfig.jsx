@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, GeoJSON, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, GeoJSON, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,17 @@ function MapController({ geoJsonData }) {
   return null;
 }
 
+// Component to handle map clicks for watershed delineation
+function MapClickHandler({ onMapClick }) {
+  useMapEvents({
+    click: (e) => {
+      onMapClick(e.latlng);
+    },
+  });
+
+  return null;
+}
+
 export default function ATSConfig({ savedData }) {
   const { user } = useAuth();
   // Initialize form data state with default values, including layers
@@ -39,19 +50,31 @@ export default function ATSConfig({ savedData }) {
       vanGenuchtenN: '1.6',
     },
   ]); */
-  const [simulationName, setSimulationName] = useState('Coweeta')
-  const [simulationStartYear, setSimulationStartYear] = useState('2010'); 
-  const [simulationEndYear, setSimulationEndYear] = useState('2015');
+  const [simulationName, setSimulationName] = useState('')
+  const [simulationStartYear, setSimulationStartYear] = useState(''); 
+  const [simulationEndYear, setSimulationEndYear] = useState('');
   const [modisLAIFile, setMODISLAIFile] = useState();
   //const [showLayerModal, setShowLayerModal] = useState(false);
   const [geoJsonData, setGeoJsonData] = useState(null);
   const [geoJsonFileName, setGeoJsonFileName] = useState(null);
-  const [minPorosity, setMinPorosity] = useState(0.05);
-  const [maxPermeability, setMaxPermeability] = useState(1e-10);
+  const [minPorosity, setMinPorosity] = useState();
+  const [maxPermeability, setMaxPermeability] = useState();
   const [includeRivers, setIncludeRivers] = useState(true);
   const [useGeologicalLayer, setUseGeologicalLayer] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+  const [watershedData, setWatershedData] = useState(null);
+  const [streamData, setStreamData] = useState(null);
+  const [clickedLocation, setClickedLocation] = useState(null);
+  const [isLoadingWatershed, setIsLoadingWatershed] = useState(false);
+  const [selectedHucLevel, setSelectedHucLevel] = useState('12');
+  
+  // HUC level mapping for UI references
+  const hucLevelMap = {
+    '12': { layer: 6, name: 'HUC12 (Subwatershed)', fields: 'HUC12,NAME,AREASQKM,STATES' },
+    '10': { layer: 5, name: 'HUC10 (Watershed)', fields: 'HUC10,NAME,AREASQKM,STATES' },
+    '8': { layer: 4, name: 'HUC8 (Subbasin)', fields: 'HUC8,NAME,AREASQKM,STATES' }
+  };
 
   // Load saved data when component mounts or savedData changes
   useEffect(() => {
@@ -91,6 +114,267 @@ export default function ATSConfig({ savedData }) {
       }
     };
     reader.readAsText(file);
+  };
+
+    // Function to fetch watershed data using current USGS ArcGIS REST services
+  const fetchWatershedData = async (lat, lng) => {
+    setIsLoadingWatershed(true);
+    console.log('Fetching watershed data for:', lat, lng);
+    
+    try {
+      // Use current USGS ArcGIS REST services (no CORS proxy needed)
+      // Determine which layers to try based on user selection
+      let wbdLayers = [];
+      if (selectedHucLevel && hucLevelMap[selectedHucLevel]) {
+        // User selected a specific level - try only that one
+        wbdLayers = [hucLevelMap[selectedHucLevel]];
+      } else {
+        // Fallback to trying all levels (for backwards compatibility)
+        wbdLayers = Object.values(hucLevelMap);
+      }
+      
+      let wbdData = null;
+      
+      for (const layerInfo of wbdLayers) {
+        console.log(`Trying WBD layer ${layerInfo.layer} (${layerInfo.name})`);
+        
+        const wbdUrl = `https://hydro.nationalmap.gov/arcgis/rest/services/wbd/MapServer/${layerInfo.layer}/query`;
+        
+        // Use point geometry with larger buffer and proper spatial reference
+        const buffer = 0.01; // 1km buffer (roughly)
+        const bufferGeometry = `${lng - buffer},${lat - buffer},${lng + buffer},${lat + buffer}`;
+        
+        const wbdParams = new URLSearchParams({
+          f: 'geojson',
+          geometry: bufferGeometry,
+          geometryType: 'esriGeometryEnvelope',
+          spatialRel: 'esriSpatialRelIntersects',
+          inSR: '4326', // WGS84 spatial reference
+          outSR: '4326', // WGS84 output
+          outFields: layerInfo.fields,
+          returnGeometry: 'true',
+          resultRecordCount: 1,
+          maxRecordCountFactor: 1
+        });
+        
+        console.log('WBD URL:', `${wbdUrl}?${wbdParams}`);
+        
+        try {
+          const wbdResponse = await fetch(`${wbdUrl}?${wbdParams}`);
+          console.log(`WBD Layer ${layerInfo.layer} Response status:`, wbdResponse.status);
+          
+          if (wbdResponse.ok) {
+            const layerData = await wbdResponse.json();
+            console.log(`WBD Layer ${layerInfo.layer} Data:`, layerData);
+            
+            if (layerData.features && layerData.features.length > 0) {
+              wbdData = layerData;
+              console.log(`Success with ${layerInfo.name}`);
+              break; // Found data, stop trying other layers
+            } else {
+              // Try alternative point-based query if envelope failed
+              console.log(`Trying point query for layer ${layerInfo.layer}`);
+              const pointParams = new URLSearchParams({
+                f: 'geojson',
+                geometry: `${lng},${lat}`,
+                geometryType: 'esriGeometryPoint',
+                spatialRel: 'esriSpatialRelWithin',
+                inSR: '4326',
+                outSR: '4326',
+                outFields: layerInfo.fields,
+                returnGeometry: 'true',
+                resultRecordCount: 1
+              });
+              
+              const pointResponse = await fetch(`${wbdUrl}?${pointParams}`);
+              if (pointResponse.ok) {
+                const pointData = await pointResponse.json();
+                console.log(`Point query data for layer ${layerInfo.layer}:`, pointData);
+                
+                if (pointData.features && pointData.features.length > 0) {
+                  wbdData = pointData;
+                  console.log(`Success with point query on ${layerInfo.name}`);
+                  break;
+                }
+              }
+            }
+          }
+        } catch (layerError) {
+          console.warn(`Layer ${layerInfo.layer} failed:`, layerError);
+          continue;
+        }
+      }
+      
+      if (!wbdData || !wbdData.features || wbdData.features.length === 0) {
+        throw new Error('No watershed found at this location');
+      }
+      
+      // Get streams from the National Hydrography Dataset
+      const nhdUrl = `https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer/6/query`;
+      const streamBuffer = 0.01; // ~1km buffer around the point
+      const bufferGeometry = `${lng - streamBuffer},${lat - streamBuffer},${lng + streamBuffer},${lat + streamBuffer}`;
+      
+      const nhdParams = new URLSearchParams({
+        f: 'geojson',
+        where: "FType = 460", // Stream/River feature type
+        geometry: bufferGeometry,
+        geometryType: 'esriGeometryEnvelope',
+        spatialRel: 'esriSpatialRelIntersects',
+        outFields: 'GNIS_NAME,FType,FCode',
+        returnGeometry: 'true'
+      });
+      
+      console.log('NHD URL:', `${nhdUrl}?${nhdParams}`);
+      
+      const nhdResponse = await fetch(`${nhdUrl}?${nhdParams}`);
+      console.log('NHD Response status:', nhdResponse.status);
+      
+      let streamGeoJson = null;
+      if (nhdResponse.ok) {
+        streamGeoJson = await nhdResponse.json();
+        console.log('Stream GeoJSON:', streamGeoJson);
+      }
+      
+      // Set the watershed and stream data
+      setWatershedData(wbdData);
+      setStreamData(streamGeoJson);
+      setClickedLocation({ lat, lng });
+      
+      // Success message with dynamic HUC level
+      const feature = wbdData.features[0];
+      const properties = feature?.properties || {};
+      const watershedName = properties?.NAME || 'Unknown';
+      
+      // Determine which HUC level we got
+      let hucCode = 'Unknown';
+      let hucLevel = 'Unknown';
+      if (properties.HUC12) {
+        hucCode = properties.HUC12;
+        hucLevel = 'HUC12';
+      } else if (properties.HUC10) {
+        hucCode = properties.HUC10;
+        hucLevel = 'HUC10';
+      } else if (properties.HUC8) {
+        hucCode = properties.HUC8;
+        hucLevel = 'HUC8';
+      }
+      
+      console.log(`Found watershed: ${watershedName} (${hucLevel}: ${hucCode})`);
+      
+      // Add HUC level info to the data for display
+      if (wbdData.features[0]) {
+        wbdData.features[0].properties.HUC_LEVEL = hucLevel;
+        wbdData.features[0].properties.HUC_CODE = hucCode;
+      }
+      
+    } catch (error) {
+      console.error('Error fetching watershed data:', error);
+      
+                      // Try to create a simple placeholder watershed as fallback
+        if (error.message.includes('No watershed found') || 
+            error.message.includes('WBD API error')) {
+          
+          console.log('Creating simple watershed fallback for coordinates:', lat, lng);
+          const simpleWatershed = createSimpleWatershed(lat, lng);
+          setWatershedData(simpleWatershed);
+          setStreamData(null);
+          setClickedLocation({ lat, lng });
+          
+          let message = '📍 Showing estimated 2km area for this location.\n\n';
+          
+          if (error.message.includes('WBD API error')) {
+            message += '⚠️ USGS Watershed Boundary service appears to be unavailable.\n';
+            message += 'This could be due to:\n';
+            message += '• Temporary service outage\n';
+            message += '• Network connectivity issues\n';
+            message += '• Service maintenance\n\n';
+          } else {
+            message += '⚠️ No official watershed boundary found at this location.\n';
+            message += 'This could be because:\n';
+            message += '• Location is outside the US coverage area\n';
+            message += '• Point is in a coastal/lake area without defined drainage\n';
+            message += '• Very remote location not in the watershed database\n\n';
+          }
+          
+          message += '💡 For official USGS watershed data:\n';
+          message += '• Click within the continental United States\n';
+          message += '• Avoid coastal edges and large lakes\n';
+          message += '• Try locations near visible streams or rivers\n';
+          message += '• Works best in mountainous or hilly terrain';
+          
+          alert(message);
+          return;
+        }
+        
+        // More specific error messages for other cases
+        let errorMessage = 'Could not fetch watershed data for this location. ';
+        
+        if (error.message.includes('Failed to fetch')) {
+          errorMessage += 'Network connection error. Please check your internet connection and try again.';
+        } else if (error.message.includes('WBD API error')) {
+          errorMessage += 'The USGS Watershed Boundary service is temporarily unavailable. Please try again later.';
+        } else {
+          errorMessage += 'This may be outside the US coverage area or there may be a temporary service issue. ';
+        }
+        
+        errorMessage += '\n\nTry clicking on a different location within the United States, preferably in areas with defined drainage patterns.';
+        
+        alert(errorMessage);
+      } finally {
+        setIsLoadingWatershed(false);
+      }
+  };
+
+  // Handle map click
+  const handleMapClick = (latlng) => {
+    // Clear previous watershed data before fetching new one
+    clearWatershedData();
+    fetchWatershedData(latlng.lat, latlng.lng);
+  };
+
+  // Function to clear watershed data
+  const clearWatershedData = () => {
+    setWatershedData(null);
+    setStreamData(null);
+    setClickedLocation(null);
+  };
+
+  // Clear watershed data when HUC level changes
+  const handleHucLevelChange = (newLevel) => {
+    setSelectedHucLevel(newLevel);
+    // Clear existing data so user can see the difference
+    if (clickedLocation) {
+      clearWatershedData();
+    }
+  };
+
+  // Alternative function for basic watershed estimation (fallback)
+  const createSimpleWatershed = (lat, lng) => {
+    // Create a simple circular "watershed" as a placeholder
+    const radius = 0.02; // approximately 2km radius
+    const points = [];
+    for (let i = 0; i < 16; i++) {
+      const angle = (i * 2 * Math.PI) / 16;
+      const latOffset = radius * Math.cos(angle);
+      const lngOffset = radius * Math.sin(angle) / Math.cos(lat * Math.PI / 180);
+      points.push([lng + lngOffset, lat + latOffset]);
+    }
+    points.push(points[0]); // Close the polygon
+    
+    return {
+      type: "FeatureCollection",
+      features: [{
+        type: "Feature",
+        properties: { 
+          name: "Estimated Watershed (2km radius)",
+          isEstimate: true 
+        },
+        geometry: {
+          type: "Polygon",
+          coordinates: [points]
+        }
+      }]
+    };
   };
 /* 
   // Handle changes to layer parameters
@@ -215,36 +499,170 @@ export default function ATSConfig({ savedData }) {
         <div className="w-3/5">
           {/* AOI Inputs */}
           <h2 className="text-xl font-bold text-center mb-6 text-gray-800">Area of Interest</h2>
-          <div className="grid grid-cols-1 gap-4">
-              {/* Upload GeoJSON file */}
-              <div>
-                <Label htmlFor="geoJsonFile" className="text-xl font-semibold">Upload GeoJSON File of the Watershed</Label>
-                <div className="flex items-center gap-2">
-                  <span className="text-blue-600">{geoJsonFileName || "No file chosen"}</span>
-                  <div className="relative ml-auto">
-                    <Input
-                      name="geoJsonFile"
-                      type="file"
-                      accept=".geojson,.json"
-                      onChange={(e) => handleGeoJsonUpload(e.target.files[0])}
-                      required
-                      className="absolute inset-0 opacity-0 cursor-pointer"
-                    />
-                    <Button className="bg-blue-400 text-white py-1 px-3 text-sm rounded">Choose File</Button>
-                  </div>
-                </div>
-              </div>
-            </div>
+
             <div className="mt-6">
+               <div className="mb-4 space-y-2">
+               <Label htmlFor="geoJsonFile" className="text-xl font-semibold">Watershed Delineation</Label>
+                 <div className="flex gap-4 items-center">
+                   <div className="text-sm text-gray-600">
+                     {isLoadingWatershed && `Loading ${hucLevelMap[selectedHucLevel]?.name || 'watershed'} data...`}
+                     {clickedLocation && !isLoadingWatershed && watershedData && (
+                       <div>
+                         <div>Location: {clickedLocation.lat.toFixed(4)}, {clickedLocation.lng.toFixed(4)}</div>
+                         {watershedData.features?.[0]?.properties && (
+                           <div className="text-xs mt-1">
+                             {watershedData.features[0].properties.NAME || 'Watershed'} 
+                             {watershedData.features[0].properties.HUC_LEVEL && watershedData.features[0].properties.HUC_CODE && 
+                               ` (${watershedData.features[0].properties.HUC_LEVEL}: ${watershedData.features[0].properties.HUC_CODE})`
+                             }
+                           </div>
+                         )}
+                       </div>
+                     )}
+                     {clickedLocation && !isLoadingWatershed && !watershedData && (
+                       <div className="text-amber-600">
+                         ⚠️ Click map again to load {hucLevelMap[selectedHucLevel]?.name?.toLowerCase() || 'watershed'} at {clickedLocation.lat.toFixed(4)}, {clickedLocation.lng.toFixed(4)}
+                       </div>
+                     )}
+                     {!clickedLocation && !isLoadingWatershed && "Click on the map to delineate watershed and streams"}
+                   </div>
+                   {watershedData && (
+                     <Button 
+                       onClick={clearWatershedData}
+                       className="bg-red-500 hover:bg-red-600 text-white text-xs py-1 px-2"
+                     >
+                       Clear Watershed
+                     </Button>
+                   )}
+                 </div>
+                 {/* HUC Level Selector */}
+                 <div className="flex items-center gap-4 mt-4 p-3 bg-gray-50 rounded-lg">
+                   <Label htmlFor="hucLevel" className="font-semibold text-sm">Watershed Detail Level:</Label>
+                   <select
+                     id="hucLevel"
+                     value={selectedHucLevel}
+                     onChange={(e) => handleHucLevelChange(e.target.value)}
+                     className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+                   >
+                     <option value="12">HUC12 - Subwatershed (~40 km²)</option>
+                     <option value="10">HUC10 - Watershed (~400 km²)</option>
+                     <option value="8">HUC8 - Subbasin (~1,800 km²)</option>
+                   </select>
+                   <div className="text-xs text-gray-500">
+                     {clickedLocation ? (
+                       watershedData ? 
+                         'Change level and click map again to see difference' : 
+                         '⚠️ Click the map again to load watershed at this level'
+                     ) : 'Choose level before clicking map'}
+                   </div>
+                 </div>
+               </div>
                <MapContainer center={[39.8283, -98.5795]} zoom={4} style={{ height: '500px', width: '100%' }}>
                   <TileLayer
                     url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
                     attribution='© Esri, DeLorme, NAVTEQ, TomTom, Intermap, iPC, USGS, FAO, NPS, NRCAN, GeoBase, Kadaster NL, Ordnance Survey, Esri Japan, METI, Esri China (Hong Kong), and the GIS User Community'
                   />
                   {geoJsonData && <GeoJSON data={geoJsonData} />}
+                  {watershedData && (
+                    <GeoJSON 
+                      data={watershedData} 
+                      style={(feature) => {
+                        const isEstimate = feature?.properties?.isEstimate;
+                        return {
+                          fillColor: isEstimate ? 'orange' : 'blue',
+                          fillOpacity: isEstimate ? 0.15 : 0.2,
+                          color: isEstimate ? 'orange' : 'blue',
+                          weight: 2,
+                          dashArray: isEstimate ? '5, 5' : null
+                        };
+                      }}
+                    />
+                  )}
+                  {streamData && (
+                    <GeoJSON 
+                      data={streamData}
+                      style={{
+                        color: 'cyan',
+                        weight: 3,
+                        opacity: 0.8
+                      }}
+                    />
+                  )}
+                  {clickedLocation && (
+                    <GeoJSON 
+                      data={{
+                        type: 'Point',
+                        coordinates: [clickedLocation.lng, clickedLocation.lat]
+                      }}
+                      pointToLayer={(feature, latlng) => {
+                        return L.circleMarker(latlng, {
+                          radius: 8,
+                          fillColor: 'red',
+                          color: 'red',
+                          weight: 2,
+                          opacity: 1,
+                          fillOpacity: 0.8
+                        });
+                      }}
+                    />
+                  )}
                   <MapController geoJsonData={geoJsonData} />
+                  <MapClickHandler onMapClick={handleMapClick} />
                 </MapContainer>
+                
+                {/* Map Legend */}
+                {(watershedData || streamData || clickedLocation) && (
+                  <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                    <h4 className="font-semibold text-sm mb-2">Map Legend:</h4>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      {clickedLocation && (
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                          <span>Clicked Point</span>
+                        </div>
+                      )}
+                      {watershedData && (
+                        <div className="flex items-center gap-2">
+                          {watershedData.features?.[0]?.properties?.isEstimate ? (
+                            <div className="w-3 h-3 bg-orange-500 opacity-50 border border-orange-500 border-dashed"></div>
+                          ) : (
+                            <div className="w-3 h-3 bg-blue-500 opacity-50 border border-blue-500"></div>
+                          )}
+                          <span>
+                            {watershedData.features?.[0]?.properties?.isEstimate 
+                              ? "Estimated Area (2km)" 
+                              : `Official ${watershedData.features?.[0]?.properties?.HUC_LEVEL || 'Watershed'}`
+                            }
+                          </span>
+                        </div>
+                      )}
+                      {streamData && (
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-1 bg-cyan-500"></div>
+                          <span>Stream Network</span>
+                        </div>
+                      )}
+                      {geoJsonData && (
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 bg-green-500 opacity-50 border border-green-500"></div>
+                          <span>Uploaded GeoJSON</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {!clickedLocation && !isLoadingWatershed && (
+                   <div className="space-y-2">
+                     <div className="text-xs text-blue-600 bg-blue-50 p-2 rounded">
+                       <strong>Watershed Delineation:</strong> Click anywhere in the United States to get official USGS watershed boundaries. 
+                       Works best in areas with defined drainage patterns - mountains, hills, and river valleys.
+                     </div>
+                   </div>
+                 )}
+                 
+                 
             </div>
+            
          {/* MODIS LAI Inputs */}
          <div className="grid grid-cols-1 gap-4 mt-6">
               <div>

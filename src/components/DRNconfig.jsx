@@ -124,7 +124,7 @@ export default function DRNConfig({ onRun, savedData }) {
                   ? `Selected Location: ${selectedLocation.lat.toFixed(3)}, ${selectedLocation.lng.toFixed(3)}`
                   : "No location selected"}
               </p>
-              <h3 className="text-xl font-semibold">Model Parameters</h3>
+              <h3 className="text-xl font-semibold">2. Model Parameters</h3>
               
                 <div className="flex items-center gap-4 mb-4">
                   <Label htmlFor="numStart" className="w-44 font-semibold">Start Index of Flow Paths</Label>
