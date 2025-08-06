@@ -105,7 +105,7 @@ export default function DRNConfig({ savedData }) {
 
     setIsCheckingStatus(true);
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'https://56cf2e15aa2f.ngrok-free.app'}/api/check-job-status/${jobId}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'https://93bd832748ff.ngrok-free.app'}/api/check-job-status/${jobId}`, {
         headers: {
           'Content-Type': 'application/json',
         },
@@ -341,7 +341,7 @@ export default function DRNConfig({ savedData }) {
       };
 
       // Call your backend proxy API
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'https://56cf2e15aa2f.ngrok-free.app'}/api/run-job`, {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'https://93bd832748ff.ngrok-free.app'}/api/run-job`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
