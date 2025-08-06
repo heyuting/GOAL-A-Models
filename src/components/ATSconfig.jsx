@@ -533,166 +533,165 @@ export default function ATSConfig({ savedData }) {
           {/* AOI Inputs */}
           <h2 className="text-xl font-bold text-center mb-6 text-gray-800">Watershed Delineation</h2>
 
-            <div className="mt-6">
-               <div className="mb-4 space-y-2">
-                 <div className="items-center justify-between">
-                   <div className="text-sm text-gray-600 mb-4">
-                     {isLoadingWatershed && `Loading ${hucLevelMap[selectedHucLevel]?.name || 'watershed'} data...`}
-                     {clickedLocation && !isLoadingWatershed && watershedData && (
-                       <div>
-                         <div>Location: {clickedLocation.lat.toFixed(4)}, {clickedLocation.lng.toFixed(4)}</div>
-                                                    {watershedData.features?.[0]?.properties && (
-                             <div className="text-xs mt-1">
-                               {watershedData.features[0].properties.WATERSHED_NAME || watershedData.features[0].properties.NAME || watershedData.features[0].properties.name || 'Watershed'} 
-                               {watershedData.features[0].properties.HUC_LEVEL && watershedData.features[0].properties.HUC_CODE && 
-                                 ` (${watershedData.features[0].properties.HUC_LEVEL}: ${watershedData.features[0].properties.HUC_CODE})`
-                               }
-                             </div>
-                           )}
-                       </div>
-                     )}
-                     {clickedLocation && !isLoadingWatershed && !watershedData && (
-                       <div className="text-amber-600">
-                         ⚠️ Click map again to load {hucLevelMap[selectedHucLevel]?.name?.toLowerCase() || 'watershed'} at {clickedLocation.lat.toFixed(4)}, {clickedLocation.lng.toFixed(4)}
-                       </div>
-                     )}
-                     {!clickedLocation && !isLoadingWatershed && "Click on the map to delineate watershed and streams"}
-                   </div>
-                   
-                   {/* Fixed position Clear button */}
-                   <div className="w-24">
-                     {watershedData && (
-                       <Button 
-                         onClick={clearWatershedData}
-                         className="bg-red-500 hover:bg-red-600 text-white text-xs py-1 px-2 w-full"
-                       >
-                         Clear
-                       </Button>
-                     )}
-                   </div>
-                   
-                   {/* HUC Level Selector - on right side */}
-                   <div className="flex items-center gap-3">
-                     <Label htmlFor="hucLevel" className="font-semibold text-sm whitespace-nowrap">Watershed Detail Level:</Label>
-                     <select
-                       id="hucLevel"
-                       value={selectedHucLevel}
-                       onChange={(e) => handleHucLevelChange(e.target.value)}
-                       className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
-                     >
-                       <option value="12">HUC12 - Subwatershed (~40 km²)</option>
-                       <option value="10">HUC10 - Watershed (~400 km²)</option>
-                       <option value="8">HUC8 - Subbasin (~1,800 km²)</option>
-                     </select>
-                   </div>
-                 </div>
-
-               </div>
-               <MapContainer center={[39.8283, -98.5795]} zoom={4} style={{ height: '500px', width: '100%' }}>
-                  <TileLayer
-                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
-                    attribution='© Esri, DeLorme, NAVTEQ, TomTom, Intermap, iPC, USGS, FAO, NPS, NRCAN, GeoBase, Kadaster NL, Ordnance Survey, Esri Japan, METI, Esri China (Hong Kong), and the GIS User Community'
-                  />
-                  {geoJsonData && <GeoJSON data={geoJsonData} />}
-                  {watershedData && (
-                    <GeoJSON 
-                      data={watershedData} 
-                      style={(feature) => {
-                        const isEstimate = feature?.properties?.isEstimate;
-                        return {
-                          fillColor: isEstimate ? 'orange' : 'blue',
-                          fillOpacity: isEstimate ? 0.15 : 0.2,
-                          color: isEstimate ? 'orange' : 'blue',
-                          weight: 2,
-                          dashArray: isEstimate ? '5, 5' : null
-                        };
-                      }}
-                    />
-                  )}
-                  {streamData && (
-                    <GeoJSON 
-                      data={streamData}
-                      style={{
-                        color: 'cyan',
-                        weight: 3,
-                        opacity: 0.8
-                      }}
-                    />
-                  )}
-                  {clickedLocation && (
-                    <GeoJSON 
-                      data={{
-                        type: 'Point',
-                        coordinates: [clickedLocation.lng, clickedLocation.lat]
-                      }}
-                      pointToLayer={(feature, latlng) => {
-                        return L.circleMarker(latlng, {
-                          radius: 8,
-                          fillColor: 'red',
-                          color: 'red',
-                          weight: 2,
-                          opacity: 1,
-                          fillOpacity: 0.8
-                        });
-                      }}
-                    />
-                  )}
-                  <MapController geoJsonData={geoJsonData} />
-                  <MapClickHandler onMapClick={handleMapClick} />
-                </MapContainer>
-                
-                {/* Map Legend */}
-                {(watershedData || streamData || clickedLocation) && (
-                  <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-                    <h4 className="font-semibold text-sm mb-2">Map Legend:</h4>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      {clickedLocation && (
-                        <div className="flex items-center gap-2">
-                          <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-                          <span>Clicked Point</span>
-                        </div>
-                      )}
-                      {watershedData && (
-                        <div className="flex items-center gap-2">
-                          {watershedData.features?.[0]?.properties?.isEstimate ? (
-                            <div className="w-3 h-3 bg-orange-500 opacity-50 border border-orange-500 border-dashed"></div>
-                          ) : (
-                            <div className="w-3 h-3 bg-blue-500 opacity-50 border border-blue-500"></div>
-                          )}
-                          <span>
-                            {watershedData.features?.[0]?.properties?.isEstimate 
-                              ? "Estimated Area (2km)" 
-                              : `Official ${watershedData.features?.[0]?.properties?.HUC_LEVEL || 'Watershed'}`
-                            }
-                          </span>
-                        </div>
-                      )}
-                      {streamData && (
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-1 bg-cyan-500"></div>
-                          <span>Stream Network</span>
-                        </div>
-                      )}
-                      {geoJsonData && (
-                        <div className="flex items-center gap-2">
-                          <div className="w-3 h-3 bg-green-500 opacity-50 border border-green-500"></div>
-                          <span>Uploaded GeoJSON</span>
+          <div className="mt-6">
+            <div className="mb-4 space-y-2">
+              <div className="flex gap-4 items-center justify-between">
+                <div className="text-sm text-gray-600 flex-1">
+                  {isLoadingWatershed && `Loading ${hucLevelMap[selectedHucLevel]?.name || 'watershed'} data...`}
+                  {clickedLocation && !isLoadingWatershed && watershedData && (
+                    <div>
+                      <div>Location: {clickedLocation.lat.toFixed(4)}, {clickedLocation.lng.toFixed(4)}</div>
+                      {watershedData.features?.[0]?.properties && (
+                        <div className="text-xs mt-1">
+                          {watershedData.features[0].properties.WATERSHED_NAME || watershedData.features[0].properties.NAME || watershedData.features[0].properties.name || 'Watershed'} 
+                          {watershedData.features[0].properties.HUC_LEVEL && watershedData.features[0].properties.HUC_CODE && 
+                            ` (${watershedData.features[0].properties.HUC_LEVEL}: ${watershedData.features[0].properties.HUC_CODE})`
+                          }
                         </div>
                       )}
                     </div>
-                  </div>
-                )}
-                {!clickedLocation && !isLoadingWatershed && (
-                   <div className="space-y-2">
-                     <div className="text-xs text-blue-600 bg-blue-50 p-2 rounded">
-                       <strong>Watershed Delineation:</strong> Click anywhere in the United States to get official USGS watershed boundaries. 
-                       Works best in areas with defined drainage patterns - mountains, hills, and river valleys.
-                     </div>
-                   </div>
-                 )}
-                 
-                 
+                  )}
+                  {clickedLocation && !isLoadingWatershed && !watershedData && (
+                    <div className="text-amber-600">
+                      ⚠️ Click map again to load {hucLevelMap[selectedHucLevel]?.name?.toLowerCase() || 'watershed'} at {clickedLocation.lat.toFixed(4)}, {clickedLocation.lng.toFixed(4)}
+                    </div>
+                  )}
+                  {!clickedLocation && !isLoadingWatershed && "Click on the map to delineate watershed and streams"}
+                </div>
+                
+                {/* HUC Level Selector - on right side */}
+                <div className="flex items-center gap-3">
+                  <Label htmlFor="hucLevel" className="font-semibold text-sm whitespace-nowrap">Watershed Detail Level:</Label>
+                  <select
+                    id="hucLevel"
+                    value={selectedHucLevel}
+                    onChange={(e) => handleHucLevelChange(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+                  >
+                    <option value="12">HUC12 - Subwatershed (~40 km²)</option>
+                    <option value="10">HUC10 - Watershed (~400 km²)</option>
+                    <option value="8">HUC8 - Subbasin (~1,800 km²)</option>
+                  </select>
+                </div>
+              </div>
             </div>
+            
+            <MapContainer center={[39.8283, -98.5795]} zoom={4} style={{ height: '500px', width: '100%' }}>
+              <TileLayer
+                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
+                attribution='© Esri, DeLorme, NAVTEQ, TomTom, Intermap, iPC, USGS, FAO, NPS, NRCAN, GeoBase, Kadaster NL, Ordnance Survey, Esri Japan, METI, Esri China (Hong Kong), and the GIS User Community'
+              />
+              {geoJsonData && <GeoJSON data={geoJsonData} />}
+              {watershedData && (
+                <GeoJSON 
+                  data={watershedData} 
+                  style={(feature) => {
+                    const isEstimate = feature?.properties?.isEstimate;
+                    return {
+                      fillColor: isEstimate ? 'orange' : 'blue',
+                      fillOpacity: isEstimate ? 0.15 : 0.2,
+                      color: isEstimate ? 'orange' : 'blue',
+                      weight: 2,
+                      dashArray: isEstimate ? '5, 5' : null
+                    };
+                  }}
+                />
+              )}
+              {streamData && (
+                <GeoJSON 
+                  data={streamData}
+                  style={{
+                    color: 'cyan',
+                    weight: 3,
+                    opacity: 0.8
+                  }}
+                />
+              )}
+              {clickedLocation && (
+                <GeoJSON 
+                  data={{
+                    type: 'Point',
+                    coordinates: [clickedLocation.lng, clickedLocation.lat]
+                  }}
+                  pointToLayer={(feature, latlng) => {
+                    return L.circleMarker(latlng, {
+                      radius: 8,
+                      fillColor: 'red',
+                      color: 'red',
+                      weight: 2,
+                      opacity: 1,
+                      fillOpacity: 0.8
+                    });
+                  }}
+                />
+              )}
+              <MapController geoJsonData={geoJsonData} />
+              <MapClickHandler onMapClick={handleMapClick} />
+            </MapContainer>
+            
+            {/* Legend and Clear Button below map */}
+            <div className="flex justify-between items-start mt-2">
+              {/* Legend on the left */}
+              <div className="px-3 py-2 bg-gray-50 rounded-lg border">
+                <h4 className="font-semibold text-sm mb-1 text-gray-800">Legend:</h4>
+                <div className="flex items-center gap-4 text-sm">
+                  {clickedLocation && (
+                    <div className="flex items-center gap-1">
+                      <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                      <span className="text-gray-700">Point</span>
+                    </div>
+                  )}
+                  {streamData && (
+                    <div className="flex items-center gap-1">
+                      <div className="w-6 h-1 bg-cyan-500"></div>
+                      <span className="text-gray-700">Stream</span>
+                    </div>
+                  )}
+                  {watershedData && (
+                    <div className="flex items-center gap-1">
+                      {watershedData.features?.[0]?.properties?.isEstimate ? (
+                        <div className="w-3 h-3 bg-orange-500 opacity-70 border border-orange-600 border-dashed"></div>
+                      ) : (
+                        <div className="w-3 h-3 bg-blue-500 opacity-70 border border-blue-600"></div>
+                      )}
+                      <span className="text-gray-700">
+                        {watershedData.features?.[0]?.properties?.HUC_LEVEL || 'HUC'}
+                      </span>
+                    </div>
+                  )}
+                  {geoJsonData && (
+                    <div className="flex items-center gap-1">
+                      <div className="w-3 h-3 bg-green-500 opacity-70 border border-green-600"></div>
+                      <span className="text-gray-700">GeoJSON</span>
+                    </div>
+                  )}
+                  {/* Show message if no data */}
+                  {!clickedLocation && !streamData && !watershedData && !geoJsonData && (
+                    <span className="text-gray-500 italic text-xs">Click map to see legend items</span>
+                  )}
+                </div>
+              </div>
+              
+              {/* Clear Button on the right */}
+              {watershedData && (
+                <Button 
+                  onClick={clearWatershedData}
+                  className="mt-4 bg-orange-400 hover:bg-orange-500 text-white text-xs py-1 px-3"
+                >
+                  Clear Watershed
+                </Button>
+              )}
+            </div>
+
+            {!clickedLocation && !isLoadingWatershed && (
+              <div className="space-y-2">
+                <div className="text-xs text-blue-600 bg-blue-50 p-2 rounded">
+                  <strong>Watershed Delineation:</strong> Click anywhere in the United States to get official USGS watershed boundaries. 
+                  Works best in areas with defined drainage patterns - mountains, hills, and river valleys.
+                </div>
+              </div>
+            )}
+          </div>
             
          {/* MODIS LAI Inputs */}
          <div className="grid grid-cols-1 gap-4 mt-6">
@@ -884,14 +883,14 @@ export default function ATSConfig({ savedData }) {
                   type="button"
                   onClick={handleSaveModel}
                   disabled={isSaving || !geoJsonData}
-                  className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-md font-semibold"
+                  className="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 rounded-md font-semibold"
                 >
                   {isSaving ? 'Saving...' : savedData ? 'Update Model Configuration' : 'Save Model Configuration'}
                 </Button>
                 
                 <Button 
                   type="submit" 
-                  className="w-full bg-blue-500 text-white hover:bg-blue-600 rounded-md p-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 bg-blue-500 text-white hover:bg-blue-600 rounded-md p-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   disabled={!geoJsonData}
                 >
                   Generate Inputs for ATS
