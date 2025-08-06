@@ -105,7 +105,7 @@ export default function DRNConfig({ savedData }) {
 
     setIsCheckingStatus(true);
     try {
-      const response = await fetch(`http://localhost:8000/api/check-job-status/${jobId}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'https://56cf2e15aa2f.ngrok-free.app'}/api/check-job-status/${jobId}`, {
         headers: {
           'Content-Type': 'application/json',
         },
@@ -341,7 +341,7 @@ export default function DRNConfig({ savedData }) {
       };
 
       // Call your backend proxy API
-      const response = await fetch('http://localhost:8000/api/run-job', {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'https://56cf2e15aa2f.ngrok-free.app'}/api/run-job`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -602,7 +602,7 @@ export default function DRNConfig({ savedData }) {
                           className="w-full bg-purple-500 text-white hover:bg-purple-600 rounded-md p-2 text-sm"
                           style={{ display: loadJobStateFromStorage() ? 'block' : 'none' }}
                         >
-                          🔄 Restore Previous Job
+                          Restore Previous Job
                         </Button>
                         
 
@@ -635,7 +635,7 @@ export default function DRNConfig({ savedData }) {
                             className="w-full bg-orange-500 text-white hover:bg-orange-600 rounded-md p-2 text-sm"
                             disabled={isCheckingStatus}
                           >
-                            🔄 Retry Connection
+                            Retry Connection
                           </Button>
                         )}
                       </div>
