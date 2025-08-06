@@ -953,23 +953,21 @@ export default function SCEPTERConfig({ savedData }) {
                 </div>
 
                 <div className="mt-4 space-y-2">
-                  <div className="flex gap-4">
                     <Button
                       type="button"
                       onClick={handleSaveModel}
                       disabled={isSaving || (!location && !selectedPoint)}
-                      className="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 rounded-md font-semibold"
+                      className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-md font-semibold"
                     >
                       {isSaving ? 'Saving...' : savedData ? 'Update Model Configuration' : 'Save Model Configuration'}
                     </Button>
                     
                     <Button
                       type="submit"
-                      className="flex-1 bg-blue-500 text-white hover:bg-blue-600 rounded-md p-2"
+                      className="w-full bg-blue-500 text-white hover:bg-blue-600 rounded-md p-2"
                     >
                       Run SCEPTER Model
                     </Button>
-                  </div>
                   
                   {saveMessage && (
                     <div className={`text-center p-3 rounded-lg text-sm ${

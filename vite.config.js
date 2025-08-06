@@ -15,27 +15,34 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  // Proxy configuration removed since the app now uses direct API calls
-  // server: {
-  //   proxy: {
-  //     '/api/usgs': {
-  //       target: 'https://waterservices.usgs.gov',
-  //       changeOrigin: true,
-  //       rewrite: (path) => path.replace(/^\/api\/usgs/, ''),
-  //       secure: false,
-  //     },
-  //     '/api/wqp': {
-  //       target: 'https://www.waterqualitydata.us',
-  //       changeOrigin: true,
-  //       rewrite: (path) => path.replace(/^\/api\/wqp/, ''),
-  //       secure: false,
-  //     },
-  //     '/api/usgs-dv': {
-  //       target: 'https://waterservices.usgs.gov',
-  //       changeOrigin: true,
-  //       rewrite: (path) => path.replace(/^\/api\/usgs-dv/, ''),
-  //       secure: false,
-  //     }
-  //   }
-  // }
+  server: {
+    proxy: {
+      // Proxy for Yale Grace job submission API
+      '/api': {
+        target: 'https://56cf2e15aa2f.ngrok-free.app', //local ngrok workaround
+        // target: 'https://goal-a-proxy-api.onrender.com', //render cloud
+        changeOrigin: true,
+        secure: true,
+      },
+      // Legacy USGS API proxies (commented out)
+      // '/api/usgs': {
+      //   target: 'https://waterservices.usgs.gov',
+      //   changeOrigin: true,
+      //   rewrite: (path) => path.replace(/^\/api\/usgs/, ''),
+      //   secure: false,
+      // },
+      // '/api/wqp': {
+      //   target: 'https://www.waterqualitydata.us',
+      //   changeOrigin: true,
+      //   rewrite: (path) => path.replace(/^\/api\/wqp/, ''),
+      //   secure: false,
+      // },
+      // '/api/usgs-dv': {
+      //   target: 'https://waterservices.usgs.gov',
+      //   changeOrigin: true,
+      //   rewrite: (path) => path.replace(/^\/api\/usgs-dv/, ''),
+      //   secure: false,
+      // }
+    }
+  }
 })
