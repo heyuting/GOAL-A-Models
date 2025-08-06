@@ -3,6 +3,14 @@ import { MapContainer, TileLayer, Marker, useMapEvents, GeoJSON } from "react-le
 import { useState, useEffect } from "react";
 import "leaflet/dist/leaflet.css";
 
+// Fix for default marker icon in React Leaflet
+delete L.Icon.Default.prototype._getIconUrl;
+
+L.Icon.Default.mergeOptions({
+  iconUrl: "/marker-icon.png",
+  shadowUrl: "/marker-shadow.png",
+});
+
 export default function MapComponent({ onLocationSelect, disabled = false, selectedLocation: propSelectedLocation }) {
   const [selectedLocation, setSelectedLocation] = useState(propSelectedLocation || null);
   const [riverData, setRiverData] = useState(null);
