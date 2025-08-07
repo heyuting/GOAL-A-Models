@@ -105,7 +105,7 @@ export default function DRNConfig({ savedData }) {
 
     setIsCheckingStatus(true);
     try {
-      const response = await fetch(`${'https://93bd832748ff.ngrok-free.app'}/api/check-job-status/${jobId}`, {
+      const response = await fetch(`${'https://73cd03d25f04.ngrok-free.app'}/api/check-job-status/${jobId}`, {
         headers: {
           'Content-Type': 'application/json',
           'ngrok-skip-browser-warning': 'true',
@@ -342,7 +342,7 @@ export default function DRNConfig({ savedData }) {
       };
 
       // Call  backend proxy API
-      const response = await fetch(`${'https://93bd832748ff.ngrok-free.app'}/api/run-job`, {
+      const response = await fetch(`${'https://73cd03d25f04.ngrok-free.app'}/api/run-job`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

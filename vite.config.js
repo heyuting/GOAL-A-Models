@@ -19,7 +19,7 @@ export default defineConfig({
     proxy: {
       // Proxy for Yale Grace job submission API
       '/api': {
-        target: 'https://93bd832748ff.ngrok-free.app', //local ngrok workaround
+        target: 'https://73cd03d25f04.ngrok-free.app', //local ngrok workaround
         // target: 'https://goal-a-proxy-api.onrender.com', //render cloud
         changeOrigin: true,
         secure: true,
