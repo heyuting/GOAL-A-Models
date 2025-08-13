@@ -8,6 +8,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useAuth } from '@/contexts/AuthContext';
 import userService from '@/services/userService';
 
+// API base URL configuration - Use relative URLs for local development (proxied through Vite)
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+
+// Helper function to get full API URL
+const getApiUrl = (endpoint) => {
+  if (API_BASE_URL) {
+    // If environment variable is set, use full URL
+    return `${API_BASE_URL}/${endpoint}`;
+  } else {
+    // Otherwise use relative URL (proxied through Vite)
+    return `/${endpoint}`;
+  }
+};
+
 export default function DRNConfig({ savedData }) {
   const { user } = useAuth();
   const [selectedLocation, setSelectedLocation] = useState(null);
@@ -105,10 +119,9 @@ export default function DRNConfig({ savedData }) {
 
     setIsCheckingStatus(true);
     try {
-      const response = await fetch(`${'https://73cd03d25f04.ngrok-free.app'}/api/check-job-status/${jobId}`, {
+      const response = await fetch(getApiUrl(`api/check-job-status/${jobId}`), {
         headers: {
           'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
         },
         // Add timeout to prevent hanging requests
                   signal: AbortSignal.timeout(180000) // 3 minute timeout for Duo 2FA
@@ -342,11 +355,10 @@ export default function DRNConfig({ savedData }) {
       };
 
       // Call  backend proxy API
-      const response = await fetch(`${'https://73cd03d25f04.ngrok-free.app'}/api/run-job`, {
+      const response = await fetch(getApiUrl('api/run-job'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
         },
         body: JSON.stringify(jobData),
       });
