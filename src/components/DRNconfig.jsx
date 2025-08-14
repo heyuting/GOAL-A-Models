@@ -119,15 +119,33 @@ export default function DRNConfig({ savedData }) {
 
     setIsCheckingStatus(true);
     try {
-      const response = await fetch(getApiUrl(`api/check-job-status/${jobId}`), {
+      const apiUrl = getApiUrl(`api/check-job-status/${jobId}`);
+      console.log('Checking job status at:', apiUrl);
+      
+      const response = await fetch(apiUrl, {
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
         },
         // Add timeout to prevent hanging requests
-                  signal: AbortSignal.timeout(180000) // 3 minute timeout for Duo 2FA
+        signal: AbortSignal.timeout(180000) // 3 minute timeout for Duo 2FA
       });
       
-      const result = await response.json();
+      console.log('Response status:', response.status);
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+      
+      // Check if response has content
+      const responseText = await response.text();
+      console.log('Response text:', responseText);
+      
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+        console.error('Raw response:', responseText);
+        throw new Error(`Invalid JSON response from server. Got: ${responseText.substring(0, 100)}...`);
+      }
 
       if (response.ok) {
         const logs = result.logs || [];
@@ -359,6 +377,7 @@ export default function DRNConfig({ savedData }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
         },
         body: JSON.stringify(jobData),
       });
