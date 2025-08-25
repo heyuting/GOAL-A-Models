@@ -877,20 +877,20 @@ export default function ATSConfig({ savedData }) {
                 onAddLayer={addLayer}
             />
             */}
-            <div className="pt-4 space-y-2">
+            <div className="mt-4 space-y-2">
 
                 <Button
                   type="button"
                   onClick={handleSaveModel}
                   disabled={isSaving || !geoJsonData}
-                  className="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 rounded-md font-semibold"
-                >
+                  className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-md font-semibold"
+                  >
                   {isSaving ? 'Saving...' : savedData ? 'Update Model Configuration' : 'Save Model Configuration'}
                 </Button>
                 
                 <Button 
                   type="submit" 
-                  className="flex-1 bg-blue-500 text-white hover:bg-blue-600 rounded-md p-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full bg-blue-500 text-white hover:bg-blue-600 rounded-md p-2"
                   disabled={!geoJsonData}
                 >
                   Generate Inputs for ATS

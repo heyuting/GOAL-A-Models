@@ -24,9 +24,10 @@ const getApiUrl = (endpoint) => {
 
 export default function DRNConfig({ savedData }) {
   const { user } = useAuth();
+  // DRN parameters
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [numStart, setNumStart] = useState(1);
-  const [addFlag, setAddFlag] = useState("middle");
+  const [ewRiverInput, setEwRiverInput] = useState(1.0);
   const [yearRun, setYearRun] = useState(2);
   const [timeStep, setTimeStep] = useState(0.1);
   const [isSaving, setIsSaving] = useState(false);
@@ -239,7 +240,7 @@ export default function DRNConfig({ savedData }) {
     if (savedData) {
       const params = savedData.parameters || {};
       setNumStart(params.numStart || 1);
-      setAddFlag(params.addFlag || "middle");
+      setEwRiverInput(params.ewRiverInput || 1.0);
       setYearRun(params.yearRun || 2);
       setTimeStep(params.timeStep || 0.1);
       
@@ -365,7 +366,7 @@ export default function DRNConfig({ savedData }) {
             lng: selectedLocation.lng
           },
           numStart,
-          addFlag,
+          ewRiverInput,
           yearRun,
           timeStep
         },
@@ -450,7 +451,7 @@ export default function DRNConfig({ savedData }) {
         status: 'saved',
         parameters: {
           numStart,
-          addFlag,
+          ewRiverInput,
           yearRun,
           timeStep
         }
@@ -533,8 +534,8 @@ export default function DRNConfig({ savedData }) {
                 </div>
 
                 <div className="flex items-center gap-4 mb-4">
-                  <Label htmlFor="addFlag" className="w-44 font-semibold flex items-center">
-                    EW Scenario
+                  <Label htmlFor="ewRiverInput" className="w-44 font-semibold flex items-center">
+                    EW River Input (ton/ha/yr)
                     <div 
                       className="ml-1 text-gray-500 hover:text-gray-700 group relative inline-block"
                     >
@@ -558,16 +559,16 @@ export default function DRNConfig({ savedData }) {
                       </div>
                     </div>
                   </Label>
-                  <Select value={addFlag} onValueChange={setAddFlag}>
-                    <SelectTrigger id="addFlag" className="flex-1">
-                      <SelectValue placeholder="Select a scenario" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="min">Min (~0.5 ton/ha/yr)</SelectItem>
-                      <SelectItem value="middle">Middle (~1 ton/ha/yr)</SelectItem>
-                      <SelectItem value="max">Max (~1.5 ton/ha/yr)</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Input
+                    id="ewRiverInput"
+                    name="ewRiverInput"
+                    type="number"
+                    step="0.1"
+                    value={ewRiverInput}
+                    onChange={(e) => setEwRiverInput(e.target.value)}
+                    placeholder="Enter EW river input value"
+                    className="flex-1"
+                  />
                 </div>
 
                 <div className="flex items-center gap-4 mb-4">
@@ -712,7 +713,7 @@ export default function DRNConfig({ savedData }) {
                             <div><strong>Job ID:</strong> {jobId}</div>
                             <div><strong>Model:</strong> DRN</div>
                             <div><strong>Location:</strong> {selectedLocation?.lat.toFixed(4)}, {selectedLocation?.lng.toFixed(4)}</div>
-                            <div><strong>Parameters:</strong> Start: {numStart}, Scenario: {addFlag}, Years: {yearRun}, Timestep: {timeStep}</div>
+                            <div><strong>Parameters:</strong> Start: {numStart}, Scenario: {ewRiverInput}, Years: {yearRun}, Timestep: {timeStep}</div>
                             {lastStatusCheck && (
                               <div><strong>Last checked:</strong> {lastStatusCheck.toLocaleTimeString()}</div>
                             )}
