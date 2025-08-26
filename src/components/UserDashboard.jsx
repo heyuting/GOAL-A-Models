@@ -212,23 +212,6 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
 
         {activeTab === 'models' && (
           <div className="space-y-4">
-            {/* Debug Information */}
-            {process.env.NODE_ENV === 'development' && (
-              <Card className="bg-yellow-50 border-yellow-200">
-                <CardContent className="p-4">
-                  <p className="text-sm text-yellow-800 mb-2">
-                    <strong>Debug Info:</strong> User ID: {user?.id}, Models Count: {savedModels.length}
-                  </p>
-                  <details className="text-xs text-yellow-700">
-                    <summary>Raw Models Data</summary>
-                    <pre className="mt-2 bg-white p-2 rounded border overflow-auto max-h-32">
-                      {JSON.stringify(savedModels, null, 2)}
-                    </pre>
-                  </details>
-                </CardContent>
-              </Card>
-            )}
-            
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-semibold text-gray-800">Saved Models</h2>
               <div className="flex gap-2">

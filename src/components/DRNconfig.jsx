@@ -574,7 +574,7 @@ export default function DRNConfig({ savedData }) {
           <h3 className="text-xl font-bold text-center mb-6 text-gray-800">DRN Model Configuration</h3>
           <Card className="mt-17 p-6 shadow-lg rounded-2xl border border-gray-200">
             <CardContent>
-              <h3 className="text-xl font-semibold">1. Selected Locations (up to 15)</h3>
+              <h3 className="text-xl font-semibold">1. Select Locations (up to 15)</h3>
               <div className="flex justify-between items-center mb-4 mt-3">
                 <p className="text-gray-500">
                   {selectedLocations.length > 0 

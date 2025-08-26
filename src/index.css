@@ -98,7 +98,7 @@ nav .flex {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: 5rem;
+  height: 8rem;
   gap: 2rem;
   padding: 0 1rem;
 }
@@ -150,7 +150,7 @@ nav .ml-20 {
 nav .ml-20 a {
   color: #e5e7eb;
   text-decoration: none;
-  font-weight: 500;
+  font-weight: 600;
   font-size: 1.25rem;
   padding: 0.75rem 1rem;
   border-radius: 6px;
@@ -262,6 +262,14 @@ nav .flex.items-center.space-x-4 button[onclick*="SignOut"]:hover {
   }
 }
 
+/* Card Title Font Family - Yale Style */
+[data-slot="card-title"] {
+  font-family: 'mallory-compact-light', 'Gill Sans', 'Gill Sans MT', 'Calibri', 'Arial', sans-serif;
+  font-weight: normal;
+  line-height: 1.8;
+  letter-spacing: 0.025em;
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -307,4 +315,23 @@ nav .flex.items-center.space-x-4 button[onclick*="SignOut"]:hover {
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Navigation Dropdown Styles */
+nav .group:hover .group-hover\:opacity-100 {
+  opacity: 1;
+}
+
+nav .group:hover .group-hover\:visible {
+  visibility: visible;
+}
+
+/* Navigation Dropdown Text Colors - Override any conflicting styles */
+nav .group .absolute a {
+  color: #374151 !important; /* text-gray-700 */
+}
+
+nav .group .absolute a:hover {
+  color: #2563eb !important; /* text-blue-600 */
+  background-color: #eff6ff !important; /* bg-blue-50 */
 }
