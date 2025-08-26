@@ -80,7 +80,7 @@ export default function App() {
               <h1 className="text-xl text-white font-bold text-800 text-center">GOAL-A Models</h1>
             </div>
             
-            {/* Main Navigation */}
+            {/* Main Navigation Links */}
             <div className="ml-20 hidden md:flex items-center space-x-6">
               <a 
                 href="#" 
@@ -92,14 +92,6 @@ export default function App() {
               <a href="#" className="text-center font-bold text-white hover:text-blue-200 px-3 py-2 text-lg font-large transition-colors">
                 Research
               </a>
-              <a href="#" className="text-center font-bold text-white hover:text-blue-200 px-3 py-2 text-lg font-large transition-colors">
-                About
-              </a>
-            </div>
-            
-            {/* Right side - User Account and Sign Out */}
-            <div className="flex items-center space-x-4">
-
               <a 
                 href="#" 
                 onClick={() => navigate('/dashboard')}
@@ -107,6 +99,10 @@ export default function App() {
               >
                 User Account
               </a>
+            </div>
+            
+            {/* Right side - Sign Out */}
+            <div className="flex items-center space-x-4">
               <Button
                 variant="outline"
                 onClick={async () => {
@@ -243,7 +239,22 @@ function DashboardPage() {
         navigate('/');
       }}
       onViewModel={(model) => {
-        navigate(`/model/${model.model.toLowerCase()}`, { 
+        console.log('onViewModel called with:', model);
+        // Determine the model type from the saved data
+        let modelType = 'drn'; // default fallback
+        
+        if (model.model) {
+          modelType = model.model.toLowerCase();
+        } else if (model.name && model.name.includes('DRN')) {
+          modelType = 'drn';
+        } else if (model.name && model.name.includes('SCEPTER')) {
+          modelType = 'scepter+drn';
+        } else if (model.name && model.name.includes('ATS')) {
+          modelType = 'ats';
+        }
+        
+        console.log('Navigating to model:', modelType);
+        navigate(`/model/${modelType}`, { 
           state: { savedModelData: model } 
         });
       }}

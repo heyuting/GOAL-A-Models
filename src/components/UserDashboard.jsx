@@ -12,9 +12,17 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
 
   useEffect(() => {
     if (user) {
-      const models = userService.getUserModels(user.id);
-      setSavedModels(models);
-      setLoading(false);
+      console.log('Loading models for user:', user.id, user);
+      try {
+        const models = userService.getUserModels(user.id);
+        console.log('Retrieved models:', models);
+        setSavedModels(Array.isArray(models) ? models : []);
+        setLoading(false);
+      } catch (error) {
+        console.error('Error loading models:', error);
+        setSavedModels([]);
+        setLoading(false);
+      }
     }
   }, [user]);
 
@@ -43,14 +51,40 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
     if (window.confirm('Are you sure you want to delete this model?')) {
       const success = userService.deleteUserModel(user.id, modelId);
       if (success) {
-        setSavedModels(prev => prev.filter(model => model.id !== modelId));
+        setSavedModels(prev => prev.filter(model => model.id !== modelId && model.timestamp !== modelId));
+        console.log('Model deleted successfully:', modelId);
+      } else {
+        console.error('Failed to delete model:', modelId);
+        alert('Failed to delete model. Please try again.');
+      }
+    }
+  };
+
+  const handleRefreshModels = () => {
+    if (user) {
+      console.log('Refreshing models for user:', user.id);
+      setLoading(true);
+      try {
+        const models = userService.getUserModels(user.id);
+        console.log('Refreshed models:', models);
+        setSavedModels(Array.isArray(models) ? models : []);
+      } catch (error) {
+        console.error('Error refreshing models:', error);
+        setSavedModels([]);
+      } finally {
+        setLoading(false);
       }
     }
   };
 
   const handleViewModel = (model) => {
+    console.log('View button clicked for model:', model);
     if (onViewModel) {
+      console.log('Calling onViewModel with:', model);
       onViewModel(model);
+    } else {
+      console.error('onViewModel prop is not defined');
+      alert('View functionality is not available. Please contact support.');
     }
   };
 
@@ -178,11 +212,38 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
 
         {activeTab === 'models' && (
           <div className="space-y-4">
+            {/* Debug Information */}
+            {process.env.NODE_ENV === 'development' && (
+              <Card className="bg-yellow-50 border-yellow-200">
+                <CardContent className="p-4">
+                  <p className="text-sm text-yellow-800 mb-2">
+                    <strong>Debug Info:</strong> User ID: {user?.id}, Models Count: {savedModels.length}
+                  </p>
+                  <details className="text-xs text-yellow-700">
+                    <summary>Raw Models Data</summary>
+                    <pre className="mt-2 bg-white p-2 rounded border overflow-auto max-h-32">
+                      {JSON.stringify(savedModels, null, 2)}
+                    </pre>
+                  </details>
+                </CardContent>
+              </Card>
+            )}
+            
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-semibold text-gray-800">Saved Models</h2>
-              <Button className="bg-blue-500 hover:bg-blue-600" onClick={onNavigateToModels}>
-                Run New Model
-              </Button>
+              <div className="flex gap-2">
+                <Button 
+                  variant="outline" 
+                  onClick={handleRefreshModels}
+                  disabled={loading}
+                  className="border-gray-300 hover:bg-gray-50"
+                >
+                  {loading ? 'Loading...' : 'Refresh'}
+                </Button>
+                <Button className="bg-blue-500 hover:bg-blue-600" onClick={onNavigateToModels}>
+                  Run New Model
+                </Button>
+              </div>
             </div>
             
             {savedModels.length === 0 ? (
@@ -197,39 +258,58 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
             ) : (
               <div className="grid gap-4">
                 {savedModels.map((model) => (
-                  <Card key={model.id} className="shadow-lg hover:shadow-xl transition-shadow">
+                  <Card key={model.id || model.timestamp} className="shadow-lg hover:shadow-xl transition-shadow">
                     <CardContent className="p-6">
                       <div className="flex justify-between items-start">
                         <div className="flex-1">
                           <h3 className="text-lg font-semibold text-gray-800 mb-2">
-                            {model.name}
+                            {model.name || 'Unnamed Model'}
                           </h3>
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                             <div>
                               <span className="text-gray-600">Model:</span>
-                              <span className="ml-2 font-medium">{model.model}</span>
+                              <span className="ml-2 font-medium">{model.model || 'DRN'}</span>
                             </div>
                             <div>
                               <span className="text-gray-600">Location:</span>
-                              <span className="ml-2 font-medium">{model.location}</span>
+                              <span className="ml-2 font-medium">{model.location || 'No location'}</span>
                             </div>
                             <div>
                               <span className="text-gray-600">Created:</span>
-                              <span className="ml-2 font-medium">{formatDate(model.createdAt)}</span>
+                              <span className="ml-2 font-medium">
+                                {model.createdAt ? formatDate(model.createdAt) : 
+                                 model.timestamp ? formatDate(model.timestamp) : 'Unknown date'}
+                              </span>
                             </div>
+                            {model.parameters && (
+                              <div className="md:col-span-3">
+                                <span className="text-gray-600">Parameters:</span>
+                                <span className="ml-2 font-medium">
+                                  {model.parameters.locations ? 
+                                   `${model.parameters.locations.length} location(s)` : 
+                                   'Standard parameters'}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center space-x-3">
-                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(model.status)}`}>
-                            {model.status}
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(model.status || 'saved')}`}>
+                            {model.status || 'saved'}
                           </span>
-                          <Button variant="outline" size="sm" onClick={() => handleViewModel(model)}>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => handleViewModel(model)}
+                            disabled={!model || (!model.model && !model.name)}
+                            title={!model || (!model.model && !model.name) ? 'Model data incomplete' : 'View model configuration'}
+                          >
                             View
                           </Button>
                           <Button 
                             variant="outline" 
                             size="sm"
-                            onClick={() => handleDeleteModel(model.id)}
+                            onClick={() => handleDeleteModel(model.id || model.timestamp)}
                             className="text-red-600 border-red-300 hover:bg-red-50"
                           >
                             Delete

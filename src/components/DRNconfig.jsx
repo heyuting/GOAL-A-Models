@@ -25,9 +25,9 @@ const getApiUrl = (endpoint) => {
 export default function DRNConfig({ savedData }) {
   const { user } = useAuth();
   // DRN parameters
-  const [selectedLocation, setSelectedLocation] = useState(null);
+  const [selectedLocations, setSelectedLocations] = useState([]);
+  const [currentLocationIndex, setCurrentLocationIndex] = useState(-1);
   const [numStart, setNumStart] = useState(1);
-  const [ewRiverInput, setEwRiverInput] = useState(1.0);
   const [yearRun, setYearRun] = useState(2);
   const [timeStep, setTimeStep] = useState(0.1);
   const [isSaving, setIsSaving] = useState(false);
@@ -43,6 +43,7 @@ export default function DRNConfig({ savedData }) {
   const [jobLogs, setJobLogs] = useState([]);
   const [lastStatusCheck, setLastStatusCheck] = useState(null);
   const [consecutiveTimeouts, setConsecutiveTimeouts] = useState(0);
+  const [hasSavedJob, setHasSavedJob] = useState(false); // Track if there's a saved job
 
   // Helper functions for job state persistence
   const saveJobStateToStorage = useCallback((jobData) => {
@@ -112,7 +113,64 @@ export default function DRNConfig({ savedData }) {
     }
   }, []);
 
+  // Load saved data on component mount
+  useEffect(() => {
+    if (savedData) {
+      // Load saved locations if they exist
+      if (savedData.parameters && savedData.parameters.locations) {
+        setSelectedLocations(savedData.parameters.locations);
+        setCurrentLocationIndex(savedData.parameters.locations.length - 1);
+      }
+      // Load other saved parameters
+      if (savedData.parameters) {
+        setNumStart(savedData.parameters.numStart || 1);
+        setYearRun(savedData.parameters.yearRun || 2);
+        setTimeStep(savedData.parameters.timeStep || 0.1);
+      }
+    }
+  }, [savedData]);
 
+  // Handle location selection
+  const handleLocationSelect = (location) => {
+    if (selectedLocations.length >= 15) {
+      alert('Maximum 15 locations allowed. Please remove some locations first.');
+      return;
+    }
+    
+    const newLocation = {
+      lat: location.lat,
+      lng: location.lng,
+      ewRiverInput: 0
+    };
+    
+    setSelectedLocations(prev => {
+      const newLocations = [...prev, newLocation];
+      setCurrentLocationIndex(newLocations.length - 1);
+      return newLocations;
+    });
+  };
+
+  // Remove a specific location
+  const removeLocation = (index) => {
+    const newLocations = selectedLocations.filter((_, i) => i !== index);
+    setSelectedLocations(newLocations);
+    
+    // Adjust current location index
+    if (currentLocationIndex >= newLocations.length) {
+      setCurrentLocationIndex(Math.max(0, newLocations.length - 1));
+    } else if (currentLocationIndex === index) {
+      setCurrentLocationIndex(Math.max(0, newLocations.length - 1));
+    }
+  };
+
+  // Clear all locations
+  const clearAllLocations = () => {
+    setSelectedLocations([]);
+    setCurrentLocationIndex(-1);
+  };
+
+  // Get current selected location for backward compatibility
+  const selectedLocation = currentLocationIndex >= 0 ? selectedLocations[currentLocationIndex] : null;
 
   // Define checkJobStatus early to avoid dependency issues
   const checkJobStatus = useCallback(async (jobId) => {
@@ -235,25 +293,6 @@ export default function DRNConfig({ savedData }) {
     }
   }, [saveJobStateToStorage, jobError, consecutiveTimeouts]);
 
-  // Load saved data when component mounts or savedData changes
-  useEffect(() => {
-    if (savedData) {
-      const params = savedData.parameters || {};
-      setNumStart(params.numStart || 1);
-      setEwRiverInput(params.ewRiverInput || 1.0);
-      setYearRun(params.yearRun || 2);
-      setTimeStep(params.timeStep || 0.1);
-      
-      // Load saved location
-      if (savedData.location && savedData.location !== 'Custom Location') {
-        const [lat, lng] = savedData.location.split(',').map(coord => parseFloat(coord.trim()));
-        if (!isNaN(lat) && !isNaN(lng)) {
-          setSelectedLocation({ lat, lng });
-        }
-      }
-    }
-  }, [savedData]);
-
   // Use refs to store stable references to functions
   const checkJobStatusRef = useRef(checkJobStatus);
   const clearJobStateFromStorageRef = useRef(clearJobStateFromStorage);
@@ -273,8 +312,13 @@ export default function DRNConfig({ savedData }) {
     const restoreJobState = async () => {
       try {
         const savedJobState = loadJobStateFromStorageRef.current();
+        console.log('Checking for saved job state:', savedJobState);
         
         if (savedJobState && savedJobState.jobId && mounted) {
+          console.log('Restoring saved job:', savedJobState.jobId, 'Status:', savedJobState.jobStatus);
+          // Mark that there's a saved job
+          setHasSavedJob(true);
+          
           // Validate the saved state structure
           setJobId(savedJobState.jobId || null);
           setJobStatus(savedJobState.jobStatus || null);
@@ -299,12 +343,17 @@ export default function DRNConfig({ savedData }) {
               }
             }, 1000);
           }
+        } else {
+          // No saved job found
+          console.log('No saved job state found in localStorage');
+          setHasSavedJob(false);
         }
       } catch (error) {
         console.error('Error restoring job state:', error);
         // Clear potentially corrupted state
         if (mounted) {
           clearJobStateFromStorageRef.current();
+          setHasSavedJob(false);
         }
       }
     };
@@ -348,32 +397,29 @@ export default function DRNConfig({ savedData }) {
 
   // Job submission functions
   const submitJobToGrace = async () => {
-    if (!selectedLocation) {
-      setJobSubmissionMessage('Please select a location first');
+    if (selectedLocations.length === 0) {
+      setJobSubmissionMessage('Please select at least one location first');
       return;
     }
 
     setIsSubmittingJob(true);
     setJobError(null);
-    setJobSubmissionMessage('Submitting job to Yale Grace server...');
+    setJobSubmissionMessage(`Submitting DRN job for ${selectedLocations.length} location(s) to Yale Grace server...`);
 
     try {
       const jobData = {
-        model: 'drn',
-        parameters: {
-          location: {
-            lat: selectedLocation.lat,
-            lng: selectedLocation.lng
-          },
-          numStart,
-          ewRiverInput,
-          yearRun,
-          timeStep
-        },
-        user_id: user?.id || 'anonymous'
+        model: 'DRN',
+        locations: selectedLocations.map(location => ({
+          lat: location.lat,
+          lng: location.lng,
+          ewRiverInput: location.ewRiverInput || 0
+        })),
+        numStart,
+        yearRun,
+        timeStep
       };
 
-      // Call  backend proxy API
+      // Call backend proxy API
       const response = await fetch(getApiUrl('api/run-job'), {
         method: 'POST',
         headers: {
@@ -390,7 +436,7 @@ export default function DRNConfig({ savedData }) {
           jobId: result.job_id,
           jobStatus: 'submitted',
           jobError: null,
-          jobSubmissionMessage: `Job submitted successfully! Job ID: ${result.job_id}`,
+          jobSubmissionMessage: `DRN job submitted successfully for ${selectedLocations.length} location(s)! Job ID: ${result.job_id}`,
           jobLogs: []
         };
         
@@ -420,14 +466,11 @@ export default function DRNConfig({ savedData }) {
     setJobLogs([]);
     setLastStatusCheck(null);
     setConsecutiveTimeouts(0);
+    setHasSavedJob(false); // Clear saved job status
     
     // Clear job state from localStorage
     clearJobStateFromStorage();
   }, [clearJobStateFromStorage]);
-
-  const handleLocationSelect = (location) => {
-    setSelectedLocation(location);
-  };
 
   const handleSaveModel = async () => {
     if (!user) {
@@ -435,8 +478,8 @@ export default function DRNConfig({ savedData }) {
       return;
     }
 
-    if (!selectedLocation) {
-      setSaveMessage('Please select a location first');
+    if (selectedLocations.length === 0) {
+      setSaveMessage('Please select at least one location first');
       return;
     }
 
@@ -445,16 +488,22 @@ export default function DRNConfig({ savedData }) {
 
     try {
       const modelData = {
-        name: `DRN - ${selectedLocation.lat.toFixed(3)}, ${selectedLocation.lng.toFixed(3)}`,
-        model: 'DRN',
-        location: `${selectedLocation.lat.toFixed(4)}, ${selectedLocation.lng.toFixed(4)}`,
-        status: 'saved',
+        name: `DRN Model - ${selectedLocations.length} locations`,
+        location: selectedLocations.length > 0 
+          ? `${selectedLocations[0].lat.toFixed(3)}, ${selectedLocations[0].lng.toFixed(3)} + ${selectedLocations.length - 1} more`
+          : 'No locations selected',
         parameters: {
+          locations: selectedLocations.map(location => ({
+            lat: location.lat,
+            lng: location.lng,
+            ewRiverInput: location.ewRiverInput || 0
+          })),
           numStart,
-          ewRiverInput,
           yearRun,
           timeStep
-        }
+        },
+        timestamp: new Date().toISOString(),
+        userId: user?.id || 'anonymous'
       };
 
       let savedModel;
@@ -486,15 +535,27 @@ export default function DRNConfig({ savedData }) {
     }
   };
 
+  const updateLocationParameter = (index, key, value) => {
+    const newLocations = [...selectedLocations];
+    newLocations[index] = { ...newLocations[index], [key]: value };
+    setSelectedLocations(newLocations);
+  };
+
   return (
     <div>
       <div className="flex gap-6">
         <div className="w-3/5">
           <h3 className="text-xl font-bold text-center mb-6 text-gray-800">Area of Interest</h3>
+          
+          {/* Location Management Controls */}
+          <div className="mb-4">
+          </div>
+          
           <MapComponent 
             onLocationSelect={handleLocationSelect} 
             disabled={!!jobId} 
-            selectedLocation={selectedLocation}
+            selectedLocations={selectedLocations}
+            currentLocationIndex={currentLocationIndex}
           />
           
           {/* Job Logs Display - Moved under the map */}
@@ -513,14 +574,68 @@ export default function DRNConfig({ savedData }) {
           <h3 className="text-xl font-bold text-center mb-6 text-gray-800">DRN Model Configuration</h3>
           <Card className="mt-17 p-6 shadow-lg rounded-2xl border border-gray-200">
             <CardContent>
-              <h3 className="text-xl font-semibold">1. Selected Location</h3>
-              <p className="text-gray-500 mb-4 mt-3">
-                {selectedLocation 
-                  ? `Selected Location: ${selectedLocation.lat.toFixed(3)}, ${selectedLocation.lng.toFixed(3)}`
-                  : "No location selected"}
-              </p>
-              <h3 className="text-xl font-semibold">2. Model Parameters</h3>
+              <h3 className="text-xl font-semibold">1. Selected Locations (up to 15)</h3>
+              <div className="flex justify-between items-center mb-4 mt-3">
+                <p className="text-gray-500">
+                  {selectedLocations.length > 0 
+                    ? `${selectedLocations.length} location(s) selected. Current: ${selectedLocation?.lat.toFixed(3)}, ${selectedLocation?.lng.toFixed(3)}`
+                    : "No locations selected"}
+                </p>
+                {selectedLocations.length > 0 && (
+                  <Button
+                    onClick={clearAllLocations}
+                    className="px-3 py-1 text-sm bg-red-500 hover:bg-red-600 text-white"
+                  >
+                    Clear All
+                  </Button>
+                )}
+              </div>
               
+              {/* Compact Coordinates List */}
+              {selectedLocations.length > 0 && (
+                <div className="mb-4 p-3 bg-gray-50 rounded-lg border">
+                  <div className="space-y-3 max-h-96 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+                    {selectedLocations.map((location, index) => (
+                      <div
+                        key={index}
+                        className="bg-white p-3 rounded border border-gray-200 hover:shadow-md transition-shadow duration-200"
+                      >
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="font-semibold text-sm text-gray-700">
+                            <strong>Location {index + 1}:</strong> {location.lat.toFixed(6)}, {location.lng.toFixed(6)}
+                          </span>
+                          <button
+                            onClick={() => removeLocation(index)}
+                            className="text-red-500 hover:text-red-700 text-xs px-2 py-1 rounded hover:bg-red-50 transition-colors duration-200"
+                            title="Remove this location"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        
+                        {/* Location-specific parameters */}
+                        <div >
+                          <div className="flex items-center gap-2">
+                            <label className="block text-gray-600 text-sm">EW River Input (ton/ha/yr):</label>
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0"
+                              value={location.ewRiverInput || ''}
+                              onChange={(e) => updateLocationParameter(index, 'ewRiverInput', parseFloat(e.target.value) || 0)}
+                              className="w-1/2 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
+                              placeholder="0.00"
+                            />
+                          </div>
+                          
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+
                 <div className="flex items-center gap-4 mb-4">
                   <Label htmlFor="numStart" className="w-44 font-semibold">Start Index of Flow Paths</Label>
                   <Input
@@ -530,44 +645,6 @@ export default function DRNConfig({ savedData }) {
                     value={numStart} 
                     onChange={(e) => setNumStart(e.target.value)} 
                     className="flex-1" 
-                  />
-                </div>
-
-                <div className="flex items-center gap-4 mb-4">
-                  <Label htmlFor="ewRiverInput" className="w-44 font-semibold flex items-center">
-                    EW River Input (ton/ha/yr)
-                    <div 
-                      className="ml-1 text-gray-500 hover:text-gray-700 group relative inline-block"
-                    >
-                      <svg 
-                        xmlns="http://www.w3.org/2000/svg" 
-                        className="h-4 w-4 cursor-help" 
-                        fill="none" 
-                        viewBox="0 0 24 24" 
-                        stroke="currentColor"
-                      >
-                        <path 
-                          strokeLinecap="round" 
-                          strokeLinejoin="round" 
-                          strokeWidth={2} 
-                          d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" 
-                        />
-                      </svg>
-                      <div className="opacity-0 bg-gray-200 text-black text-sm rounded-lg py-2 px-3 absolute z-10 top-0 left-0 transform -translate-y-full w-48 group-hover:opacity-100 transition-opacity duration-300">
-                        Annual CO₂ consumption rate by basalt dissolution globally.
-                        <div className="absolute top-full left-0 border-8 border-transparent border-t-gray-200"></div>
-                      </div>
-                    </div>
-                  </Label>
-                  <Input
-                    id="ewRiverInput"
-                    name="ewRiverInput"
-                    type="number"
-                    step="0.1"
-                    value={ewRiverInput}
-                    onChange={(e) => setEwRiverInput(e.target.value)}
-                    placeholder="Enter EW river input value"
-                    className="flex-1"
                   />
                 </div>
 
@@ -600,7 +677,7 @@ export default function DRNConfig({ savedData }) {
                     <Button
                       type="button"
                       onClick={handleSaveModel}
-                      disabled={isSaving || !selectedLocation}
+                      disabled={isSaving || selectedLocations.length === 0}
                       className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-md font-semibold"
                     >
                       {isSaving ? 'Saving...' : savedData ? 'Update Model Configuration' : 'Save Model Configuration'}
@@ -611,7 +688,7 @@ export default function DRNConfig({ savedData }) {
                         <Button 
                           onClick={submitJobToGrace} 
                           className="w-full bg-blue-500 text-white hover:bg-blue-600 rounded-md p-2 disabled:opacity-50"
-                          disabled={!selectedLocation || isSubmittingJob}
+                          disabled={selectedLocations.length === 0 || isSubmittingJob}
                         >
                           {isSubmittingJob ? 'Submitting...' : 'Submit DRN Job to Grace'}
                         </Button>
@@ -626,6 +703,7 @@ export default function DRNConfig({ savedData }) {
                               setJobError(savedJobState.jobError);
                               setJobSubmissionMessage(savedJobState.jobSubmissionMessage || `Restored job ${savedJobState.jobId}`);
                               setJobLogs(Array.isArray(savedJobState.jobLogs) ? savedJobState.jobLogs : []);
+                              setHasSavedJob(true); // Mark that there's a saved job
                               
                               // Check status if active
                               if (['submitted', 'pending', 'running'].includes(savedJobState.jobStatus)) {
@@ -634,7 +712,7 @@ export default function DRNConfig({ savedData }) {
                             }
                           }}
                           className="w-full bg-purple-500 text-white hover:bg-purple-600 rounded-md p-2 text-sm"
-                          style={{ display: loadJobStateFromStorage() ? 'block' : 'none' }}
+                          style={{ display: hasSavedJob ? 'block' : 'none' }}
                         >
                           Restore Previous Job
                         </Button>
@@ -712,8 +790,10 @@ export default function DRNConfig({ savedData }) {
                           <div className="text-xs text-gray-600 space-y-1">
                             <div><strong>Job ID:</strong> {jobId}</div>
                             <div><strong>Model:</strong> DRN</div>
-                            <div><strong>Location:</strong> {selectedLocation?.lat.toFixed(4)}, {selectedLocation?.lng.toFixed(4)}</div>
-                            <div><strong>Parameters:</strong> Start: {numStart}, Scenario: {ewRiverInput}, Years: {yearRun}, Timestep: {timeStep}</div>
+                            <div><strong>Locations:</strong> {selectedLocations.length} location(s)</div>
+                            <div><strong>Current Location:</strong> {selectedLocation?.lat.toFixed(4)}, {selectedLocation?.lng.toFixed(4)}</div>
+                            <div><strong>Parameters:</strong> Start: {numStart}, Years: {yearRun}, Timestep: {timeStep}</div>
+                            <div><strong>Location Parameters:</strong> {selectedLocations.length} location(s) with individual EW River Input values</div>
                             {lastStatusCheck && (
                               <div><strong>Last checked:</strong> {lastStatusCheck.toLocaleTimeString()}</div>
                             )}

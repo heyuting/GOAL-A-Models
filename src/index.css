@@ -72,6 +72,196 @@
   --sidebar-ring: oklch(0.553 0.013 58.071);
 }
 
+/* Navigation Bar - Yale School of Environment Style */
+nav {
+  background: #00356B;
+  border-bottom: 2px solid #002855;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  font-family: 'mallory-compact-light', 'Gill Sans', 'Gill Sans MT', 'Calibri', 'Arial', sans-serif;
+  font-size: 1rem;
+  font-weight: normal;
+  line-height: 1.8;
+  letter-spacing: 0.025em;
+  position: relative;
+  z-index: 1000;
+}
+
+/* Navigation Container */
+nav .max-w-7xl {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+/* Navigation Content */
+nav .flex {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 5rem;
+  gap: 2rem;
+  padding: 0 1rem;
+}
+
+/* Responsive padding to match main content */
+@media (min-width: 640px) {
+  nav .max-w-7xl {
+    padding: 0 1.5rem;
+  }
+  
+  nav .flex {
+    padding: 0 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  nav .max-w-7xl {
+    padding: 0 2rem;
+  }
+  
+  nav .flex {
+    padding: 0 2rem;
+  }
+}
+
+/* Logo/Brand Section */
+nav .flex.items-center {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+nav h1 {
+  font-family: 'Mallory', 'mallory-compact-light', 'Gill Sans', 'Gill Sans MT', 'Calibri', 'Arial', sans-serif;
+  font-size: 2rem;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0;
+  letter-spacing: -0.025em;
+}
+
+/* Main Navigation Links */
+nav .ml-20 {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+nav .ml-20 a {
+  color: #e5e7eb;
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 1.25rem;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+nav .ml-20 a:hover {
+  color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+nav .ml-20 a::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  height: 2px;
+  background: #ffffff;
+  transition: width 0.2s ease;
+  transform: translateX(-50%);
+}
+
+nav .ml-20 a:hover::after {
+  width: 80%;
+}
+
+/* User Controls Section */
+nav .flex.items-center.space-x-4 {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+nav .flex.items-center.space-x-4 a,
+nav .flex.items-center.space-x-4 button {
+  color: #e5e7eb;
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 1.125rem;
+  padding: 0.75rem 1.25rem;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  cursor: pointer;
+}
+
+nav .flex.items-center.space-x-4 a:hover,
+nav .flex.items-center.space-x-4 button:hover {
+  color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+/* Sign Out Button Special Styling */
+nav .flex.items-center.space-x-4 button[onclick*="logout"],
+nav .flex.items-center.space-x-4 button[onclick*="SignOut"] {
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.3);
+}
+
+nav .flex.items-center.space-x-4 button[onclick*="logout"]:hover,
+nav .flex.items-center.space-x-4 button[onclick*="SignOut"]:hover {
+  background-color: rgba(220, 38, 38, 0.05);
+  color: #b91c1c;
+  border-color: rgba(220, 38, 38, 0.5);
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+  nav .max-w-7xl {
+    padding: 0 1rem;
+  }
+  
+  nav .flex {
+    height: 4rem;
+    gap: 1rem;
+  }
+  
+  nav h1 {
+    font-size: 1.5rem;
+  }
+  
+  nav .ml-20 {
+    gap: 1rem;
+  }
+  
+  nav .ml-20 a {
+    font-size: 1rem;
+    padding: 0.5rem 0.75rem;
+  }
+}
+
+@media (max-width: 768px) {
+  nav .ml-20 {
+    display: none; /* Hide main nav on mobile */
+  }
+  
+  nav .flex.items-center.space-x-4 {
+    gap: 1rem;
+  }
+  
+  nav .flex.items-center.space-x-4 a,
+  nav .flex.items-center.space-x-4 button {
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+  }
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

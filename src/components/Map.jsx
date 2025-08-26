@@ -11,8 +11,28 @@ L.Icon.Default.mergeOptions({
   shadowUrl: "/marker-shadow.png",
 });
 
-export default function MapComponent({ onLocationSelect, disabled = false, selectedLocation: propSelectedLocation }) {
-  const [selectedLocation, setSelectedLocation] = useState(propSelectedLocation || null);
+// Add custom CSS for markers
+const customMarkerStyles = `
+  .custom-marker {
+    background: transparent !important;
+    border: none !important;
+  }
+  .custom-marker div {
+    transition: all 0.2s ease;
+  }
+  .custom-marker div:hover {
+    transform: scale(1.2);
+  }
+`;
+
+// Inject custom styles
+if (typeof document !== 'undefined') {
+  const styleElement = document.createElement('style');
+  styleElement.textContent = customMarkerStyles;
+  document.head.appendChild(styleElement);
+}
+
+export default function MapComponent({ onLocationSelect, disabled = false, selectedLocations = [], currentLocationIndex = -1 }) {
   const [riverData, setRiverData] = useState(null);
   const [loading, setLoading] = useState(true); // State to handle loading state
   const [showRivers, setShowRivers] = useState(false); // State to track whether to show river layer
@@ -34,25 +54,31 @@ export default function MapComponent({ onLocationSelect, disabled = false, selec
     }
   }, [riverData]); // Empty dependency array, but check for `riverData` to avoid repeated fetch
 
-  // Update local selected location when prop changes
-  useEffect(() => {
-    setSelectedLocation(propSelectedLocation);
-  }, [propSelectedLocation]);
-
   function LocationMarker() {
     useMapEvents({
       click(e) {
         // Only allow location selection if not disabled
         if (!disabled) {
           const { lat, lng } = e.latlng;
-          setSelectedLocation({ lat, lng });
           onLocationSelect({ lat, lng });
         }
       },
     });
 
-    return selectedLocation ? <Marker position={[selectedLocation.lat, selectedLocation.lng]} /> : null;
+    return null; // We'll render markers separately
   }
+
+  // Create custom markers for different states
+  const createCustomIcon = (isCurrent) => {
+    return L.divIcon({
+      className: 'custom-marker',
+      html: `<div class="w-4 h-4 rounded-full border-2 border-white shadow-lg ${
+        isCurrent ? 'bg-blue-500' : 'bg-gray-500'
+      }"></div>`,
+      iconSize: [16, 16],
+      iconAnchor: [8, 8]
+    });
+  };
 
   return (
     <div className="w-full h-[600px]">
@@ -86,6 +112,16 @@ export default function MapComponent({ onLocationSelect, disabled = false, selec
             // Render the river GeoJSON if the checkbox is checked
             showRivers && riverData && <GeoJSON data={riverData} renderer={canvasRenderer} style={{ color: "blue", weight: 0.5 }} />
           )}
+          
+          {/* Render all selected locations with different colors */}
+          {selectedLocations.map((location, index) => (
+            <Marker
+              key={index}
+              position={[location.lat, location.lng]}
+              icon={createCustomIcon(index === currentLocationIndex)}
+            />
+          ))}
+          
           <LocationMarker />
         </MapContainer>
         
