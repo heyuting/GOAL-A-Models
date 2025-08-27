@@ -403,7 +403,7 @@ function PublicHomePage() {
               <CardContent className="py-8">
                 <h3 className="text-2xl font-bold text-gray-800 mb-4">Ready to Get Started?</h3>
                 <p className="text-gray-600 mb-6">
-                  Sign up to access our advanced modeling tools and run simulations for enhanced rock weathering research.
+                  Sign up for free to access our advanced modeling tools and run simulations for enhanced rock weathering research.
                 </p>
                 <div className="flex justify-center space-x-4">
                   <Button
