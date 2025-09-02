@@ -433,54 +433,96 @@ function HomePage() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  // Function to get model-specific colors
+  const getModelColors = (modelName) => {
+    switch (modelName) {
+      case 'SCEPTER':
+        return {
+          headerBg: 'bg-gradient-to-r from-blue-100 to-blue-50',
+          borderColor: 'border-blue-200',
+          titleColor: 'text-blue-800'
+        };
+      case 'ATS':
+        return {
+          headerBg: 'bg-gradient-to-r from-green-100 to-green-50',
+          borderColor: 'border-green-200',
+          titleColor: 'text-green-800'
+        };
+      case 'DRN':
+        return {
+          headerBg: 'bg-gradient-to-r from-purple-100 to-purple-50',
+          borderColor: 'border-purple-200',
+          titleColor: 'text-purple-800'
+        };
+      case 'SCEPTER+DRN':
+        return {
+          headerBg: 'bg-gradient-to-r from-orange-100 to-orange-50',
+          borderColor: 'border-orange-200',
+          titleColor: 'text-orange-800'
+        };
+      default:
+        return {
+          headerBg: 'bg-gradient-to-r from-blue-100 to-white',
+          borderColor: 'border-gray-200',
+          titleColor: 'text-gray-800'
+        };
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <div className="mb-6">
-        <h2 className="text-3xl font-bold text-gray-800">Welcome, {user.name}!</h2>
-        <p className="text-gray-700 mt-2">Select a model to get started with enhanced rock weathering research</p>
+        <h2 className="text-4xl font-bold text-gray-800 mb-4">Welcome, {user.name}!</h2>
+        <p className="text-xl text-gray-600">Select a model to get started with enhanced rock weathering research</p>
       </div>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
         <div className="space-y-6">
           {/* First row: SCEPTER and ATS */}
           <div className="grid gap-6 grid-cols-1 md:grid-cols-2">
-            {models.filter(model => model.name === "SCEPTER" || model.name === "ATS").map((model) => (
-              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} key={model.name}>
-                <div 
-                  onClick={() => navigate(`/model/${model.name.toLowerCase()}`)}
-                  className="cursor-pointer h-full"
-                >
-                  <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col overflow-hidden">
-                    <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-100 to-white">
-                      <h3 className="text-2xl font-bold text-gray-800 tracking-wide">{model.name}</h3>
-                    </div>
-                    <CardContent className="p-6 flex flex-col flex-grow bg-white">
-                      <p className="text-gray-600 mt-2 flex-grow leading-relaxed">{model.description}</p>
-                    </CardContent>
-                  </Card>
-                </div>
-              </motion.div>
-            ))}
+            {models.filter(model => model.name === "SCEPTER" || model.name === "ATS").map((model) => {
+              const colors = getModelColors(model.name);
+              return (
+                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} key={model.name}>
+                  <div 
+                    onClick={() => navigate(`/model/${model.name.toLowerCase().replace('+', '-')}`)}
+                    className="cursor-pointer h-full"
+                  >
+                    <Card className={`shadow-lg rounded-2xl border ${colors.borderColor} hover:shadow-xl transition h-full flex flex-col overflow-hidden`}>
+                      <div className={`px-6 py-4 border-b ${colors.borderColor} ${colors.headerBg}`}>
+                        <h3 className={`text-2xl font-bold ${colors.titleColor} tracking-wide`}>{model.name}</h3>
+                      </div>
+                      <CardContent className="p-6 flex flex-col flex-grow bg-white">
+                        <p className="text-gray-600 mt-2 flex-grow leading-relaxed">{model.description}</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </motion.div>
+              );
+            })}
           </div>
           
           {/* Second row: DRN and SCEPTER+DRN */}
           <div className="grid gap-6 grid-cols-1 md:grid-cols-2">
-            {models.filter(model => model.name === "DRN" || model.name === "SCEPTER+DRN").map((model) => (
-              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} key={model.name}>
-                <div 
-                  onClick={() => navigate(`/model/${model.name.toLowerCase()}`)}
-                  className="cursor-pointer h-full"
-                >
-                  <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col overflow-hidden">
-                    <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-100 to-white">
-                      <h3 className="text-2xl font-bold text-gray-800 tracking-wide">{model.name}</h3>
-                    </div>
-                    <CardContent className="p-6 flex flex-col flex-grow bg-white">
-                      <p className="text-gray-600 mt-2 flex-grow leading-relaxed">{model.description}</p>
-                    </CardContent>
-                  </Card>
-                </div>
-              </motion.div>
-            ))}
+            {models.filter(model => model.name === "DRN" || model.name === "SCEPTER+DRN").map((model) => {
+              const colors = getModelColors(model.name);
+              return (
+                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} key={model.name}>
+                  <div 
+                    onClick={() => navigate(`/model/${model.name.toLowerCase().replace('+', '-')}`)}
+                    className="cursor-pointer h-full"
+                  >
+                    <Card className={`shadow-lg rounded-2xl border ${colors.borderColor} hover:shadow-xl transition h-full flex flex-col overflow-hidden`}>
+                      <div className={`px-6 py-4 border-b ${colors.borderColor} ${colors.headerBg}`}>
+                        <h3 className={`text-2xl font-bold ${colors.titleColor} tracking-wide`}>{model.name}</h3>
+                      </div>
+                      <CardContent className="p-6 flex flex-col flex-grow bg-white">
+                        <p className="text-gray-600 mt-2 flex-grow leading-relaxed">{model.description}</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </motion.div>
+              );
+            })}
           </div>
         </div>
       </motion.div>
@@ -515,7 +557,7 @@ function DashboardPage() {
         } else if (model.name && model.name.includes('DRN')) {
           modelType = 'drn';
         } else if (model.name && model.name.includes('SCEPTER')) {
-          modelType = 'scepter+drn';
+          modelType = 'scepter-drn';
         } else if (model.name && model.name.includes('ATS')) {
           modelType = 'ats';
         }
@@ -531,9 +573,7 @@ function DashboardPage() {
 
 function ModelPage() {
   const { modelName } = useParams();
-  const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useAuth();
   const [savedModelData, setSavedModelData] = useState(null);
 
   useEffect(() => {

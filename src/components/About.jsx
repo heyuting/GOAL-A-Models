@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -6,14 +6,31 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 function About() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [showModal, setShowModal] = useState(false);
 
   const handleModelClick = (modelName) => {
     if (user) {
       // User is logged in, redirect to the model page
       const modelPath = modelName.toLowerCase().replace('+', '-');
       navigate(`/model/${modelPath}`);
+    } else {
+      // User is not logged in, show the modal
+      setShowModal(true);
     }
-    // If user is not logged in, do nothing (or could show a login prompt)
+  };
+
+  const handleLogin = () => {
+    setShowModal(false);
+    navigate('/login');
+  };
+
+  const handleSignUp = () => {
+    setShowModal(false);
+    navigate('/signup');
+  };
+
+  const closeModal = () => {
+    setShowModal(false);
   };
 
   return (
@@ -30,7 +47,7 @@ function About() {
             </p>
           </div>
           
-          {/* Hero Image - Above all cards */}
+          
       {/* Mission Statement */}
       <Card className="mb-8">
         <CardHeader>
@@ -94,8 +111,8 @@ function About() {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div 
-              className={`p-6 border-l-4 border-blue-500 bg-blue-50 rounded-r-lg ${user ? 'cursor-pointer hover:bg-blue-100 transition-colors' : ''}`}
-              onClick={() => user && handleModelClick('DRN')}
+              className={`p-6 border-l-4 border-blue-500 bg-blue-50 rounded-r-lg ${user ? 'cursor-pointer hover:bg-blue-100 transition-colors' : 'cursor-pointer hover:bg-blue-100 transition-colors'}`}
+              onClick={() => handleModelClick('DRN')}
             >
               <h3 className="text-xl font-semibold text-gray-800 mb-2">DRN Model</h3>
               <p className="text-gray-600 mb-3">
@@ -108,8 +125,8 @@ function About() {
             </div>
             
             <div 
-              className={`p-6 border-l-4 border-green-500 bg-green-50 rounded-r-lg ${user ? 'cursor-pointer hover:bg-green-100 transition-colors' : ''}`}
-              onClick={() => user && handleModelClick('SCEPTER')}
+              className={`p-6 border-l-4 border-green-500 bg-green-50 rounded-r-lg ${user ? 'cursor-pointer hover:bg-green-100 transition-colors' : 'cursor-pointer hover:bg-green-100 transition-colors'}`}
+              onClick={() => handleModelClick('SCEPTER')}
             >
               <h3 className="text-xl font-semibold text-gray-800 mb-2">SCEPTER Model</h3>
               <p className="text-gray-600 mb-3">
@@ -122,8 +139,8 @@ function About() {
             </div>
             
             <div 
-              className={`p-6 border-l-4 border-purple-500 bg-purple-50 rounded-r-lg ${user ? 'cursor-pointer hover:bg-purple-100 transition-colors' : ''}`}
-              onClick={() => user && handleModelClick('ATS')}
+              className={`p-6 border-l-4 border-purple-500 bg-purple-50 rounded-r-lg ${user ? 'cursor-pointer hover:bg-purple-100 transition-colors' : 'cursor-pointer hover:bg-purple-100 transition-colors'}`}
+              onClick={() => handleModelClick('ATS')}
             >
               <h3 className="text-xl font-semibold text-gray-800 mb-2">ATS Model</h3>
               <p className="text-gray-600 mb-3">
@@ -136,8 +153,8 @@ function About() {
             </div>
             
             <div 
-              className={`p-6 border-l-4 border-orange-500 bg-orange-50 rounded-r-lg ${user ? 'cursor-pointer hover:bg-orange-100 transition-colors' : ''}`}
-              onClick={() => user && handleModelClick('SCEPTER+DRN')}
+              className={`p-6 border-l-4 border-orange-500 bg-orange-50 rounded-r-lg ${user ? 'cursor-pointer hover:bg-orange-100 transition-colors' : 'cursor-pointer hover:bg-orange-100 transition-colors'}`}
+              onClick={() => handleModelClick('SCEPTER-DRN')}
             >
               <h3 className="text-xl font-semibold text-gray-800 mb-2">SCEPTER+DRN</h3>
               <p className="text-gray-600 mb-3">
@@ -227,6 +244,42 @@ function About() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Login/Signup Modal */}
+      {showModal && (
+        <div className="bg-gray-500/50 fixed inset-0 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-8 max-w-lg w-full mx-4 shadow-2xl border-2 border-gray-300">
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                Ready to Get Started?
+              </h2>
+              <p className="text-gray-600 mb-6">
+                Sign up for free to access our advanced modeling tools and run simulations for enhanced rock weathering research.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4">
+                <button
+                  onClick={handleLogin}
+                  className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                >
+                  Log In
+                </button>
+                <button
+                  onClick={handleSignUp}
+                  className="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors font-semibold"
+                >
+                  Sign Up
+                </button>
+              </div>
+              <button
+                onClick={closeModal}
+                className="mt-4 text-gray-500 hover:text-gray-700 text-sm underline"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
         </div>
       </div>
     </div>

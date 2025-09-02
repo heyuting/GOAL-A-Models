@@ -143,13 +143,13 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
   }
 
   return (
-    <div className="p-6 bg-gray-100 min-h-screen">
+    <div className="text-lg p-6 bg-gray-100 min-h-screen">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* Tabs */}
         <div className="flex space-x-1 mb-6 bg-white rounded-lg p-1 shadow-sm">
           <button
             onClick={() => setActiveTab('profile')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            className={`px-4 py-2 rounded-md text-lg font-medium transition-colors ${
               activeTab === 'profile'
                 ? 'bg-blue-500 text-white'
                 : 'text-gray-600 hover:text-gray-900'
@@ -159,7 +159,7 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
           </button>
           <button
             onClick={() => setActiveTab('models')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            className={`px-4 py-2 rounded-md text-lg font-medium transition-colors ${
               activeTab === 'models'
                 ? 'bg-blue-500 text-white'
                 : 'text-gray-600 hover:text-gray-900'
@@ -169,7 +169,7 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
           </button>
           <button
             onClick={() => setActiveTab('settings')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            className={`px-4 py-2 rounded-md text-lg font-medium transition-colors ${
               activeTab === 'settings'
                 ? 'bg-blue-500 text-white'
                 : 'text-gray-600 hover:text-gray-900'
@@ -309,28 +309,6 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
 
         {activeTab === 'settings' && (
           <div className="space-y-6">
-            <Card className="shadow-lg">
-              <CardHeader>
-                <CardTitle>Account Settings</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="text-lg font-medium text-gray-800 mb-2">Preferences</h3>
-                    <p className="text-gray-600">Settings and preferences will be available here.</p>
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-medium text-gray-800 mb-2">Data Management</h3>
-                    <p className="text-gray-600">Manage your saved data and model configurations.</p>
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-medium text-gray-800 mb-2">Notifications</h3>
-                    <p className="text-gray-600">Configure email notifications for model completion.</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
             {/* Danger Zone */}
             <Card className="shadow-lg border-red-200">
               <CardContent className="space-y-4 p-6">
