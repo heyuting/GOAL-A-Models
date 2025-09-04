@@ -34,7 +34,7 @@ function Research() {
                 </div>
                 <div className="h-full">
                   <img 
-                    src="/soils.jpeg" 
+                    src="/soils2.jpeg" 
                     alt="Harvesting Crop Field - Enhanced Rock Weathering in Agricultural Soils"
                     className="w-full h-full object-cover rounded-lg shadow-md"
                   />

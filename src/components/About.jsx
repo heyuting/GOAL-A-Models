@@ -214,31 +214,22 @@ function About() {
       {/* Contact & Get Involved */}
       <div className="text-center">
         <Card className="bg-gradient-to-r from-blue-50 to-green-50 border-blue-200">
-          <CardContent className="py-8">
-            <h3 className="text-2xl font-bold text-gray-800 mb-4">
+          <CardContent className="py-1">
+            <h3 className="text-2xl font-bold text-gray-800 mb-5">
               Contact GOAL-A
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="text-left px-48">
-                <h4 className="font-semibold text-gray-800 mb-3">Contact Information</h4>
-                <p className="text-gray-800 mb-2">Phone: 203-432-6216</p>
-                <p className="text-gray-800 mb-2">Address: 195 Prospect Street<br />New Haven, CT, 06511</p>
+            <div className="grid grid-cols-1 md:grid-cols-4">
+              <div className="text-left px-58">
+                <h4 className="font-semibold text-gray-800">Phone:</h4>
               </div>
-              <div className="text-left px-48">
-                <h4 className="font-semibold text-gray-800 mb-3">Website</h4>
-                <p className="text-gray-600 mb-2">
-                  For more information, visit our website: 
-                  <p>
-                    <a 
-                        href="https://mayaalmaraz6.wixsite.com/goala/about" 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800 underline ml-2"
-                    >
-                        mayaalmaraz6.wixsite.com/goala
-                    </a>
-                  </p>
-                </p>
+              <div className="text-left">
+                <p className="text-gray-800"> 203-432-6216</p>
+              </div>
+              <div className="text-left px-54">
+                <h4 className="font-semibold text-gray-800">Address:</h4>
+              </div>
+              <div className="text-left">
+                <p className="text-gray-800">195 Prospect Street<br />New Haven, CT, 06511</p>
               </div>
             </div>
           </CardContent>
