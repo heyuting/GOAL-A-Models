@@ -81,89 +81,54 @@ export default function App() {
             {/* Logo/Brand */}
             <div className="flex items-center">
               <h1 
-                onClick={() => navigate('/')}
-                className="text-xl text-white font-bold text-800 text-center cursor-pointer hover:text-blue-200 transition-colors"
+                onClick={() => navigate('/public')}
+                className="text-xl text-white font-bold cursor-pointer hover:text-blue-200 transition-colors whitespace-nowrap"
               >
                 GOAL-A
               </h1>
             </div>
             
             {/* Main Navigation Links */}
-            <div className="ml-20 hidden md:flex items-center space-x-6">
-              {/* Models Dropdown - Only show for authenticated users */}
-              {user && (
-                <div className="relative group">
-                  <a 
-                    href="#" 
-                    onClick={() => navigate('/')}
-                    className="text-center font-bold text-white hover:text-blue-200 px-3 py-2 text-lg font-large transition-colors cursor-pointer"
-                  >
-                    Models
-                  </a>
-                  {/* Dropdown Menu */}
-                  <div className="absolute top-full left-0 mt-1 w-48 bg-white rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 border border-gray-200">
-                    <div className="py-1">
-                      <a 
-                        href="#" 
-                        onClick={() => navigate('/model/scepter')}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors"
-                      >
-                        SCEPTER
-                      </a>
-                      <a 
-                        href="#" 
-                        onClick={() => navigate('/model/ats')}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors"
-                      >
-                        ATS
-                      </a>
-                      <a 
-                        href="#" 
-                        onClick={() => navigate('/model/drn')}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors"
-                      >
-                        DRN
-                      </a>
-                      <a 
-                        href="#" 
-                        onClick={() => navigate('/model/scepter-drn')}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors"
-                      >
-                        SCEPTER+DRN
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              )}
+            <div className="ml-20 hidden md:flex items-center space-x-10">
               <a 
                 href="#" 
                 onClick={() => navigate('/research')}
-                className="text-center font-bold text-white hover:text-blue-200 px-3 py-2 text-lg font-large transition-colors cursor-pointer"
+                className="text-center font-bold text-white hover:text-blue-200 px-2 py-1 text-base transition-colors cursor-pointer"
               >
                 Research
               </a>
               <a 
                 href="#" 
                 onClick={() => navigate('/about')}
-                className="text-center font-bold text-white hover:text-blue-200 px-3 py-2 text-lg font-large transition-colors cursor-pointer"
+                className="text-center font-bold text-white hover:text-blue-200 px-2 py-1 text-base transition-colors cursor-pointer"
               >
                 About
               </a>
               <a 
                 href="#" 
                 onClick={() => navigate('/opportunities')}
-                className="text-center font-bold text-white hover:text-blue-200 px-3 py-2 text-lg font-large transition-colors cursor-pointer"
+                className="text-center font-bold text-white hover:text-blue-200 px-2 py-1 text-base transition-colors cursor-pointer"
               >
                 Opportunities
               </a>
+              {/* Models - Only show for authenticated users */}
+              {user && (
+                <a 
+                  href="#" 
+                  onClick={() => navigate('/')}
+                  className="text-center font-bold text-white hover:text-blue-200 px-2 py-1 text-base transition-colors cursor-pointer"
+                >
+                  Models
+                </a>
+              )}
               {/* User Account - Only show for authenticated users */}
               {user && (
                 <a 
                   href="#" 
                   onClick={() => navigate('/dashboard')}
-                  className="text-center font-bold text-white hover:text-blue-200 px-3 py-2 text-lg font-large transition-colors cursor-pointer"
+                  className="text-center font-bold text-white hover:text-blue-200 px-2 py-1 text-base transition-colors cursor-pointer"
                 >
-                  User Account
+                  Account
                 </a>
               )}
             </div>
@@ -218,6 +183,7 @@ export default function App() {
         <Route path="/research" element={<Research />} />
         <Route path="/about" element={<About />} />
         <Route path="/opportunities" element={<Opportunities />} />
+        <Route path="/public" element={<PublicHomePage />} />
 
         {/* Protected Routes */}
         {user ? (
@@ -256,6 +222,7 @@ function SignupPage() {
 
 function PublicHomePage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [currentSlide, setCurrentSlide] = React.useState(0);
 
   // Auto-rotate images every 4 seconds
@@ -367,15 +334,15 @@ function PublicHomePage() {
         </div>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
         <div className="space-y-6">
-          {/* Research and About Cards */}
-          <div className="grid gap-6 grid-cols-1 md:grid-cols-3">
+          {/* Main Cards - 2x2 Grid */}
+          <div className="grid gap-6 grid-cols-1 md:grid-cols-2">
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
               <div 
                 onClick={() => navigate('/research')}
                 className="cursor-pointer h-full"
               >
                 <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col overflow-hidden">
-                  <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-green-100 to-white">
+                  <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-100 to-white">
                     <h3 className="text-2xl font-bold text-gray-800 tracking-wide">Research</h3>
                   </div>
                   <CardContent className="p-6 flex flex-col flex-grow bg-white">
@@ -393,7 +360,7 @@ function PublicHomePage() {
                 className="cursor-pointer h-full"
               >
                 <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col overflow-hidden">
-                  <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-100 to-white">
+                  <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-green-100 to-white">
                     <h3 className="text-2xl font-bold text-gray-800 tracking-wide">About</h3>
                   </div>
                   <CardContent className="p-6 flex flex-col flex-grow bg-white">
@@ -422,34 +389,50 @@ function PublicHomePage() {
                 </Card>
               </div>
             </motion.div>
+
+            {/* Models Card - Only show for authenticated users */}
+            {user && (
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <div 
+                  onClick={() => navigate('/')}
+                  className="cursor-pointer h-full"
+                >
+                  <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col overflow-hidden">
+                    <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-orange-100 to-white">
+                      <h3 className="text-2xl font-bold text-gray-800 tracking-wide">Models</h3>
+                    </div>
+                    <CardContent className="p-6 flex flex-col flex-grow bg-white">
+                      <p className="text-gray-600 mt-2 flex-grow leading-relaxed">
+                        Access our advanced modeling tools and run simulations for enhanced rock weathering research.
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
+              </motion.div>
+            )}
+
+            {/* Get Started Card - Only show for non-authenticated users */}
+            {!user && (
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <div 
+                  onClick={() => navigate('/signup')}
+                  className="cursor-pointer h-full"
+                >
+                  <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col overflow-hidden">
+                                      <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-orange-100 to-white">
+                    <h3 className="text-2xl font-bold text-gray-800 tracking-wide">Models</h3>
+                  </div>
+                    <CardContent className="p-6 flex flex-col flex-grow bg-white">
+                      <p className="text-gray-600 mt-2 flex-grow leading-relaxed">
+                        Sign up to have free access to our advanced modeling tools and run simulations for enhanced rock weathering research.
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
+              </motion.div>
+            )}
           </div>
           
-          {/* Call to Action */}
-          <div className="text-center mt-8">
-            <Card className="bg-gradient-to-r from-blue-50 to-green-50 border-blue-200">
-              <CardContent className="py-8">
-                <h3 className="text-2xl font-bold text-gray-800 mb-4">Ready to Get Started?</h3>
-                <p className="text-gray-600 mb-6">
-                  Sign up for free to access our advanced modeling tools and run simulations for enhanced rock weathering research.
-                </p>
-                <div className="flex justify-center space-x-4">
-                  <Button
-                    onClick={() => navigate('/signup')}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3"
-                  >
-                    Sign Up
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => navigate('/login')}
-                    className="border-blue-600 text-blue-600 hover:bg-blue-50 px-6 py-3"
-                  >
-                    Login
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
         </div>
       </motion.div>
     </div>
@@ -499,7 +482,7 @@ function HomePage() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <div className="mb-6">
-        <h2 className="text-4xl font-bold text-gray-800 mb-4">Welcome, {user.name}!</h2>
+        <h2 className="text-4xl font-bold text-gray-800 mb-4">GOAL-A Models</h2>
         <p className="text-xl text-gray-600">Select a model to get started with enhanced rock weathering research</p>
       </div>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
