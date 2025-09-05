@@ -17,6 +17,7 @@ import Verified from "./Verified";
 import Research from "./Research";
 import About from "./About";
 import Opportunities from "./Opportunities";
+import ScrollToTop from "./ScrollToTop";
 
 const models = [
   { 
@@ -74,6 +75,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-white">
+      <ScrollToTop />
       {/* Top Navigation Menu - App-wide */}
       <nav className="bg-blue-900 shadow-md border-b border-blue-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
