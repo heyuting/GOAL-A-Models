@@ -268,7 +268,7 @@ function PublicHomePage() {
               </div>
               <div className="relative w-full h-[600px] flex-shrink-0">
                 <img 
-                  src="/river.jpeg" 
+                  src="/river.png" 
                   alt="River Research" 
                   className="w-full h-[600px] object-cover"
                 />
@@ -278,7 +278,7 @@ function PublicHomePage() {
               </div>
               <div className="relative w-full h-[600px] flex-shrink-0">
                 <img 
-                  src="/coastalocean.jpeg" 
+                  src="/coastalocean.png" 
                   alt="Coastal Ocean Research" 
                   className="w-full h-[600px] object-cover"
                 />
@@ -289,7 +289,7 @@ function PublicHomePage() {
 
               <div className="relative w-full h-[600px] flex-shrink-0">
                 <img 
-                  src="/atmosphere.jpeg" 
+                  src="/atmosphere.png" 
                   alt="Atmosphere Research" 
                   className="w-full h-[600px] object-cover"
                 />

@@ -56,7 +56,7 @@ function Research() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-stretch">
                 <div className="h-full">
                   <img 
-                    src="/river.jpeg" 
+                    src="/river.png" 
                     alt="River Network - Transport of Weathering Products to Coastal Ocean"
                     className="w-full h-full object-cover rounded-lg shadow-md"
                   />
@@ -105,7 +105,7 @@ function Research() {
                 </div>
                 <div className="h-full">
                   <img 
-                    src="/coastalocean.jpeg" 
+                    src="/coastalocean2.png" 
                     alt="Coastal Ocean - Regional Ocean Biogeochemical Modeling"
                     className="w-full h-full object-cover rounded-lg shadow-md"
                   />
@@ -122,7 +122,7 @@ function Research() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-stretch">
                 <div className="h-full">
                   <img 
-                    src="/globalocean.jpeg" 
+                    src="/globalocean.png" 
                     alt="Earth from Space - Global Ocean Circulation and Biogeochemical Models"
                     className="w-full h-full object-cover rounded-lg shadow-md"
                   />
