@@ -16,6 +16,7 @@ import EmailVerificationPending from "./EmailVerificationPending";
 import Verified from "./Verified";
 import Research from "./Research";
 import About from "./About";
+import Opportunities from "./Opportunities";
 
 const models = [
   { 
@@ -148,6 +149,13 @@ export default function App() {
               >
                 About
               </a>
+              <a 
+                href="#" 
+                onClick={() => navigate('/opportunities')}
+                className="text-center font-bold text-white hover:text-blue-200 px-3 py-2 text-lg font-large transition-colors cursor-pointer"
+              >
+                Opportunities
+              </a>
               {/* User Account - Only show for authenticated users */}
               {user && (
                 <a 
@@ -209,6 +217,7 @@ export default function App() {
         <Route path="/verified" element={<Verified />} />
         <Route path="/research" element={<Research />} />
         <Route path="/about" element={<About />} />
+        <Route path="/opportunities" element={<Opportunities />} />
 
         {/* Protected Routes */}
         {user ? (
@@ -359,7 +368,7 @@ function PublicHomePage() {
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
         <div className="space-y-6">
           {/* Research and About Cards */}
-          <div className="grid gap-6 grid-cols-1 md:grid-cols-2">
+          <div className="grid gap-6 grid-cols-1 md:grid-cols-3">
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
               <div 
                 onClick={() => navigate('/research')}
@@ -390,6 +399,24 @@ function PublicHomePage() {
                   <CardContent className="p-6 flex flex-col flex-grow bg-white">
                     <p className="text-gray-600 mt-2 flex-grow leading-relaxed">
                       Learn about the GOAL-A project, our mission, and the multi-institutional collaboration driving climate solutions.
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            </motion.div>
+
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <div 
+                onClick={() => navigate('/opportunities')}
+                className="cursor-pointer h-full"
+              >
+                <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col overflow-hidden">
+                  <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-purple-100 to-white">
+                    <h3 className="text-2xl font-bold text-gray-800 tracking-wide">Opportunities</h3>
+                  </div>
+                  <CardContent className="p-6 flex flex-col flex-grow bg-white">
+                    <p className="text-gray-600 mt-2 flex-grow leading-relaxed">
+                      Explore opportunities for students, teachers, farmers, academics, funders, and the public to get involved with our work.
                     </p>
                   </CardContent>
                 </Card>

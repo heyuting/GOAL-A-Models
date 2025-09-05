@@ -215,23 +215,11 @@ function About() {
       <div className="text-center">
         <Card className="bg-gradient-to-r from-blue-50 to-green-50 border-blue-200">
           <CardContent className="py-1">
-            <h3 className="text-2xl font-bold text-gray-800 mb-5">
+            <h3 className="text-2xl font-bold text-gray-800 mb-3">
               Contact GOAL-A
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-4">
-              <div className="text-left px-58">
-                <h4 className="font-semibold text-gray-800">Phone:</h4>
-              </div>
-              <div className="text-left">
-                <p className="text-gray-800"> 203-432-6216</p>
-              </div>
-              <div className="text-left px-54">
-                <h4 className="font-semibold text-gray-800">Address:</h4>
-              </div>
-              <div className="text-left">
-                <p className="text-gray-800">195 Prospect Street<br />New Haven, CT, 06511</p>
-              </div>
-            </div>
+            <p className="text-gray-800 mb-1"> 203-432-6216</p>
+            <p className="text-gray-800">195 Prospect Street<br />New Haven, CT, 06511</p>
           </CardContent>
         </Card>
       </div>
