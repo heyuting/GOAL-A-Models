@@ -43,7 +43,7 @@ function About() {
           <div className="mb-8">
             <h1 className="text-4xl font-bold text-gray-800 mb-4">About GOAL-A</h1>
             <p className="text-xl text-gray-600">
-              Global Ocean and Land Alkanization - Creating the first fully connected global model for climate solutions
+              Global Ocean and Land Alkalinization - Creating the first fully connected global model for climate solutions
             </p>
           </div>
           
@@ -183,7 +183,7 @@ function About() {
                 Multi-Institutional Collaboration
               </h3>
               <p className="text-gray-700 leading-relaxed">
-                Global Ocean and Land Alkanization (GOAL-A) is a multi-institutional collaboration that includes 
+                Global Ocean and Land Alkalinization (GOAL-A) is a multi-institutional collaboration that includes 
                 professors, research staff, postdoctoral scholars, and students from:
               </p>
               <ul className="list-disc list-inside mt-3 space-y-1 text-gray-700">

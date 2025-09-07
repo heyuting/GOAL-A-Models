@@ -421,7 +421,7 @@ function PublicHomePage() {
                   className="cursor-pointer h-full"
                 >
                   <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col overflow-hidden">
-                                      <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-orange-100 to-white">
+                  <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-orange-100 to-white">
                     <h3 className="text-2xl font-bold text-gray-800 tracking-wide">Models</h3>
                   </div>
                     <CardContent className="p-6 flex flex-col flex-grow bg-white">

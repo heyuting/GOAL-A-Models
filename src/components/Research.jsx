@@ -133,7 +133,7 @@ function Research() {
                     <div className="w-16 h-1 bg-orange-600 rounded-full"></div>
                   </div>
                   <div className="flex-1 flex flex-col justify-center"><p className="text-gray-700 leading-relaxed">
-                  We will examine the eventual fate of added alkalinity in the open oceans to determine how global alkalinization interacts with anthropogenic atmospheric CO₂ emissions and determine global ocean chemistry and storage timescales for CO₂. We will use a suite of global ocean circulation and biogeochemical models and explore multiple modes of regional-global model coupling, including multiple grid resolutions in the MOM6-COBALT model, MITgcm, and the ocean component of the DOE Earth system model (E3SM). This will allow us to assess the ultimate fate of anthropogenic alkalinity on the global scale and to evaluate structural uncertainty in alkalinity tracking across state-of- the-art ocean biogeochemical models.
+                  We will examine the eventual fate of added alkalinity in the open oceans to determine how global alkalinization interacts with anthropogenic atmospheric CO₂ emissions and determine global ocean chemistry and storage timescales for CO₂. We will use a suite of global ocean circulation and biogeochemical models and explore multiple modes of regional-global model coupling, including multiple grid resolutions in the MOM6-COBALT model, MITgcm, and the ocean component of the DOE Earth system model (E3SM). This will allow us to assess the ultimate fate of anthropogenic alkalinity on the global scale and to evaluate structural uncertainty in alkalinity tracking across state-of-the-art ocean biogeochemical models.
                   </p></div>
 
                   <button 
@@ -247,7 +247,7 @@ function Research() {
                   </div>
                   <div className="h-full">
                     <img 
-                      src="/agricultrual.jpeg" 
+                      src="/agricultural.jpeg" 
                       alt="Agricultural Studies - Silicate Rock Deployment in Agricultural Sites"
                       className="w-full h-full object-cover rounded-lg shadow-md"
                     />
@@ -276,7 +276,7 @@ function Research() {
                     </div>
                     <div className="flex-1 flex flex-col justify-between">
                     <p className="text-gray-700 leading-relaxed">
-                    We are pursuing a variety of activities under the umbrella of outreach, education, and community engagement. We support students as part of Yale School of the Environment’s Environmental Fellow program, which is a summer fellowship opportunity for aspiring masters and doctoral students from historically underrepresented groups. We host summer workshops with the New Haven Teachers Institute working with K-12 teachers to build content at schools with a high proportion of students from low-income and minority families. We run a week-long summer educational program QUEST (Questioning Underlies Effective Science Teaching) on Climate Change: Exploring Solutions to a Complex Problem for middle and high school teachers. We host New Haven Promise summer interns which aims to strengthen academic skills and career preparedness for marginalized undergraduate students. And we offer educational opportunities to the public, including a free and virtual lecture series on enhanced rock weathering that will be offered through the Yale School of the Environment in spring of 2025.
+                    We are pursuing a variety of activities under the umbrella of outreach, education, and community engagement. We support students as part of Yale School of the Environment’s Environmental Fellow program, which is a summer fellowship opportunity for aspiring masters and doctoral students from historically underrepresented groups. We host summer workshops with the New Haven Teachers Institute working with K-12 teachers to build content at schools with a high proportion of students from low-income and minority families. We run a week-long summer educational program QUEST (Questioning Underlies Effective Science Teaching) on Climate Change: Exploring Solutions to a Complex Problem for middle and high school teachers. We host New Haven Promise summer interns which aims to strengthen academic skills and career preparedness for marginalized undergraduate students. And we offer educational opportunities to the public, including a free and virtual lecture series on enhanced rock weathering that will be offered through the Yale School of the Environment in Spring of 2025.
                     </p>
                     <button 
                       className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 transition-colors text-sm mt-8"
