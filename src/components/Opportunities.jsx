@@ -59,7 +59,7 @@ function Opportunities() {
             <p className="text-gray-700 leading-relaxed mb-4">
               We host Yale graduate students each summer through the Environmental Fellows Program. Please see their <span 
                 className="text-green-600 hover:text-green-800 underline cursor-pointer"
-                onClick={() => handleExternalLink('https://environment.yale.edu/students/environmental-fellows-program')}
+                onClick={() => handleExternalLink('https://environmentalfellows.yale.edu/')}
               >
                  website 
               </span> for more details.
