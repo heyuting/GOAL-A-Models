@@ -17,6 +17,7 @@ import Verified from "./Verified";
 import Research from "./Research";
 import About from "./About";
 import Opportunities from "./Opportunities";
+import Publications from "./Publications";
 import ScrollToTop from "./ScrollToTop";
 
 const models = [
@@ -101,10 +102,10 @@ export default function App() {
               </a>
               <a 
                 href="#" 
-                onClick={() => navigate('/about')}
+                onClick={() => navigate('/publications')}
                 className="text-center font-bold text-white hover:text-blue-200 px-2 py-1 text-base transition-colors cursor-pointer"
               >
-                About
+                Publications
               </a>
               <a 
                 href="#" 
@@ -112,6 +113,13 @@ export default function App() {
                 className="text-center font-bold text-white hover:text-blue-200 px-2 py-1 text-base transition-colors cursor-pointer"
               >
                 Opportunities
+              </a>
+              <a 
+                href="#" 
+                onClick={() => navigate('/about')}
+                className="text-center font-bold text-white hover:text-blue-200 px-2 py-1 text-base transition-colors cursor-pointer"
+              >
+                About
               </a>
               {/* Models - Only show for authenticated users */}
               {user && (
@@ -185,6 +193,7 @@ export default function App() {
         <Route path="/research" element={<Research />} />
         <Route path="/about" element={<About />} />
         <Route path="/opportunities" element={<Opportunities />} />
+        <Route path="/publications" element={<Publications />} />
         <Route path="/public" element={<PublicHomePage />} />
 
         {/* Protected Routes */}
@@ -336,8 +345,8 @@ function PublicHomePage() {
         </div>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
         <div className="space-y-6">
-          {/* Main Cards - 2x2 Grid */}
-          <div className="grid gap-6 grid-cols-1 md:grid-cols-2">
+          {/* Main Cards - Responsive Grid */}
+          <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
               <div 
                 onClick={() => navigate('/research')}
@@ -386,6 +395,24 @@ function PublicHomePage() {
                   <CardContent className="p-6 flex flex-col flex-grow bg-white">
                     <p className="text-gray-600 mt-2 flex-grow leading-relaxed">
                       Explore opportunities for students, teachers, farmers, academics, funders, and the public to get involved with our work.
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            </motion.div>
+
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <div 
+                onClick={() => navigate('/publications')}
+                className="cursor-pointer h-full"
+              >
+                <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col overflow-hidden">
+                  <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-100 to-white">
+                    <h3 className="text-2xl font-bold text-gray-800 tracking-wide">Publications</h3>
+                  </div>
+                  <CardContent className="p-6 flex flex-col flex-grow bg-white">
+                    <p className="text-gray-600 mt-2 flex-grow leading-relaxed">
+                      Browse our latest research publications, journal articles, and scientific papers on enhanced rock weathering and climate solutions.
                     </p>
                   </CardContent>
                 </Card>
@@ -443,7 +470,6 @@ function PublicHomePage() {
 
 function HomePage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
 
   // Function to get model-specific colors
   const getModelColors = (modelName) => {
