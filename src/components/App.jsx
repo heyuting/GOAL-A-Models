@@ -235,6 +235,7 @@ function PublicHomePage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [currentSlide, setCurrentSlide] = React.useState(0);
+  const [showModal, setShowModal] = React.useState(false);
 
   // Auto-rotate images every 4 seconds
   React.useEffect(() => {
@@ -254,6 +255,28 @@ function PublicHomePage() {
 
   const nextSlide = () => {
     setCurrentSlide((prev) => (prev + 1) % 4);
+  };
+
+  const handleModelClick = () => {
+    if (user) {
+      navigate('/');
+    } else {
+      setShowModal(true);
+    }
+  };
+
+  const handleLogin = () => {
+    setShowModal(false);
+    navigate('/login');
+  };
+
+  const handleSignUp = () => {
+    setShowModal(false);
+    navigate('/signup');
+  };
+
+  const closeModal = () => {
+    setShowModal(false);
   };
 
   return (
@@ -345,8 +368,8 @@ function PublicHomePage() {
         </div>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
         <div className="space-y-6">
-          {/* Main Cards - Responsive Grid */}
-          <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+          {/* Main Cards - Two Column Grid */}
+          <div className="grid gap-6 grid-cols-1 md:grid-cols-2">
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
               <div 
                 onClick={() => navigate('/research')}
@@ -359,42 +382,6 @@ function PublicHomePage() {
                   <CardContent className="p-6 flex flex-col flex-grow bg-white">
                     <p className="text-gray-600 mt-2 flex-grow leading-relaxed">
                       Discover our cutting-edge research in enhanced rock weathering, from soils and rivers to coastal oceans and global climate solutions.
-                    </p>
-                  </CardContent>
-                </Card>
-              </div>
-            </motion.div>
-            
-            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-              <div 
-                onClick={() => navigate('/about')}
-                className="cursor-pointer h-full"
-              >
-                <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col overflow-hidden">
-                  <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-green-100 to-white">
-                    <h3 className="text-2xl font-bold text-gray-800 tracking-wide">About</h3>
-                  </div>
-                  <CardContent className="p-6 flex flex-col flex-grow bg-white">
-                    <p className="text-gray-600 mt-2 flex-grow leading-relaxed">
-                      Learn about the GOAL-A project, our mission, and the multi-institutional collaboration driving climate solutions.
-                    </p>
-                  </CardContent>
-                </Card>
-              </div>
-            </motion.div>
-
-            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-              <div 
-                onClick={() => navigate('/opportunities')}
-                className="cursor-pointer h-full"
-              >
-                <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col overflow-hidden">
-                  <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-purple-100 to-white">
-                    <h3 className="text-2xl font-bold text-gray-800 tracking-wide">Opportunities</h3>
-                  </div>
-                  <CardContent className="p-6 flex flex-col flex-grow bg-white">
-                    <p className="text-gray-600 mt-2 flex-grow leading-relaxed">
-                      Explore opportunities for students, teachers, farmers, academics, funders, and the public to get involved with our work.
                     </p>
                   </CardContent>
                 </Card>
@@ -418,52 +405,125 @@ function PublicHomePage() {
                 </Card>
               </div>
             </motion.div>
-
-            {/* Models Card - Only show for authenticated users */}
-            {user && (
-              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <div 
-                  onClick={() => navigate('/')}
-                  className="cursor-pointer h-full"
-                >
-                  <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col overflow-hidden">
-                    <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-orange-100 to-white">
-                      <h3 className="text-2xl font-bold text-gray-800 tracking-wide">Models</h3>
-                    </div>
-                    <CardContent className="p-6 flex flex-col flex-grow bg-white">
-                      <p className="text-gray-600 mt-2 flex-grow leading-relaxed">
-                        Access our advanced modeling tools and run simulations for enhanced rock weathering research.
-                      </p>
-                    </CardContent>
-                  </Card>
-                </div>
-              </motion.div>
-            )}
-
-            {/* Get Started Card - Only show for non-authenticated users */}
-            {!user && (
-              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <div 
-                  onClick={() => navigate('/signup')}
-                  className="cursor-pointer h-full"
-                >
-                  <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col overflow-hidden">
-                  <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-orange-100 to-white">
-                    <h3 className="text-2xl font-bold text-gray-800 tracking-wide">Models</h3>
+            
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <div 
+                onClick={() => navigate('/opportunities')}
+                className="cursor-pointer h-full"
+              >
+                <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col overflow-hidden">
+                  <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-purple-100 to-white">
+                    <h3 className="text-2xl font-bold text-gray-800 tracking-wide">Opportunities</h3>
                   </div>
-                    <CardContent className="p-6 flex flex-col flex-grow bg-white">
-                      <p className="text-gray-600 mt-2 flex-grow leading-relaxed">
-                        Sign up to have free access to our advanced modeling tools and run simulations for enhanced rock weathering research.
+                  <CardContent className="p-6 flex flex-col flex-grow bg-white">
+                    <p className="text-gray-600 mt-2 flex-grow leading-relaxed">
+                      Explore opportunities for students, teachers, farmers, academics, funders, and the public to get involved with our work.
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            </motion.div>
+
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <div 
+                onClick={() => navigate('/about')}
+                className="cursor-pointer h-full"
+              >
+                <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col overflow-hidden">
+                  <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-green-100 to-white">
+                    <h3 className="text-2xl font-bold text-gray-800 tracking-wide">About</h3>
+                  </div>
+                  <CardContent className="p-6 flex flex-col flex-grow bg-white">
+                    <p className="text-gray-600 mt-2 flex-grow leading-relaxed">
+                      Learn about the GOAL-A project, our mission, and the multi-institutional collaboration driving climate solutions.
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            </motion.div>
+
+            {/* Models Card */}
+            <div className="text-center col-span-full">
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <div onClick={handleModelClick} className="cursor-pointer">
+                  <Card className="bg-gradient-to-r from-blue-50 to-green-50 border-blue-200 hover:shadow-lg transition-shadow">
+                    <CardContent className="py-6">
+                      <h3 className="text-2xl font-bold text-gray-800 mb-3">
+                        {user ? "Access Models" : "Ready to Get Started?"}
+                      </h3>
+                      <p className="text-gray-800 mb-4">
+                        {user 
+                          ? "Access our advanced modeling tools and run simulations for enhanced rock weathering research."
+                          : "Sign up for free to access our advanced modeling tools and run simulations for enhanced rock weathering research."
+                        }
                       </p>
+                      <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                        {user ? (
+                          <button className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold">
+                            Access Models
+                          </button>
+                        ) : (
+                          <>
+                            <button 
+                              onClick={() => navigate('/login')}
+                              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                            >
+                              Log In
+                            </button>
+                            <button 
+                              onClick={() => navigate('/signup')}
+                              className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors font-semibold"
+                            >
+                              Sign Up
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </CardContent>
                   </Card>
                 </div>
               </motion.div>
-            )}
+            </div>
           </div>
           
         </div>
       </motion.div>
+
+      {/* Login/Signup Modal */}
+      {showModal && (
+        <div className="bg-gray-500/50 fixed inset-0 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-8 max-w-lg w-full mx-4 shadow-2xl border-2 border-gray-300">
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                Ready to Get Started?
+              </h2>
+              <p className="text-gray-600 mb-6">
+                Sign up for free to access our advanced modeling tools and run simulations for enhanced rock weathering research.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4">
+                <button
+                  onClick={handleLogin}
+                  className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                >
+                  Log In
+                </button>
+                <button
+                  onClick={handleSignUp}
+                  className="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors font-semibold"
+                >
+                  Sign Up
+                </button>
+              </div>
+              <button
+                onClick={closeModal}
+                className="mt-4 text-gray-500 hover:text-gray-700 text-sm underline"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
