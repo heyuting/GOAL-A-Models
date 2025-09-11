@@ -695,7 +695,7 @@ function ModelPage() {
           )}
         </div>
         <Card className="shadow-lg rounded-2xl border border-gray-200 overflow-hidden p-0">
-          <CardHeader className="text-center pb-8 pt-6 bg-gradient-to-b from-blue-200 via-blue-150 to-white">
+          <CardHeader className="text-center pb-8 pt-6">
             <CardTitle className="text-3xl font-bold text-gray-800">{modelNameUpperCase}</CardTitle>
           </CardHeader>
           <CardContent className="p-6">

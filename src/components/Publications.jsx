@@ -30,22 +30,22 @@ function Publications() {
     {
       id: 1,
       title: "Using Carbonates for Carbon Removal",
-      authors: "Raymond, P.A., N. Planavsky, C. Reinhard",
+      authors: "Raymond, P., Planavsky, N. & Reinhard, C.T.",
       journal: "Nature Water",
-      year: 2024,
-      doi: "",
-      type: "Journal Article",
+      year: 2025,
+      doi: "10.1038/s44221-025-00473-0",
+      type: "",
       category: "Climate Solutions",
-      status: "Accepted"
+      status: "Published"
     },
     {
       id: 2,
       title: "A harmonized river‐ocean coupled database for the northern Gulf of Mexico",
       authors: "Armos, B., Zhang, S., Wen, T., Gellerson, E., Daripa, P.",
       journal: "Scientific Data",
-      year: 2024,
+      year: 2025,
       doi: "10.1038/s41597‐024‐04338‐1",
-      type: "Journal Article",
+      type: "",
       category: "Ocean Science",
       status: "Published"
     },
@@ -54,20 +54,20 @@ function Publications() {
       title: "River metabolism in the contiguous United States: A west of extremes",
       authors: "Taylor Maavara, Zimin Yuan, Andrew M. Johnson, Shuang Zhang, Kelly S. Aho, Craig B. Brinkerhoff, Laura A. Logozzo, Peter Raymond",
       journal: "Science",
-      year: 2024,
+      year: 2025,
       doi: "",
-      type: "Journal Article",
+      type: "",
       category: "Hydrology",
       status: "Under Review"
     },
     {
       id: 4,
-      title: "Regional Uncertainty Analysis in the Air–Sea CO2 Flux",
+      title: "Regional Uncertainty Analysis in the Air–Sea CO₂ Flux",
       authors: "L. Gloege, M. D. Eisaman",
       journal: "Earth and Space Science",
-      year: 2024,
+      year: 2025,
       doi: "10.1029/2024EA004032",
-      type: "Journal Article",
+      type: "",
       category: "Ocean Science",
       status: "Published"
     },
@@ -76,9 +76,9 @@ function Publications() {
       title: "A technical review of the underlying mechanics, potential advantages, and challenges to scale across pathways that manipulate the ocean carbonate system",
       authors: "Reinhard, Bracco, Ito, and Planavsky et al.",
       journal: "Cell Reports Sustainability",
-      year: 2024,
+      year: 2025,
       doi: "",
-      type: "Journal Article",
+      type: "",
       category: "Ocean Science",
       status: "Under Review"
     },
@@ -87,9 +87,9 @@ function Publications() {
       title: "Enhanced rock weathering for carbon removal–monitoring and mitigating potential environmental impacts on agricultural land",
       authors: "Levy, C.R., Almaraz, M., Beerling, D.J., Raymond, P., Reinhard, C.T., Suhrhoff, T.J. and Taylor, L.",
       journal: "Environmental Science & Technology",
-      year: 2024,
+      year: 2025,
       doi: "10.1021/acs.est.4c02368",
-      type: "Journal Article",
+      type: "",
       category: "Agriculture",
       status: "Published"
     },
@@ -100,7 +100,7 @@ function Publications() {
       journal: "AGU Advances",
       year: 2025,
       doi: "10.1029/2025AV001693",
-      type: "Journal Article",
+      type: "",
       category: "Agriculture",
       status: "Published"
     },
@@ -109,31 +109,31 @@ function Publications() {
       title: "Transforming US agriculture for carbon removal with enhanced weathering",
       authors: "David J. Beerling, Euripides P. Kantzas, Mark R. Lomas, Lyla L. Taylor, Shuang Zhang, Yoshiki Kanzaki, Rafael M. Eufrasio, Phil Renforth, Jean‐Francois Mecure, Hector Pollitt, Philip B. Holden, Neil R. Edwards, Lenny Koh, Dimitar Z. Epihov, Adam Wolf, James E. Hansen, Steven A. Banwart, Nick F. Pidgeon, Christopher T. Reinhard, Noah J. Planavsky & Maria Val Martin",
       journal: "Nature",
-      year: 2024,
+      year: 2025,
       doi: "10.1038/s41586‐024‐08429‐2",
-      type: "Journal Article",
+      type: "",
       category: "Agriculture",
       status: "Published"
     },
     {
       id: 9,
-      title: "Expert elicitation on agricultural enhanced weathering highlights CO2 removal potential and uncertainties in loss pathways",
-      authors: "Buma, B., C. Dietzen, D. R. Gordon, K. Maher, R. B. Neumann, N. Planavsky, T. Reershemius, T. J. Suhrhoff, S. Vicca, B. G. Waring, M. Almaraz, S. Calabrese, L. A. Derry, M. Granger Morgan, J. Higgins, B. Z. Houlton, Y. Kanzaki, A. Klemme, T. Kukla, E. E. Oldfield, I. M. Power, C. R. Pearce, W. L. Silver, S. Zhang",
-      journal: "Nature Communications Earth and Environment",
-      year: 2024,
-      doi: "",
-      type: "Journal Article",
+      title: "Expert elicitation on agricultural enhanced weathering highlights CO₂ removal potential and uncertainties in loss pathways",
+      authors: "Buma, Brian & Dietzen, Christiana & Gordon, Doria & Maher, Katharine & Neumann, Rebecca & Planavsky, Noah & Reershemius, Tom & Suhrhoff, Tim Jesper & Vicca, Sara & Waring, Bonnie & Almaraz, Maya & Calabrese, Salvatore & Derry, Louis & Morgan, M. & Higgins, John & Houlton, Benjamin & Kanzaki, Yoshiki & Klemme, Alexandra & Kukla, Tyler & Zhang, Shuang",
+      journal: "Research Square",
+      year: 2025,
+      doi: "10.21203/rs.3.rs-7040857/v1",
+      type: "",
       category: "Agriculture",
-      status: "Submitted"
+      status: "Published"
     },
     {
       id: 10,
       title: "Soil cation storage is a key control on the carbon removal dynamics of enhanced weathering",
       authors: "Y Kanzaki, N J Planavsky, S Zhang, J Jordan, T J Suhrhoff and C T Reinhard",
       journal: "Environmental Research Letters",
-      year: 2024,
+      year: 2025,
       doi: "10.1088/1748‐9326/ade0d5",
-      type: "Journal Article",
+      type: "",
       category: "Soil Science",
       status: "Published"
     },
@@ -142,31 +142,31 @@ function Publications() {
       title: "A spatially explicit dataset of agriculture liming across the contiguous US",
       authors: "Samuel Shou‐En Tsao, Tim Jesper Surhoff, Giuseppe Amatulli, Maya Almaraz, Jon Gewirtzman, Beck Woollen, Eric W. Slessarev, James E. Saiers, Christopher T. Reinhard, Shuang Zhang, Noah J. Planavsky, Peter A. Raymond",
       journal: "Earth System Science Data",
-      year: 2024,
+      year: 2025,
       doi: "",
-      type: "Journal Article",
+      type: "",
       category: "Agriculture",
       status: "Submitted"
     },
     {
       id: 12,
       title: "Constraining carbon loss from rivers following terrestrial enhanced rock weathering",
-      authors: "Shuang Zhang, Christopher T. Reinhard, Shaoda Liu, Yoshiki Kanzaki, Noah J. Planavsky",
-      journal: "ESS Open Archive preprint",
-      year: 2024,
-      doi: "",
-      type: "Journal Article",
+      authors: "Shuang Zhang, Christopher T Reinhard, Shaoda Liu, et al.",
+      journal: "ESS Open Archive",
+      year: 2025,
+      doi: "10.22541/essoar.171052489.97497425/v1",
+      type: "",
       category: "Hydrology",
-      status: "Accepted"
+      status: "Published"
     },
     {
       id: 13,
       title: "Watershed reactive transport illustrated the controls on silicate weathering and solute fluxes at Hubbard Brook",
       authors: "Shaheen, S.W., Tatge, W., Molins, S., Driscoll, C.T., Chen, X., Raymond, P.E., Saiers, J.E.",
       journal: "Water Resources Research",
-      year: 2024,
+      year: 2025,
       doi: "",
-      type: "Journal Article",
+      type: "",
       category: "Hydrology",
       status: "Under Review"
     },
@@ -175,9 +175,9 @@ function Publications() {
       title: "Evaluating the carbon capture potential of industrial waste as a feedstock for enhanced weathering",
       authors: "P. Xu, C.T. Reinhard",
       journal: "Environmental Research Letters",
-      year: 2024,
+      year: 2025,
       doi: "10.1088/1748‐9326/adc020",
-      type: "Journal Article",
+      type: "",
       category: "Climate Solutions",
       status: "Published"
     },
@@ -186,9 +186,9 @@ function Publications() {
       title: "Spatiotemporal modulation of alkalinity and DIC outwelling from saltmarsh porewater in New England's largest marsh complex",
       authors: "Zhang, M., X. Cai, N. Weston, Z. Wu, A. Giblin, C. Hunt, S. Tsao, N. Zhang, P. Raymond",
       journal: "JGR‐Biogeosciences",
-      year: 2024,
+      year: 2025,
       doi: "",
-      type: "Journal Article",
+      type: "",
       category: "Ocean Science",
       status: "Under Review"
     },
@@ -197,9 +197,9 @@ function Publications() {
       title: "A framework for modeling carbon loss from rivers following terrestrial enhanced weathering",
       authors: "S. Zhang, C. T. Reinhard, S. Liu, Y. Kanzaki, N. J. Planavsky",
       journal: "Environmental Research Letters",
-      year: 2024,
+      year: 2025,
       doi: "10.1088/1748‐9326/ada398",
-      type: "Journal Article",
+      type: "",
       category: "Hydrology",
       status: "Published"
     },
@@ -208,20 +208,20 @@ function Publications() {
       title: "Evolution of the modern global nitrogen cycle",
       authors: "Almaraz, M., S. Xin, E. Davidson, X. Zhang, J. Galloway, Peter Raymond",
       journal: "Nature Reviews Earth and Environment",
-      year: 2024,
+      year: 2025,
       doi: "",
-      type: "Journal Article",
+      type: "",
       category: "Climate Solutions",
       status: "Under Review"
     },
     {
       id: 18,
-      title: "A new framework for the attribution of air‐sea CO2 exchange",
+      title: "A new framework for the attribution of air‐sea CO₂ exchange",
       authors: "Takamitsu, I., Reinhard, C.",
       journal: "Global Biogeochemical Cycles",
-      year: 2024,
+      year: 2025,
       doi: "10.1029/2024GB008346",
-      type: "Journal Article",
+      type: "",
       category: "Ocean Science",
       status: "Published"
     },
@@ -230,9 +230,9 @@ function Publications() {
       title: "Machine learning for the physics of climate",
       authors: "Annalisa Bracco, Julien Brajard, Henk A. Dijkstra, Pedram Hassanzadeh, Christian Lessig, Claire Monteleoni",
       journal: "Nature Reviews Physics",
-      year: 2024,
+      year: 2025,
       doi: "10.1038/s42254‐024‐00776‐3",
-      type: "Journal Article",
+      type: "",
       category: "Climate Solutions",
       status: "Published"
     }
@@ -346,15 +346,38 @@ function Publications() {
       <div className="space-y-4 mb-12">
         {sortedPublications.map((pub) => (
           <Card key={pub.id} className="shadow-md hover:shadow-lg transition-shadow h-fit">
-            <CardContent className="p-4">
+            <CardContent>
               <div className="flex flex-col gap-3">
-                <div className="flex justify-between items-start gap-3">
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-1 leading-tight">
+                    {pub.title}
+                  </h3>
+                  
+                  <p className="text-sm text-gray-700 mb-1">
+                    <span className="font-medium">Authors:</span> {pub.authors}
+                  </p>
+                  
+                  <p className="text-sm text-gray-700 mb-1">
+                    <span className="font-medium">Journal:</span> {pub.journal} • <span className="font-medium">Year:</span> {pub.year}
+                    {pub.doi && (
+                      <> • <span className="font-medium">DOI:</span> 
+                        <button
+                          onClick={() => handleExternalLink(getDoiUrl(pub.doi))}
+                          className="ml-1 text-blue-600 hover:text-blue-800 underline"
+                        >
+                          {pub.doi}
+                        </button>
+                      </>
+                    )}
+                  </p>
+                  <div className="flex flex-wrap gap-3 text-xs text-gray-600">
+                  </div>
+                </div>
+                
+                <div className="flex justify-between items-center ">
                   <div className="flex flex-wrap gap-1">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getCategoryColor(pub.category)}`}>
                       {pub.category}
-                    </span>
-                    <span className={`px-2 py-0.5 rounded-md text-xs font-medium border ${getTypeColor(pub.type)}`}>
-                      {pub.type}
                     </span>
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(pub.status)}`}>
                       {pub.status}
@@ -368,37 +391,6 @@ function Publications() {
                       View Article
                     </button>
                   )}
-                </div>
-                
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-gray-800 mb-1 leading-tight">
-                    {pub.title}
-                  </h3>
-                  
-                  <p className="text-sm text-gray-700 mb-1">
-                    <span className="font-medium">Authors:</span> {pub.authors}
-                  </p>
-                  
-                  <p className="text-sm text-gray-700 mb-1">
-                    <span className="font-medium">Journal:</span> {pub.journal}
-                  </p>
-                  
-                  <div className="flex flex-wrap gap-3 text-xs text-gray-600">
-                    <span>
-                      <span className="font-medium">Year:</span> {pub.year}
-                    </span>
-                    {pub.doi && (
-                      <span>
-                        <span className="font-medium">DOI:</span> 
-                        <button
-                          onClick={() => handleExternalLink(getDoiUrl(pub.doi))}
-                          className="ml-1 text-blue-600 hover:text-blue-800 underline text-xs"
-                        >
-                          {pub.doi}
-                        </button>
-                      </span>
-                    )}
-                  </div>
                 </div>
               </div>
             </CardContent>

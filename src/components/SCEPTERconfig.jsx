@@ -847,7 +847,7 @@ export default function SCEPTERConfig({ savedData }) {
         </div>
 
         <div className="w-2/5">
-          <h2 className="text-xl font-bold text-center mb-6 text-gray-800">Simulation Settings</h2>
+          <h2 className="text-xl font-bold text-center  text-gray-800">Simulation Settings</h2>
           <Card className="mt-5 rounded-2xl shadow-lg p-6">
             <CardContent className="space-y-6">
               <form onSubmit={handleRunModel} className="space-y-6">
