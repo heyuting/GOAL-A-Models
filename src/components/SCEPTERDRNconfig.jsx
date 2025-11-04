@@ -442,6 +442,28 @@ export default function SCEPTERDRNConfig({ savedData }) {
 
   return (
     <div className="container mx-auto p-4 space-y-6">
+      {/* Map Component */}
+      <Card>
+        <CardContent className="p-6">
+          <h2 className="text-xl font-semibold mb-4 text-center">DRN + SCEPTER Area of Interest</h2>
+          <MapComponent
+            onLocationSelect={handleLocationSelect}
+            selectedLocation={selectedLocation}
+            center={mapCenter}
+            zoom={mapZoom}
+            onCenterChange={setMapCenter}
+            onZoomChange={setMapZoom}
+          />
+          {selectedLocation && (
+            <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+              <p className="text-sm text-blue-800">
+                Selected Location: {selectedLocation.lat.toFixed(6)}, {selectedLocation.lng.toFixed(6)}
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* SCEPTER Configuration */}
         <Card>
@@ -565,28 +587,6 @@ export default function SCEPTERDRNConfig({ savedData }) {
           </CardContent>
         </Card>
       </div>
-
-      {/* Map Component */}
-      <Card>
-        <CardContent className="p-6">
-          <h2 className="text-xl font-semibold mb-4">Location Selection</h2>
-          <MapComponent
-            onLocationSelect={handleLocationSelect}
-            selectedLocation={selectedLocation}
-            center={mapCenter}
-            zoom={mapZoom}
-            onCenterChange={setMapCenter}
-            onZoomChange={setMapZoom}
-          />
-          {selectedLocation && (
-            <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-              <p className="text-sm text-blue-800">
-                Selected Location: {selectedLocation.lat.toFixed(6)}, {selectedLocation.lng.toFixed(6)}
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       {/* Job Control and Save Model Configuration - Side by Side */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

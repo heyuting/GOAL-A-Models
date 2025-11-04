@@ -18,6 +18,7 @@ import Research from "./Research";
 import About from "./About";
 import Opportunities from "./Opportunities";
 import Publications from "./Publications";
+import USGSSitesExploration from "./USGSSitesExploration";
 import ScrollToTop from "./ScrollToTop";
 
 const models = [
@@ -194,6 +195,7 @@ export default function App() {
         <Route path="/about" element={<About />} />
         <Route path="/opportunities" element={<Opportunities />} />
         <Route path="/publications" element={<Publications />} />
+        <Route path="/usgs-sites" element={<USGSSitesExploration />} />
         <Route path="/public" element={<PublicHomePage />} />
 
         {/* Protected Routes */}
@@ -366,6 +368,7 @@ function PublicHomePage() {
           <h2 className="text-3xl font-bold text-gray-800">Welcome to GOAL-A!</h2>
           <p className="text-gray-700 mt-2">Global Ocean and Land Alkalinization (GOAL-A) is a multi-institutional project funded by the Department of Energy. The spreading of silicate rocks across land and sea are being proposed as a natural climate solution that can remove carbon from the atmosphere. We aim to create a system of connected Earth system models designed to track carbon fluxes in land- and ocean-based alkalinization projects.</p>
         </div>
+
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
         <div className="space-y-6">
           {/* Main Cards - Two Column Grid */}
@@ -573,6 +576,7 @@ function HomePage() {
         <h2 className="text-4xl font-bold text-gray-800 mb-4">GOAL-A Models</h2>
         <p className="text-xl text-gray-600">Select a model to get started with enhanced rock weathering research</p>
       </div>
+
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
         <div className="space-y-6">
           {/* First row: SCEPTER and ATS */}
@@ -623,6 +627,75 @@ function HomePage() {
             })}
           </div>
         </div>
+      </motion.div>
+
+      {/* USGS Sites Exploration Section */}
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }} 
+        animate={{ opacity: 1, y: 0 }} 
+        transition={{ duration: 0.6, delay: 0.2 }}
+        className="mt-8"
+      >
+        <Card className="shadow-lg rounded-2xl border border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+          <CardContent className="p-8">
+            <div className="flex flex-col md:flex-row items-center gap-6">
+              <div className="flex-1">
+                <h3 className="text-2xl font-bold text-gray-800 mb-3">Explore USGS Water Quality Sites</h3>
+                <p className="text-gray-700 mb-4 leading-relaxed">
+                  Access comprehensive water quality data from thousands of USGS monitoring sites across the United States. 
+                  Our platform integrates stream and groundwater monitoring sites with alkalinity measurements, 
+                  providing valuable insights for enhanced rock weathering research and environmental modeling.
+                </p>
+                <ul className="text-gray-700 space-y-2 mb-4">
+                  <li className="flex items-start">
+                    <span className="text-blue-600 mr-2">•</span>
+                    <span>Browse stream and groundwater sites with alkalinity data</span>
+                  </li>
+                  <li className="flex items-start">
+                    <span className="text-blue-600 mr-2">•</span>
+                    <span>View historical alkalinity measurements and trends</span>
+                  </li>
+                  <li className="flex items-start">
+                    <span className="text-blue-600 mr-2">•</span>
+                    <span>Use site data to inform SCEPTER model configurations</span>
+                  </li>
+                  <li className="flex items-start">
+                    <span className="text-blue-600 mr-2">•</span>
+                    <span>Color-coded markers indicate data recency and quality</span>
+                  </li>
+                </ul>
+                <Button 
+                  onClick={() => navigate('/usgs-sites')}
+                  className="bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                >
+                  Explore USGS Sites
+                </Button>
+              </div>
+              <div className="flex-shrink-0">
+                <div className="bg-white rounded-lg p-6 shadow-md border border-gray-200">
+                  <div className="text-center">
+                    <div className="text-4xl font-bold text-blue-600 mb-2">10,000+</div>
+                    <div className="text-gray-600 text-sm mb-4">USGS Sites Available</div>
+                    <div className="flex gap-2 justify-center">
+                      <div className="flex items-center gap-1">
+                        <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                        <span className="text-xs text-gray-600">Recent (≤2yr)</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+                        <span className="text-xs text-gray-600">Moderate (2-5yr)</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                        <span className="text-xs text-gray-600">Older (&gt;5yr)</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </motion.div>
     </div>
   );
@@ -694,10 +767,7 @@ function ModelPage() {
             </div>
           )}
         </div>
-        <Card className="shadow-lg rounded-2xl border border-gray-200 overflow-hidden p-0">
-          <CardHeader className="text-center">
-            <CardTitle className="text-3xl font-bold text-gray-800 mt-16">{modelNameUpperCase}</CardTitle>
-          </CardHeader>
+        <Card className="shadow-lg rounded-2xl border border-gray-200 overflow-hidden">
           <CardContent className="p-6">
             {modelNameUpperCase === "DRN" ? 
               <DRNConfig savedData={savedModelData} />

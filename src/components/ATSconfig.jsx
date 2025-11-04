@@ -531,7 +531,7 @@ export default function ATSConfig({ savedData }) {
       <div className="flex gap-6">
         <div className="w-3/5">
           {/* AOI Inputs */}
-          <h2 className="text-xl font-bold text-center mb-6 text-gray-800">Watershed Delineation</h2>
+          <h2 className="text-xl font-bold text-center mb-6 text-gray-800">Watershed Delineation for ATS</h2>
 
           <div className="mt-6">
             <div className="mb-4 space-y-2">
@@ -716,7 +716,7 @@ export default function ATSConfig({ savedData }) {
       </div>
       
       <div className="w-2/5">
-       <h2 className="text-xl font-bold text-center mb-6 text-gray-800">Simulation Settings</h2>
+       <h2 className="text-xl font-bold text-center mb-6 text-gray-800">ATS Model Configuration</h2>
         <Card className="mt-18 rounded-2xl shadow-lg p-6">
          <CardContent className="space-y-6">
           <form onSubmit={handleSubmit} className="space-y-6">

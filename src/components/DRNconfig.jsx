@@ -132,8 +132,8 @@ export default function DRNConfig({ savedData }) {
 
   // Handle location selection
   const handleLocationSelect = (location) => {
-    if (selectedLocations.length >= 15) {
-      alert('Maximum 15 locations allowed. Please remove some locations first.');
+    if (selectedLocations.length >= 5) {
+      alert('Maximum 5 locations allowed. Please remove some locations first.');
       return;
     }
     
@@ -545,7 +545,7 @@ export default function DRNConfig({ savedData }) {
     <div>
       <div className="flex gap-6">
         <div className="w-3/5">
-          <h3 className="text-xl font-bold text-center mb-6 text-gray-800">Area of Interest</h3>
+          <h3 className="text-xl font-bold text-center mb-6 text-gray-800">DRN Area of Interest</h3>
           
           {/* Location Management Controls */}
           <div className="mb-4">
@@ -574,7 +574,7 @@ export default function DRNConfig({ savedData }) {
           <h3 className="text-xl font-bold text-center mb-6 text-gray-800">DRN Model Configuration</h3>
           <Card className="mt-17 p-6 shadow-lg rounded-2xl border border-gray-200">
             <CardContent>
-              <h3 className="text-xl font-semibold">1. Select Locations (up to 15)</h3>
+              <h3 className="text-xl font-semibold">1. Select Locations (up to 5)</h3>
               <div className="flex justify-between items-center mb-4 mt-3">
                 <p className="text-gray-500">
                   {selectedLocations.length > 0 
@@ -616,8 +616,10 @@ export default function DRNConfig({ savedData }) {
                         {/* Location-specific parameters */}
                         <div >
                           <div className="flex items-center gap-2">
-                            <label className="block text-gray-600 text-sm">EW River Input (ton/ha/yr):</label>
+                            <label htmlFor={`ewRiverInput-${index}`} className="block text-gray-600 text-sm">EW River Input (ton/ha/yr):</label>
                             <input
+                              id={`ewRiverInput-${index}`}
+                              name={`ewRiverInput-${index}`}
                               type="number"
                               step="0.1"
                               min="0"
