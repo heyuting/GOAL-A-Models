@@ -82,7 +82,10 @@ nav {
   font-weight: normal;
   line-height: 1.8;
   letter-spacing: 0.025em;
-  position: relative;
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  right: 0;
   z-index: 1000;
 }
 

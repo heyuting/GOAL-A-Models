@@ -79,7 +79,7 @@ export default function App() {
     <div className="min-h-screen bg-white">
       <ScrollToTop />
       {/* Top Navigation Menu - App-wide */}
-      <nav className="bg-blue-900 shadow-md border-b border-blue-800">
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-blue-900 shadow-md border-b border-blue-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-24">
             {/* Logo/Brand */}
@@ -183,7 +183,8 @@ export default function App() {
         </div>
       </nav>
 
-      <Routes>
+      <div className="pt-32">
+        <Routes>
         {/* Public Routes */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
@@ -213,6 +214,7 @@ export default function App() {
           </>
         )}
       </Routes>
+      </div>
     </div>
   );
 }
