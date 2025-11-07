@@ -14,7 +14,7 @@ const CustomTooltip = ({ active, payload }) => {
   return null;
 };
 
-function AlkalinityScatterPlot({ siteId }) {
+function AlkalinityScatterPlot({ siteId, onSummaryChange }) {
   const [alkalinityData, setAlkalinityData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [dateRange, setDateRange] = useState('all');
@@ -123,6 +123,34 @@ function AlkalinityScatterPlot({ siteId }) {
   };
 
   const filteredData = getFilteredData();
+
+  useEffect(() => {
+    if (typeof onSummaryChange === 'function') {
+      if (filteredData.length > 0) {
+        const minTime = Math.min(...filteredData.map((d) => d.x));
+        const maxTime = Math.max(...filteredData.map((d) => d.x));
+        const minAlk = Math.min(...filteredData.map((d) => d.y));
+        const maxAlk = Math.max(...filteredData.map((d) => d.y));
+        onSummaryChange({
+          filteredCount: filteredData.length,
+          totalCount: alkalinityData.length,
+          startDate: new Date(minTime),
+          endDate: new Date(maxTime),
+          minAlkalinity: minAlk,
+          maxAlkalinity: maxAlk,
+        });
+      } else {
+        onSummaryChange({
+          filteredCount: 0,
+          totalCount: alkalinityData.length,
+          startDate: null,
+          endDate: null,
+          minAlkalinity: null,
+          maxAlkalinity: null,
+        });
+      }
+    }
+  }, [filteredData, alkalinityData.length, onSummaryChange]);
 
   if (isLoading) {
     return (
@@ -250,17 +278,6 @@ function AlkalinityScatterPlot({ siteId }) {
           />
         </ScatterChart>
       </ResponsiveContainer>
-      <p className="text-sm text-gray-500 mt-2">
-        Showing {filteredData.length} of {alkalinityData.length} total samples
-        {filteredData.length > 0 && (
-          <>
-            <br />
-            Date range: {new Date(Math.min(...filteredData.map(d => d.x))).toLocaleDateString()} to {new Date(Math.max(...filteredData.map(d => d.x))).toLocaleDateString()}
-            <br />
-            Alkalinity range: {Math.min(...filteredData.map(d => d.y)).toFixed(2)} - {Math.max(...filteredData.map(d => d.y)).toFixed(2)} mg/L
-          </>
-        )}
-      </p>
     </div>
   );
 }

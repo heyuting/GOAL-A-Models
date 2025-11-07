@@ -313,8 +313,8 @@ function Publications() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <div className="mb-8">
-        <h1 className="text-4xl font-bold text-gray-800 mb-4">Publications</h1>
-        <p className="text-xl text-gray-600 mb-6">
+        <h1 className="text-3xl font-bold text-gray-800 mb-4">Publications</h1>
+        <p className="text-m text-gray-600 mb-6">
           Research outputs from the GOAL-A project team and collaborators
         </p>
         

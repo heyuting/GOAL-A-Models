@@ -101,7 +101,7 @@ nav .flex {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: 8rem;
+  height: 7rem;
   gap: 2rem;
   padding: 0 1rem;
 }
@@ -231,7 +231,7 @@ nav .flex.items-center.space-x-4 button[onclick*="SignOut"]:hover {
   }
   
   nav .flex {
-    height: 4rem;
+    height: 3.5rem;
     gap: 1rem;
   }
   

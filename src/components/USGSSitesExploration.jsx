@@ -560,103 +560,18 @@ export default function USGSSitesExploration() {
 
   return (
     <div className="container mx-auto p-4 space-y-6">
-      {/* USGS Site Selection, Data Summary, and Alkalinity Chart - Two Columns */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* First Column: USGS Site Selection and Data Summary */}
-        <div className="space-y-6">
-          {/* USGS Site Selection */}
-          <Card className="rounded-2xl shadow-lg">
-            <CardContent className="p-6">
-              <h2 className="text-xl font-bold text-center mb-4 text-gray-800">USGS Site Selection</h2>
-              <USGSSiteSelector
-                handleSiteSelect={handleSiteSelect}
-                location={location}
-                onSitesLoaded={handleSitesLoaded}
-                onStateSelect={handleStateSelect}
-                onSiteTypeChange={handleSiteTypeChange}
-              />
-            </CardContent>
-          </Card>
-
-          {/* Data Summary */}
-          <Card className="rounded-2xl shadow-lg">
-            <CardContent className="p-6">
-              <h2 className="text-xl font-bold text-center mb-4 text-gray-800">Data Summary</h2>
-              {isLoadingSiteData ? (
-                <div className="flex items-center justify-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-                  <span className="ml-2">Loading alkalinity data...</span>
-                </div>
-              ) : selectedSite?.hasAlkalinity ? (
-                <div className="space-y-4">
-                  <div className="bg-gray-50 p-4 rounded-xl">
-                      <div className="grid grid-cols-1 gap-2 text-sm">
-                        <div><strong>Most Recent Value:</strong> {selectedSite.alkalinity?.toFixed(2)} {selectedSite.alkalinityUnit || 'mg/L'}</div>
-                        <div><strong>Average Value:</strong> {selectedSite.averageAlkalinity?.toFixed(2) || 'Calculating...'} {selectedSite.alkalinityUnit || 'mg/L'}</div>
-                        <div><strong>Last Measured:</strong> {selectedSite.alkalinityDateTime ? new Date(selectedSite.alkalinityDateTime).toLocaleDateString() : 'Unknown'}</div>
-                        <div><strong>Total Samples:</strong> {selectedSite.totalAlkalinitySamples || 'Loading...'}</div>
-                      <div><strong>Data Recency:</strong> 
-                        <span className={`ml-2 px-2 py-1 rounded text-xs font-medium ${
-                          selectedSite.markerColor === 'green' ? 'bg-green-100 text-green-800' :
-                          selectedSite.markerColor === 'yellow' ? 'bg-yellow-100 text-yellow-800' :
-                          selectedSite.markerColor === 'red' ? 'bg-red-100 text-red-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {selectedSite.markerColor === 'green' ? 'Recent (≤2 years)' :
-                           selectedSite.markerColor === 'yellow' ? 'Moderate (2-5 years)' :
-                           selectedSite.markerColor === 'red' ? 'Old (>5 years)' :
-                           'No data available'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  {selectedSite ? (
-                    <div>
-                      <p>No alkalinity data available for this site</p>
-                      {selectedSite.errorMessage && (
-                        <p className="text-red-500 text-xs mt-2">Error: {selectedSite.errorMessage}</p>
-                      )}
-                    </div>
-                  ) : (
-                    'Select a site to view alkalinity data'
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Second Column: Alkalinity Chart */}
-        <Card className="rounded-2xl shadow-lg">
-          <CardContent className="p-6">
-            <h2 className="text-xl font-bold text-center mb-4 text-gray-800">Alkalinity Data Chart</h2>
-            {location ? (
-              <AlkalinityScatterPlot siteId={location} />
-            ) : (
-              <div className="text-center py-8 text-gray-500">
-                Select a site to view alkalinity chart
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Map Section - Full Width */}
-      <div>
-        <h2 className="text-xl font-bold text-center mb-6 text-gray-800">USGS Sites Map</h2>
-        <div className="mt-6">
-          <MapContainer center={mapCenter} zoom={mapZoom} style={{ height: '500px', width: '100%' }}>
+      {/* Map and Selection Section - Side by Side */}
+      <div className="grid grid-cols-1 xl:grid-cols-[2fr_1fr] gap-6 items-start">
+        <div>
+          <h2 className="text-xl font-bold text-center mb-4 text-gray-800">USGS Sites Map</h2>
+          <div className="rounded-2xl overflow-hidden shadow-lg border border-gray-200">
+            <MapContainer center={mapCenter} zoom={mapZoom} style={{ height: '500px', width: '100%' }}>
             <TileLayer
               url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
               attribution='© Esri, DeLorme, NAVTEQ, TomTom, Intermap, iPC, USGS, FAO, NPS, NRCAN, GeoBase, Kadaster NL, Ordnance Survey, Esri Japan, METI, Esri China (Hong Kong), and the GIS User Community'
             />
             <MapClickHandler />
             <MapZoomHandler center={mapCenter} zoom={mapZoom} />
-            
-            {/* Render all USGS sites with color-coded and size-coded markers */}
             {usgsSites.map(site => (
               <Marker 
                 key={site.id}
@@ -681,7 +596,6 @@ export default function USGSSitesExploration() {
                 </Popup>
               </Marker>
             ))}
-            
             {selectedPoint && (
               <Marker position={selectedPoint}>
                 <Popup>
@@ -694,6 +608,95 @@ export default function USGSSitesExploration() {
           </MapContainer>
         </div>
       </div>
+        <div className="space-y-6">
+          {/* USGS Site Selection */}
+          <h2 className="text-xl font-bold text-center mb-4 text-gray-800">USGS Site Selection</h2>
+          <Card className="rounded-2xl shadow-lg">
+            <CardContent className="p-6">
+              <USGSSiteSelector
+                handleSiteSelect={handleSiteSelect}
+                location={location}
+                onSitesLoaded={handleSitesLoaded}
+                onStateSelect={handleStateSelect}
+                onSiteTypeChange={handleSiteTypeChange}
+              />
+            </CardContent>
+          </Card>
+        </div>
+
+    
+          {/* Alkalinity Chart */}
+          <Card className="rounded-2xl shadow-lg">
+            <CardContent className="p-6">
+              <h2 className="text-xl font-bold text-center mb-4 text-gray-800">Alkalinity Data Chart</h2>
+              {location ? (
+                <AlkalinityScatterPlot siteId={location} />
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  Select a site to view alkalinity chart
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Data Summary */}
+          <Card className="rounded-2xl shadow-lg">
+            <CardContent className="p-6">
+              <h2 className="text-xl font-bold text-center mb-4 text-gray-800">Data Summary</h2>
+              {isLoadingSiteData ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+                  <span className="ml-2">Loading alkalinity data...</span>
+                </div>
+              ) : selectedSite?.hasAlkalinity ? (
+                <div className="space-y-4">
+                  <div className="bg-gray-50 p-4 rounded-xl">
+                    <div className="grid grid-cols-1 gap-2 text-sm">
+                      <div><strong>Most Recent Value:</strong> {selectedSite.alkalinity?.toFixed(2)} {selectedSite.alkalinityUnit || 'mg/L'}</div>
+                      <div><strong>Average Value:</strong> {selectedSite.averageAlkalinity?.toFixed(2) || 'Calculating...'} {selectedSite.alkalinityUnit || 'mg/L'}</div>
+                      <div><strong>Last Measured:</strong> {selectedSite.alkalinityDateTime ? new Date(selectedSite.alkalinityDateTime).toLocaleDateString() : 'Unknown'}</div>
+                      <div><strong>Total Samples:</strong> {selectedSite.totalAlkalinitySamples || 'Loading...'}</div>
+                      <div><strong>Data Recency:</strong>
+                        <span
+                          className={`ml-2 px-2 py-1 rounded text-xs font-medium ${
+                            selectedSite.markerColor === 'green'
+                              ? 'bg-green-100 text-green-800'
+                              : selectedSite.markerColor === 'yellow'
+                              ? 'bg-yellow-100 text-yellow-800'
+                              : selectedSite.markerColor === 'red'
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-gray-100 text-gray-800'
+                          }`}
+                        >
+                          {selectedSite.markerColor === 'green'
+                            ? 'Recent (≤2 years)'
+                            : selectedSite.markerColor === 'yellow'
+                            ? 'Moderate (2-5 years)'
+                            : selectedSite.markerColor === 'red'
+                            ? 'Old (>5 years)'
+                            : 'No data available'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  {selectedSite ? (
+                    <div>
+                      <p>No alkalinity data available for this site</p>
+                      {selectedSite.errorMessage && (
+                        <p className="text-red-500 text-xs mt-2">Error: {selectedSite.errorMessage}</p>
+                      )}
+                    </div>
+                  ) : (
+                    'Select a site to view alkalinity data'
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
     </div>
   );
 }

@@ -79,9 +79,9 @@ export default function App() {
     <div className="min-h-screen bg-white">
       <ScrollToTop />
       {/* Top Navigation Menu - App-wide */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-blue-900 shadow-md border-b border-blue-800">
+      <nav className="fixed top-0 left-0 right-0 bg-blue-900 shadow-md border-b border-blue-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-24">
+          <div className="flex justify-between items-center h-20">
             {/* Logo/Brand */}
             <div className="flex items-center">
               <h1 
@@ -93,7 +93,7 @@ export default function App() {
             </div>
             
             {/* Main Navigation Links */}
-            <div className="ml-20 hidden md:flex items-center space-x-10">
+            <div className="ml-20 hidden md:flex items-center space-x-4">
               <a 
                 href="#" 
                 onClick={() => navigate('/research')}
@@ -183,7 +183,7 @@ export default function App() {
         </div>
       </nav>
 
-      <div className="pt-32">
+      <div className="pt-24">
         <Routes>
         {/* Public Routes */}
         <Route path="/login" element={<LoginPage />} />
@@ -381,10 +381,10 @@ function PublicHomePage() {
                 className="cursor-pointer h-full"
               >
                 <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col overflow-hidden">
-                  <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-100 to-white">
-                    <h3 className="text-2xl font-bold text-gray-800 tracking-wide">Research</h3>
+                  <div className="px-6 pt-2 pb-3 border-b border-gray-200 bg-gradient-to-r from-blue-100 to-white">
+                    <h3 className="text-xl font-bold text-gray-800 tracking-wide">Research</h3>
                   </div>
-                  <CardContent className="p-6 flex flex-col flex-grow bg-white">
+                  <CardContent className="px-6 flex flex-col flex-grow bg-white">
                     <p className="text-gray-600 mt-2 flex-grow leading-relaxed">
                       Discover our cutting-edge research in enhanced rock weathering, from soils and rivers to coastal oceans and global climate solutions.
                     </p>
@@ -399,10 +399,10 @@ function PublicHomePage() {
                 className="cursor-pointer h-full"
               >
                 <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col overflow-hidden">
-                  <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-100 to-white">
-                    <h3 className="text-2xl font-bold text-gray-800 tracking-wide">Publications</h3>
+                  <div className="px-6 pt-2 pb-3 border-b border-gray-200 bg-gradient-to-r from-indigo-100 to-white">
+                    <h3 className="text-xl font-bold text-gray-800 tracking-wide">Publications</h3>
                   </div>
-                  <CardContent className="p-6 flex flex-col flex-grow bg-white">
+                  <CardContent className="px-6 flex flex-col flex-grow bg-white">
                     <p className="text-gray-600 mt-2 flex-grow leading-relaxed">
                       Browse our latest research publications, journal articles, and scientific papers on enhanced rock weathering and climate solutions.
                     </p>
@@ -417,10 +417,10 @@ function PublicHomePage() {
                 className="cursor-pointer h-full"
               >
                 <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col overflow-hidden">
-                  <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-purple-100 to-white">
-                    <h3 className="text-2xl font-bold text-gray-800 tracking-wide">Opportunities</h3>
+                  <div className="px-6 pt-2 pb-3 border-b border-gray-200 bg-gradient-to-r from-purple-100 to-white">
+                    <h3 className="text-xl font-bold text-gray-800 tracking-wide">Opportunities</h3>
                   </div>
-                  <CardContent className="p-6 flex flex-col flex-grow bg-white">
+                  <CardContent className="px-6 pt-2 pb-3 flex flex-col flex-grow bg-white">
                     <p className="text-gray-600 mt-2 flex-grow leading-relaxed">
                       Explore opportunities for students, teachers, farmers, academics, funders, and the public to get involved with our work.
                     </p>
@@ -435,10 +435,10 @@ function PublicHomePage() {
                 className="cursor-pointer h-full"
               >
                 <Card className="shadow-lg rounded-2xl border border-gray-200 hover:shadow-xl transition h-full flex flex-col overflow-hidden">
-                  <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-green-100 to-white">
-                    <h3 className="text-2xl font-bold text-gray-800 tracking-wide">About</h3>
+                  <div className="px-6 pt-2 pb-3 border-b border-gray-200 bg-gradient-to-r from-green-100 to-white">
+                    <h3 className="text-xl font-bold text-gray-800 tracking-wide">About</h3>
                   </div>
-                  <CardContent className="p-6 flex flex-col flex-grow bg-white">
+                  <CardContent className="px-6 flex flex-col flex-grow bg-white">
                     <p className="text-gray-600 mt-2 flex-grow leading-relaxed">
                       Learn about the GOAL-A project, our mission, and the multi-institutional collaboration driving climate solutions.
                     </p>
@@ -575,12 +575,12 @@ function HomePage() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <div className="mb-6">
-        <h2 className="text-4xl font-bold text-gray-800 mb-4">GOAL-A Models</h2>
-        <p className="text-xl text-gray-600">Select a model to get started with enhanced rock weathering research</p>
+        <h2 className="text-3xl font-bold text-gray-800 mb-4">GOAL-A Models</h2>
+        <p className="text-m text-gray-600">Select a model to get started with enhanced rock weathering research</p>
       </div>
 
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
-        <div className="space-y-6">
+        <div className="space-y-3">
           {/* First row: SCEPTER and ATS */}
           <div className="grid gap-6 grid-cols-1 md:grid-cols-2">
             {models.filter(model => model.name === "SCEPTER" || model.name === "ATS").map((model) => {
@@ -591,12 +591,12 @@ function HomePage() {
                     onClick={() => navigate(`/model/${model.name.toLowerCase().replace('+', '-')}`)}
                     className="cursor-pointer h-full"
                   >
-                    <Card className={`shadow-lg rounded-2xl border ${colors.borderColor} hover:shadow-xl transition h-full flex flex-col overflow-hidden`}>
-                      <div className={`px-6 py-4 border-b ${colors.borderColor} ${colors.headerBg}`}>
-                        <h3 className={`text-2xl font-bold ${colors.titleColor} tracking-wide`}>{model.name}</h3>
+                    <Card className={`shadow-lg ${colors.borderColor} hover:shadow-xl transition h-full flex flex-col overflow-hidden`}>
+                      <div className={`px-6 py-3 border-b ${colors.borderColor} ${colors.headerBg}`}>
+                        <h3 className={`text-xl font-bold ${colors.titleColor} tracking-wide`}>{model.name}</h3>
                       </div>
-                      <CardContent className="p-6 flex flex-col flex-grow bg-white">
-                        <p className="text-gray-600 mt-2 flex-grow leading-relaxed">{model.description}</p>
+                      <CardContent className="px-6 flex flex-col flex-grow bg-white">
+                        <p className="text-gray-600 flex-grow leading-relaxed">{model.description}</p>
                       </CardContent>
                     </Card>
                   </div>
@@ -615,12 +615,12 @@ function HomePage() {
                     onClick={() => navigate(`/model/${model.name.toLowerCase().replace('+', '-')}`)}
                     className="cursor-pointer h-full"
                   >
-                    <Card className={`shadow-lg rounded-2xl border ${colors.borderColor} hover:shadow-xl transition h-full flex flex-col overflow-hidden`}>
-                      <div className={`px-6 py-4 border-b ${colors.borderColor} ${colors.headerBg}`}>
-                        <h3 className={`text-2xl font-bold ${colors.titleColor} tracking-wide`}>{model.name}</h3>
+                    <Card className={`shadow-lg ${colors.borderColor} hover:shadow-xl transition h-full flex flex-col overflow-hidden`}>
+                      <div className={`px-6 py-3 border-b ${colors.borderColor} ${colors.headerBg}`}>
+                        <h3 className={`text-xl font-bold ${colors.titleColor} tracking-wide`}>{model.name}</h3>
                       </div>
-                      <CardContent className="p-6 flex flex-col flex-grow bg-white">
-                        <p className="text-gray-600 mt-2 flex-grow leading-relaxed">{model.description}</p>
+                      <CardContent className="px-6 flex flex-col flex-grow bg-white">
+                        <p className="text-gray-600 flex-grow leading-relaxed">{model.description}</p>
                       </CardContent>
                     </Card>
                   </div>
@@ -636,64 +636,59 @@ function HomePage() {
         initial={{ opacity: 0, y: 20 }} 
         animate={{ opacity: 1, y: 0 }} 
         transition={{ duration: 0.6, delay: 0.2 }}
-        className="mt-8"
+        className="mt-6"
       >
-        <Card className="shadow-lg rounded-2xl border border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
-          <CardContent className="p-8">
-            <div className="flex flex-col md:flex-row items-center gap-6">
-              <div className="flex-1">
-                <h3 className="text-2xl font-bold text-gray-800 mb-3">Explore USGS Water Quality Sites</h3>
-                <p className="text-gray-700 mb-4 leading-relaxed">
-                  Access comprehensive water quality data from thousands of USGS monitoring sites across the United States. 
-                  Our platform integrates stream and groundwater monitoring sites with alkalinity measurements, 
-                  providing valuable insights for enhanced rock weathering research and environmental modeling.
+        <Card className="shadow-md rounded-xl border border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+          <CardContent className="p-5">
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_320px] items-start ml-6 mr-6">
+              <div className="flex-1 mr-6">
+                <h3 className="text-xl font-semibold text-gray-800 mb-2">Explore USGS Water Quality Sites</h3>
+                <p className="text-gray-700 mb-3 leading-snug text-sm">
+                  Access water quality data from thousands of USGS monitoring sites across the United States. 
+                  Stream and groundwater locations with alkalinity measurements offer insights for enhanced rock weathering research.
                 </p>
-                <ul className="text-gray-700 space-y-2 mb-4">
-                  <li className="flex items-start">
-                    <span className="text-blue-600 mr-2">•</span>
+                <ul className="text-gray-700 space-y-1.5 mb-3 text-sm">
+                  <li className="flex items-start gap-2">
+                    <span className="text-blue-600">•</span>
                     <span>Browse stream and groundwater sites with alkalinity data</span>
                   </li>
-                  <li className="flex items-start">
-                    <span className="text-blue-600 mr-2">•</span>
-                    <span>View historical alkalinity measurements and trends</span>
+                  <li className="flex items-start gap-2">
+                    <span className="text-blue-600">•</span>
+                    <span>View historical measurements and trends</span>
                   </li>
-                  <li className="flex items-start">
-                    <span className="text-blue-600 mr-2">•</span>
-                    <span>Use site data to inform SCEPTER model configurations</span>
-                  </li>
-                  <li className="flex items-start">
-                    <span className="text-blue-600 mr-2">•</span>
-                    <span>Color-coded markers indicate data recency and quality</span>
+                  <li className="flex items-start gap-2">
+                    <span className="text-blue-600">•</span>
+                    <span>Use site data to inform model configurations</span>
                   </li>
                 </ul>
-                <Button 
-                  onClick={() => navigate('/usgs-sites')}
-                  className="bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-                >
-                  Explore USGS Sites
-                </Button>
               </div>
-              <div className="flex-shrink-0">
-                <div className="bg-white rounded-lg p-6 shadow-md border border-gray-200">
-                  <div className="text-center">
-                    <div className="text-4xl font-bold text-blue-600 mb-2">10,000+</div>
-                    <div className="text-gray-600 text-sm mb-4">USGS Sites Available</div>
-                    <div className="flex gap-2 justify-center">
+              <div className="w-full">
+                <div className="bg-white rounded-lg p-3 shadow border border-gray-200 mb-3">
+                  <div className="text-center space-y-1.5">
+                    <div className="text-2xl font-bold text-blue-600">10,000+</div>
+                    <div className="text-gray-600 text-[11px]">USGS Sites Available</div>
+                    <div className="flex gap-1.5 justify-center text-[11px]">
                       <div className="flex items-center gap-1">
-                        <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                        <span className="text-xs text-gray-600">Recent (≤2yr)</span>
+                        <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                        <span className="text-gray-600">Recent (≤2yr)</span>
                       </div>
                       <div className="flex items-center gap-1">
-                        <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-                        <span className="text-xs text-gray-600">Moderate (2-5yr)</span>
+                        <div className="w-2 h-2 rounded-full bg-yellow-500"></div>
+                        <span className="text-gray-600">Moderate (2-5yr)</span>
                       </div>
                       <div className="flex items-center gap-1">
-                        <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                        <span className="text-xs text-gray-600">Older (&gt;5yr)</span>
+                        <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                        <span className="text-gray-600">Older (&gt;5yr)</span>
                       </div>
                     </div>
                   </div>
                 </div>
+                <Button 
+                  onClick={() => navigate('/usgs-sites')}
+                  className="bg-blue-600 text-white hover:bg-blue-700 transition-colors px-4 py-2 text-sm w-full"
+                >
+                  Explore USGS Sites
+                </Button>
               </div>
             </div>
           </CardContent>
