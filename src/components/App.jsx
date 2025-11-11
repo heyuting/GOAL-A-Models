@@ -574,11 +574,30 @@ function HomePage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-      <div className="mb-6">
-        <h2 className="text-3xl font-bold text-gray-800 mb-4">GOAL-A Models</h2>
-        <p className="text-m text-gray-600">Select a model to get started with enhanced rock weathering research</p>
+      <div className="mb-6 flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-bold text-gray-800 mb-2">GOAL-A Models</h2>
+          <p className="text-m text-gray-600">Select a model to get started with enhanced rock weathering research</p>
+        </div>
+        <motion.div
+          whileHover={{ scale: 1.03 }}
+          whileTap={{ scale: 0.97 }}
+          onClick={() => navigate('/usgs-sites')}
+          className="lg:w-90"
+        >
+          <Card className="cursor-pointer shadow-md rounded-xl border border-gray-200 bg-gray-50">
+            <CardContent className="px-5">
+              <div className="flex flex-col gap-2">
+                <h3 className="text-lg text-right font-semibold text-gray-80">Explore USGS Water Quality Sites</h3>
+                <div className="text-sm text-gray-700 leading-snug text-right">
+                  <span>Access monitoring locations with alkalinity data to inform model configurations and field studies.</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
       </div>
-
+ 
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
         <div className="space-y-3">
           {/* First row: SCEPTER and ATS */}
@@ -629,70 +648,6 @@ function HomePage() {
             })}
           </div>
         </div>
-      </motion.div>
-
-      {/* USGS Sites Exploration Section */}
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }} 
-        animate={{ opacity: 1, y: 0 }} 
-        transition={{ duration: 0.6, delay: 0.2 }}
-        className="mt-6"
-      >
-        <Card className="shadow-md rounded-xl border border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
-          <CardContent className="p-5">
-            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_320px] items-start ml-6 mr-6">
-              <div className="flex-1 mr-6">
-                <h3 className="text-xl font-semibold text-gray-800 mb-2">Explore USGS Water Quality Sites</h3>
-                <p className="text-gray-700 mb-3 leading-snug text-sm">
-                  Access water quality data from thousands of USGS monitoring sites across the United States. 
-                  Stream and groundwater locations with alkalinity measurements offer insights for enhanced rock weathering research.
-                </p>
-                <ul className="text-gray-700 space-y-1.5 mb-3 text-sm">
-                  <li className="flex items-start gap-2">
-                    <span className="text-blue-600">•</span>
-                    <span>Browse stream and groundwater sites with alkalinity data</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-blue-600">•</span>
-                    <span>View historical measurements and trends</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-blue-600">•</span>
-                    <span>Use site data to inform model configurations</span>
-                  </li>
-                </ul>
-              </div>
-              <div className="w-full">
-                <div className="bg-white rounded-lg p-3 shadow border border-gray-200 mb-3">
-                  <div className="text-center space-y-1.5">
-                    <div className="text-2xl font-bold text-blue-600">10,000+</div>
-                    <div className="text-gray-600 text-[11px]">USGS Sites Available</div>
-                    <div className="flex gap-1.5 justify-center text-[11px]">
-                      <div className="flex items-center gap-1">
-                        <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                        <span className="text-gray-600">Recent (≤2yr)</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <div className="w-2 h-2 rounded-full bg-yellow-500"></div>
-                        <span className="text-gray-600">Moderate (2-5yr)</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <div className="w-2 h-2 rounded-full bg-red-500"></div>
-                        <span className="text-gray-600">Older (&gt;5yr)</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <Button 
-                  onClick={() => navigate('/usgs-sites')}
-                  className="bg-blue-600 text-white hover:bg-blue-700 transition-colors px-4 py-2 text-sm w-full"
-                >
-                  Explore USGS Sites
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
       </motion.div>
     </div>
   );
