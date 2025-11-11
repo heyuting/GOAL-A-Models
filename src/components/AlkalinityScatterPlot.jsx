@@ -176,8 +176,7 @@ function AlkalinityScatterPlot({ siteId, onSummaryChange }) {
   }
 
   return (
-    <div className="bg-white p-4 rounded-2xl shadow-md">
-      <h3 className="text-lg font-bold mb-4">Alkalinity Data</h3>
+    <div className="bg-white px-4 pt-4 rounded-2xl shadow-md">
       
       {/* Date Range Controls */}
       <div className="mb-4 space-y-2">
@@ -241,10 +240,10 @@ function AlkalinityScatterPlot({ siteId, onSummaryChange }) {
         )}
       </div>
 
-      <ResponsiveContainer width="100%" height={400}>
+      <ResponsiveContainer width="100%" height={360}>
         <ScatterChart 
           data={filteredData}
-          margin={{ top: 20, right: 20, left: 40, bottom: 80 }}
+          margin={{ top: 20, right: 20, left: 40, bottom: 60 }}
         >
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis 
@@ -257,15 +256,14 @@ function AlkalinityScatterPlot({ siteId, onSummaryChange }) {
             }}
             angle={-90}
             textAnchor="end"
-            height={80}
-            tick={{ fontSize: 10 }}
-            tickMargin={10}
-            label={{ value: 'Date', position: 'insideBottom', offset: -10 }}
+            height={60}
+            tick={{ fontSize: 12 }}
+            tickMargin={5}
           />
           <YAxis 
             type="number"
             dataKey="y"
-            label={{ value: 'Alkalinity (mg/L)', angle: -90, position: 'insideLeft' }}
+            label={{ value: 'Alkalinity (mg/L)', angle: -90, position: 'insideLeft', dx: -10, dy: 60 }}
             domain={['dataMin', 'dataMax']}
           />
           <Tooltip content={<CustomTooltip />} />

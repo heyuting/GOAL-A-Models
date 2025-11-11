@@ -304,7 +304,7 @@ function Research() {
               We welcome partnerships and inquiries from the scientific community, 
               agricultural practitioners, and educational institutions.
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-between">
+            <div className="px-12 flex flex-col sm:flex-row gap-4 justify-between">
               <button 
                 className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold"
                 onClick={() => navigate('/opportunities')}

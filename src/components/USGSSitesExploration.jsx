@@ -559,7 +559,7 @@ export default function USGSSitesExploration() {
   }, []);
 
   return (
-    <div className="container mx-auto p-4 space-y-6">
+    <div className="container mx-auto px-4 py-12 space-y-6">
       {/* Map and Selection Section - Side by Side */}
       <div className="grid grid-cols-1 xl:grid-cols-[2fr_1fr] gap-6 items-start">
         <div>
@@ -627,7 +627,7 @@ export default function USGSSitesExploration() {
     
           {/* Alkalinity Chart */}
           <Card className="rounded-2xl shadow-lg">
-            <CardContent className="p-6">
+            <CardContent className="px-6 pt-6 pb-4">
               <h2 className="text-xl font-bold text-center mb-4 text-gray-800">Alkalinity Data Chart</h2>
               {location ? (
                 <AlkalinityScatterPlot siteId={location} />

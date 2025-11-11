@@ -55,10 +55,10 @@ function Publications() {
       authors: "Taylor Maavara, Zimin Yuan, Andrew M. Johnson, Shuang Zhang, Kelly S. Aho, Craig B. Brinkerhoff, Laura A. Logozzo, Peter Raymond",
       journal: "Science",
       year: 2025,
-      doi: "",
+      doi: "10.1126/science.adu9843",
       type: "",
       category: "Hydrology",
-      status: "Under Review"
+      status: "Published"
     },
     {
       id: 4,
@@ -139,14 +139,14 @@ function Publications() {
     },
     {
       id: 11,
-      title: "A spatially explicit dataset of agriculture liming across the contiguous US",
+      title: "A spatially explicit dataset of agriculture liming across the contiguous United States",
       authors: "Samuel Shou‐En Tsao, Tim Jesper Surhoff, Giuseppe Amatulli, Maya Almaraz, Jon Gewirtzman, Beck Woollen, Eric W. Slessarev, James E. Saiers, Christopher T. Reinhard, Shuang Zhang, Noah J. Planavsky, Peter A. Raymond",
       journal: "Earth System Science Data",
       year: 2025,
-      doi: "",
+      doi: "10.5194/essd-2025-411",
       type: "",
       category: "Agriculture",
-      status: "Submitted"
+      status: "Under Review"
     },
     {
       id: 12,
