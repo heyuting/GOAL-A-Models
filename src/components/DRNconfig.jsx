@@ -28,8 +28,10 @@ export default function DRNConfig({ savedData }) {
   const [selectedLocations, setSelectedLocations] = useState([]);
   const [currentLocationIndex, setCurrentLocationIndex] = useState(-1);
   const [numStart, setNumStart] = useState(1);
-  const [yearRun, setYearRun] = useState(2);
+  const [yearRun, setYearRun] = useState(24);
   const [timeStep, setTimeStep] = useState(0.1);
+  const [manualLat, setManualLat] = useState('');
+  const [manualLng, setManualLng] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
 
@@ -113,6 +115,13 @@ export default function DRNConfig({ savedData }) {
     }
   }, []);
 
+  const validateWithinConus = (lat, lng) => (
+    lat >= 24.396308 &&
+    lat <= 49.384358 &&
+    lng >= -125.00165 &&
+    lng <= -66.93457
+  );
+
   // Load saved data on component mount
   useEffect(() => {
     if (savedData) {
@@ -124,32 +133,109 @@ export default function DRNConfig({ savedData }) {
       // Load other saved parameters
       if (savedData.parameters) {
         setNumStart(savedData.parameters.numStart || 1);
-        setYearRun(savedData.parameters.yearRun || 2);
-        setTimeStep(savedData.parameters.timeStep || 0.1);
+        const savedDuration = savedData.parameters.yearRun;
+        if (typeof savedDuration === 'number') {
+          if (savedDuration <= 2) {
+            setYearRun(savedDuration * 12);
+          } else {
+            setYearRun(savedDuration);
+          }
+        } else {
+          setYearRun(24);
+        }
+      } else {
+        setYearRun(24);
       }
     }
   }, [savedData]);
 
-  // Handle location selection
-  const handleLocationSelect = (location) => {
+  const validateCoordinates = (lat, lng) => {
+    const parsedLat = parseFloat(lat);
+    const parsedLng = parseFloat(lng);
+
+    if (Number.isNaN(parsedLat) || Number.isNaN(parsedLng)) {
+      return { valid: false, message: 'Please enter valid numeric latitude and longitude values.' };
+    }
+
+    if (parsedLat < -90 || parsedLat > 90 || parsedLng < -180 || parsedLng > 180) {
+      return { valid: false, message: 'Latitude must be between -90 and 90, and longitude between -180 and 180.' };
+    }
+
+    if (!validateWithinConus(parsedLat, parsedLng)) {
+      return { valid: false, message: 'Please select a location within the contiguous United States (CONUS).' };
+    }
+
+    return { valid: true, lat: parsedLat, lng: parsedLng };
+  };
+
+  const addLocation = (lat, lng) => {
+    const validation = validateCoordinates(lat, lng);
+    if (!validation.valid) {
+      alert(validation.message);
+      return false;
+    }
+
     if (selectedLocations.length >= 5) {
       alert('Maximum 5 locations allowed. Please remove some locations first.');
-      return;
+      return false;
     }
-    
+
     const newLocation = {
-      lat: location.lat,
-      lng: location.lng,
+      lat: validation.lat,
+      lng: validation.lng,
       ewRiverInput: 0
     };
-    
+
     setSelectedLocations(prev => {
       const newLocations = [...prev, newLocation];
       setCurrentLocationIndex(newLocations.length - 1);
       return newLocations;
     });
+
+    return true;
   };
 
+  const handleManualAddLocation = () => {
+    const added = addLocation(manualLat, manualLng);
+    if (added) {
+      setManualLat('');
+      setManualLng('');
+    }
+  };
+ 
+  // Handle location selection
+  const handleLocationSelect = (location) => {
+    addLocation(location.lat, location.lng);
+  };
+
+  const handleCoordinateBlur = (index, field, value, target) => {
+    if (value === '') {
+      target.value = selectedLocations[index][field];
+      return;
+    }
+
+    const current = selectedLocations[index];
+    const newLat = field === 'lat' ? value : current.lat;
+    const newLng = field === 'lng' ? value : current.lng;
+
+    const validation = validateCoordinates(newLat, newLng);
+    if (!validation.valid) {
+      alert(validation.message);
+      target.value = selectedLocations[index][field];
+      return;
+    }
+
+    setSelectedLocations(prev => {
+      const updated = [...prev];
+      updated[index] = {
+        ...current,
+        lat: validation.lat,
+        lng: validation.lng
+      };
+      return updated;
+    });
+  };
+ 
   // Remove a specific location
   const removeLocation = (index) => {
     const newLocations = selectedLocations.filter((_, i) => i !== index);
@@ -574,7 +660,44 @@ export default function DRNConfig({ savedData }) {
           <h3 className="text-xl font-bold text-center mb-6 text-gray-800">DRN Model Configuration</h3>
           <Card className="mt-17 p-6 shadow-lg rounded-2xl border border-gray-200">
             <CardContent>
-              <h3 className="text-xl font-semibold">1. Select Locations (up to 5)</h3>
+              <h3 className="text-xl font-semibold">1. Select Locations within CONUS (up to 5)</h3>
+              <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+                <div className="flex justify-between gap-2">
+                  <div>
+                    <Label htmlFor="manualLat" className="text-sm font-medium text-blue-900">Latitude</Label>
+                    <Input
+                      id="manualLat"
+                      type="number"
+                      step="0.0001"
+                      value={manualLat}
+                      onChange={(e) => setManualLat(e.target.value)}
+                      placeholder="e.g., 40.1234"
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="manualLng" className="text-sm font-medium text-blue-900">Longitude</Label>
+                    <Input
+                      id="manualLng"
+                      type="number"
+                      step="0.0001"
+                      value={manualLng}
+                      onChange={(e) => setManualLng(e.target.value)}
+                      placeholder="e.g., -105.5678"
+                      className="mt-1"
+                    />
+                  </div>
+                  <div className="flex items-end justify-end">
+                    <Button
+                      type="button"
+                      onClick={handleManualAddLocation}
+                      className="w-20 bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      Add
+                    </Button>
+                  </div>
+                </div>
+              </div>
               <div className="flex justify-between items-center mb-4 mt-3">
                 <p className="text-gray-500">
                   {selectedLocations.length > 0 
@@ -584,7 +707,7 @@ export default function DRNConfig({ savedData }) {
                 {selectedLocations.length > 0 && (
                   <Button
                     onClick={clearAllLocations}
-                    className="px-3 py-1 text-sm bg-red-500 hover:bg-red-600 text-white"
+                    className="px-3 py-1 mr-3 text-sm bg-red-500 hover:bg-red-600 text-white"
                   >
                     Clear All
                   </Button>
@@ -614,7 +737,31 @@ export default function DRNConfig({ savedData }) {
                         </div>
                         
                         {/* Location-specific parameters */}
-                        <div >
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-gray-600 text-xs uppercase tracking-wide">Latitude</label>
+                              <input
+                                key={`lat-${index}-${location.lat}`}
+                                type="number"
+                                step="0.0001"
+                                defaultValue={location.lat}
+                                onBlur={(e) => handleCoordinateBlur(index, 'lat', e.target.value, e.target)}
+                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-gray-600 text-xs uppercase tracking-wide">Longitude</label>
+                              <input
+                                key={`lng-${index}-${location.lng}`}
+                                type="number"
+                                step="0.0001"
+                                defaultValue={location.lng}
+                                onBlur={(e) => handleCoordinateBlur(index, 'lng', e.target.value, e.target)}
+                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                              />
+                            </div>
+                          </div>
                           <div className="flex items-center gap-2">
                             <label htmlFor={`ewRiverInput-${index}`} className="block text-gray-600 text-sm">EW River Input (ton/ha/yr):</label>
                             <input
@@ -629,7 +776,6 @@ export default function DRNConfig({ savedData }) {
                               placeholder="0.00"
                             />
                           </div>
-                          
                         </div>
                       </div>
                     ))}
@@ -637,7 +783,7 @@ export default function DRNConfig({ savedData }) {
                 </div>
               )}
               
-
+              <h3 className="text-xl font-semibold">2. Set DRN Model Parameters</h3>
                 <div className="flex items-center gap-4 mb-4">
                   <Label htmlFor="numStart" className="w-44 font-semibold">Start Index of Flow Paths</Label>
                   <Input
@@ -651,14 +797,20 @@ export default function DRNConfig({ savedData }) {
                 </div>
 
                 <div className="flex items-center gap-4 mb-4">
-                  <Label htmlFor="yearRun" className="w-44 font-semibold">Simulation Years</Label>
+                  <Label htmlFor="yearRun" className="w-44 font-semibold">Simulation Months (up to 24 months)</Label>
                   <Input
                     id="yearRun"
                     name="yearRun"
-                    type="number" 
-                    value={yearRun} 
-                    onChange={(e) => setYearRun(e.target.value)} 
-                    className="flex-1" 
+                    type="number"
+                    min={1}
+                    max={24}
+                    value={yearRun}
+                    onChange={(e) => {
+                      const value = Number(e.target.value);
+                      const sanitized = Number.isNaN(value) ? 1 : Math.max(1, Math.min(24, Math.round(value)));
+                      setYearRun(sanitized);
+                    }}
+                    className="flex-1"
                   />
                 </div>
 
@@ -794,7 +946,7 @@ export default function DRNConfig({ savedData }) {
                             <div><strong>Model:</strong> DRN</div>
                             <div><strong>Locations:</strong> {selectedLocations.length} location(s)</div>
                             <div><strong>Current Location:</strong> {selectedLocation?.lat.toFixed(4)}, {selectedLocation?.lng.toFixed(4)}</div>
-                            <div><strong>Parameters:</strong> Start: {numStart}, Years: {yearRun}, Timestep: {timeStep}</div>
+                            <div><strong>Parameters:</strong> Start: {numStart}, Months: {yearRun}, Timestep: {timeStep}</div>
                             <div><strong>Location Parameters:</strong> {selectedLocations.length} location(s) with individual EW River Input values</div>
                             {lastStatusCheck && (
                               <div><strong>Last checked:</strong> {lastStatusCheck.toLocaleTimeString()}</div>

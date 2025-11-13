@@ -294,7 +294,7 @@ function PublicHomePage() {
             >
               <div className="relative w-full h-[600px] flex-shrink-0">
                 <img 
-                  src="/soils.jpeg" 
+                  src="/images/soils.jpeg" 
                   alt="Soils Research" 
                   className="w-full h-[600px] object-cover"
                 />
@@ -304,7 +304,7 @@ function PublicHomePage() {
               </div>
               <div className="relative w-full h-[600px] flex-shrink-0">
                 <img 
-                  src="/river.png" 
+                  src="/images/river.png" 
                   alt="River Research" 
                   className="w-full h-[600px] object-cover"
                 />
@@ -314,7 +314,7 @@ function PublicHomePage() {
               </div>
               <div className="relative w-full h-[600px] flex-shrink-0">
                 <img 
-                  src="/coastalocean.png" 
+                  src="/images/coastalocean.png" 
                   alt="Coastal Ocean Research" 
                   className="w-full h-[600px] object-cover"
                 />
@@ -325,7 +325,7 @@ function PublicHomePage() {
 
               <div className="relative w-full h-[600px] flex-shrink-0">
                 <img 
-                  src="/atmosphere.png" 
+                  src="/images/atmosphere.png" 
                   alt="Atmosphere Research" 
                   className="w-full h-[600px] object-cover"
                 />
@@ -585,11 +585,11 @@ function HomePage() {
           onClick={() => navigate('/usgs-sites')}
           className="lg:w-90"
         >
-          <Card className="cursor-pointer shadow-md rounded-xl border border-gray-200 bg-gray-50">
+          <Card className="py-2 cursor-pointer shadow-md rounded-xl border border-gray-200 bg-gray-50">
             <CardContent className="px-5">
-              <div className="flex flex-col gap-2">
-                <h3 className="text-lg text-right font-semibold text-gray-80">Explore USGS Water Quality Sites</h3>
-                <div className="text-sm text-gray-700 leading-snug text-right">
+              <div className="flex flex-col">
+                <h3 className="text-md text-right font-semibold text-blue-900">Explore USGS Water Quality Sites</h3>
+                <div className="text-sm text-gray-600 leading-snug text-right">
                   <span>Access monitoring locations with alkalinity data to inform model configurations and field studies.</span>
                 </div>
               </div>

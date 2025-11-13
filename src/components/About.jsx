@@ -36,7 +36,7 @@ function About() {
   return (
     <div 
       className="min-h-screen bg-cover bg-center bg-no-repeat"
-      style={{ backgroundImage: 'url(/bgimage.jpeg)' }}
+      style={{ backgroundImage: 'url(/images/bgimage.jpeg)' }}
     >
       <div className="bg-white/90 min-h-screen">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -63,7 +63,7 @@ function About() {
           {/* GOAL-A Image within Mission Card */}
           <div className="mt-6">
             <img 
-              src="/goalaimage.jpeg" 
+              src="/images/goalaimage.jpeg" 
               alt="GOAL-A Project" 
               className="w-full rounded-lg"
             />

@@ -24,7 +24,7 @@ function Opportunities() {
         <Card className="h-full">
           <div className="h-64 overflow-hidden">
             <img 
-              src="/Graduation_Day.png" 
+              src="/images/Graduation_Day.png" 
               alt="Graduation Day - Postdocs and Graduate Students"
               className="w-full h-full object-cover"
             />
@@ -48,7 +48,7 @@ function Opportunities() {
         <Card className="h-full">
           <div className="h-64 overflow-hidden">
             <img 
-              src="/Garbage_Recycling.png" 
+              src="/images/Garbage_Recycling.png" 
               alt="Garbage Recycling - Environmental Fellows Program"
               className="w-full h-full object-cover"
             />
@@ -71,7 +71,7 @@ function Opportunities() {
         <Card className="h-full">
           <div className="h-64 overflow-hidden">
             <img 
-              src="/Female_Student.png" 
+              src="/images/Female_Student.png" 
               alt="Female Student - New Haven Promise"
               className="w-full h-full object-cover"
             />
@@ -94,7 +94,7 @@ function Opportunities() {
         <Card className="h-full">
           <div className="h-64 overflow-hidden">
             <img 
-              src="/Discussion_Between_Students.png" 
+              src="/images/Discussion_Between_Students.png" 
               alt="Discussion Between Students - Teachers Institute"
               className="w-full object-cover"
             />
@@ -117,7 +117,7 @@ function Opportunities() {
         <Card className="h-full">
           <div className="h-64 overflow-hidden">
             <img 
-              src="/Teacher.png" 
+              src="/images/Teacher.png" 
               alt="Teacher - QUEST Program"
               className=" w-full object-cover"
             />
@@ -140,7 +140,7 @@ function Opportunities() {
         <Card className="h-full">
           <div className="h-64 overflow-hidden">
             <img 
-              src="/conference2.jpeg" 
+              src="/images/conference2.jpeg" 
               alt="Giving a Lecture - ERW Public Forum"
               className="w-full h-full object-cover"
             />
@@ -163,7 +163,7 @@ function Opportunities() {
         <Card className="h-full">
           <div className="h-64 overflow-hidden">
             <img 
-              src="/Farmer.png" 
+              src="/images/Farmer.png" 
               alt="Farmer - Enhanced Weathering Field Trials"
               className="w-full h-full object-cover"
             />
@@ -186,7 +186,7 @@ function Opportunities() {
         <Card className="h-full">
           <div className="h-64 overflow-hidden">
             <img 
-              src="/Dollar_Bill_in_Jar.png" 
+              src="/images/Dollar_Bill_in_Jar.png" 
               alt="Dollar Bill in Jar - Funders"
               className="w-full h-full object-cover"
             />
@@ -209,7 +209,7 @@ function Opportunities() {
         <Card className="h-full">
           <div className="h-64 overflow-hidden">
             <img 
-              src="/Collaboration.png" 
+              src="/images/Collaboration.png" 
               alt="Collaborators"
               className="w-full h-full object-cover"
             />

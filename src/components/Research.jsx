@@ -39,7 +39,7 @@ function Research() {
                 </div>
                 <div className="h-full">
                   <img 
-                    src="/soils2.jpeg" 
+                    src="/images/soils2.jpeg" 
                     alt="Harvesting Crop Field - Enhanced Rock Weathering in Agricultural Soils"
                     className="w-full h-full object-cover rounded-lg shadow-md"
                   />
@@ -56,7 +56,7 @@ function Research() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-stretch">
                 <div className="h-full">
                   <img 
-                    src="/river.png" 
+                    src="/images/river.png" 
                     alt="River Network - Transport of Weathering Products to Coastal Ocean"
                     className="w-full h-full object-cover rounded-lg shadow-md"
                   />
@@ -105,7 +105,7 @@ function Research() {
                 </div>
                 <div className="h-full">
                   <img 
-                    src="/coastalocean2.png" 
+                    src="/images/coastalocean2.png" 
                     alt="Coastal Ocean - Regional Ocean Biogeochemical Modeling"
                     className="w-full h-full object-cover rounded-lg shadow-md"
                   />
@@ -122,7 +122,7 @@ function Research() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-stretch">
                 <div className="h-full">
                   <img 
-                    src="/globalocean.png" 
+                    src="/images/globalocean.png" 
                     alt="Earth from Space - Global Ocean Circulation and Biogeochemical Models"
                     className="w-full h-full object-cover rounded-lg shadow-md"
                   />
@@ -175,7 +175,7 @@ function Research() {
                 </div>
                 <div className="h-full">
                   <img 
-                    src="/atmosphere.jpeg" 
+                    src="/images/atmosphere.jpeg" 
                     alt="Atmospheric Clouds - Global Climate Models and Hydrology Studies"
                     className="w-full h-full object-cover rounded-lg shadow-md"
                   />
@@ -192,7 +192,7 @@ function Research() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-stretch">
                 <div className="h-full">
                   <img 
-                    src="/watershed.jpeg" 
+                    src="/images/watershed.jpeg" 
                     alt="Watershed Studies - Vermont Agricultural Watershed with Silicate Rock Applications"
                     className="w-full h-full object-cover rounded-lg shadow-md"
                   />
@@ -247,7 +247,7 @@ function Research() {
                   </div>
                   <div className="h-full">
                     <img 
-                      src="/agricultural.jpeg" 
+                      src="/images/agricultural.jpeg" 
                       alt="Agricultural Studies - Silicate Rock Deployment in Agricultural Sites"
                       className="w-full h-full object-cover rounded-lg shadow-md"
                     />
@@ -264,7 +264,7 @@ function Research() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-stretch">
                   <div className="h-full">
                     <img 
-                      src="/broaderimpact.jpeg" 
+                      src="/images/broaderimpact.jpeg" 
                       alt="Broader Impacts - Education, Outreach, and Community Engagement Programs"
                       className="w-full h-full object-cover rounded-lg shadow-md"
                     />

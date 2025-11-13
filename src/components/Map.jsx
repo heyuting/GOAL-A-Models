@@ -7,8 +7,8 @@ import "leaflet/dist/leaflet.css";
 delete L.Icon.Default.prototype._getIconUrl;
 
 L.Icon.Default.mergeOptions({
-  iconUrl: "/marker-icon.png",
-  shadowUrl: "/marker-shadow.png",
+  iconUrl: "/images/marker-icon.png",
+  shadowUrl: "/images/marker-shadow.png",
 });
 
 // Add custom CSS for markers
@@ -34,7 +34,9 @@ if (typeof document !== 'undefined') {
 
 export default function MapComponent({ onLocationSelect, disabled = false, selectedLocations = [], currentLocationIndex = -1 }) {
   const [riverData, setRiverData] = useState(null);
-  const [loading, setLoading] = useState(true); // State to handle loading state
+  const [boundaryData, setBoundaryData] = useState(null);
+  const [loading, setLoading] = useState(true); // State to handle river loading state
+  const [boundaryLoading, setBoundaryLoading] = useState(true);
   const [showRivers, setShowRivers] = useState(false); // State to track whether to show river layer
   const canvasRenderer = new L.Canvas();
 
@@ -53,6 +55,22 @@ export default function MapComponent({ onLocationSelect, disabled = false, selec
         });
     }
   }, [riverData]); // Empty dependency array, but check for `riverData` to avoid repeated fetch
+
+  // Fetch CONUS boundary once
+  useEffect(() => {
+    if (!boundaryData) {
+      fetch("/sf_us_conus.geojson")
+        .then((response) => response.json())
+        .then((data) => {
+          setBoundaryData(data);
+          setBoundaryLoading(false);
+        })
+        .catch((err) => {
+          console.error("Error loading CONUS boundary:", err);
+          setBoundaryLoading(false);
+        });
+    }
+  }, [boundaryData]);
 
   function LocationMarker() {
     useMapEvents({
@@ -102,6 +120,15 @@ export default function MapComponent({ onLocationSelect, disabled = false, selec
             url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
             attribution='© Esri, DeLorme, NAVTEQ, TomTom, Intermap, iPC, USGS, FAO, NPS, NRCAN, GeoBase, Kadaster NL, Ordnance Survey, Esri Japan, METI, Esri China (Hong Kong), and the GIS User Community'
           />
+
+          {/* CONUS boundary */}
+          {!boundaryLoading && boundaryData && (
+            <GeoJSON
+              data={boundaryData}
+              style={{ color: "#FCD34D", weight: 2, fillOpacity: 0 }}
+              interactive={false}
+            />
+          )}
 
           {/* Show a loading indicator until the GeoJSON data is loaded */}
           {loading ? (
