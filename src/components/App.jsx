@@ -496,7 +496,7 @@ function PublicHomePage() {
 
       {/* Login/Signup Modal */}
       {showModal && (
-        <div className="bg-gray-500/50 fixed inset-0 flex items-center justify-center z-50">
+        <div className="bg-gray-900/40 fixed inset-0 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-8 max-w-lg w-full mx-4 shadow-2xl border-2 border-gray-300">
             <div className="text-center">
               <h2 className="text-2xl font-bold text-gray-800 mb-4">
@@ -579,23 +579,16 @@ function HomePage() {
           <h2 className="text-3xl font-bold text-gray-800 mb-2">GOAL-A Models</h2>
           <p className="text-m text-gray-600">Select a model to get started with enhanced rock weathering research</p>
         </div>
-        <motion.div
-          whileHover={{ scale: 1.03 }}
-          whileTap={{ scale: 0.97 }}
-          onClick={() => navigate('/usgs-sites')}
-          className="lg:w-90"
+        <a
+          href="#/usgs-sites"
+          onClick={(e) => {
+            e.preventDefault();
+            navigate('/usgs-sites');
+          }}
+          className="mt-8 text-right text-xl text-blue-600 hover:text-blue-800 font-semibold underline"
         >
-          <Card className="py-2 cursor-pointer shadow-md rounded-xl border border-gray-200 bg-gray-50">
-            <CardContent className="px-5">
-              <div className="flex flex-col">
-                <h3 className="text-md text-right font-semibold text-blue-900">Explore USGS Water Quality Sites</h3>
-                <div className="text-sm text-gray-600 leading-snug text-right">
-                  <span>Access monitoring locations with alkalinity data to inform model configurations and field studies.</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
+          Explore USGS Water Quality Sites
+        </a>
       </div>
  
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>

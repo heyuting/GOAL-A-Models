@@ -1,12 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect } from "react";
 import MapComponent from "./Map";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useAuth } from '@/contexts/AuthContext';
-import userService from '@/services/userService';
 
 // API base URL configuration - Use relative URLs for local development (proxied through Vite)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
@@ -23,97 +21,38 @@ const getApiUrl = (endpoint) => {
 };
 
 export default function DRNConfig({ savedData }) {
-  const { user } = useAuth();
+  
+  // Mode selection: 'single' or 'multiple'
+  const [locationMode, setLocationMode] = useState(null); // null = not selected yet, 'single' or 'multiple'
+  const [showModeSelection, setShowModeSelection] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1); // 1 = Step 1 (Location Selection), 2 = Step 2 (Model Parameters)
+  
+  // Multiple location mode states
+  const [outletCheckStatus, setOutletCheckStatus] = useState(null); // null, 'checking', 'same', 'different', 'error'
+  const [outletCheckError, setOutletCheckError] = useState(null);
+  const [_runIndividuallyMode, setRunIndividuallyMode] = useState(false); // If true, locations will be run as separate simulations (currently unused)
+  const [outletCheckResults, setOutletCheckResults] = useState(null); // Store the full results
+  
   // DRN parameters
   const [selectedLocations, setSelectedLocations] = useState([]);
   const [currentLocationIndex, setCurrentLocationIndex] = useState(-1);
-  const [numStart, setNumStart] = useState(1);
-  const [yearRun, setYearRun] = useState(24);
-  const [timeStep, setTimeStep] = useState(0.1);
-  const [manualLat, setManualLat] = useState('');
-  const [manualLng, setManualLng] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState('');
+  const [yearRun, setYearRun] = useState(12);
+  const [timeStep, setTimeStep] = useState(1);
+  // const [rateRock, setRateRock] = useState(1.0); // Rate of rock (ton/ha/yr) - Commented out, now using EW River Input from locations
+  const [feedstock, setFeedstock] = useState('basalt'); // 'carbonate' or 'basalt'
+  // const [monteCount, setMonteCount] = useState(10); // Monte Carlo count (default: 10, max: 100)
 
-  // Job submission states
-  const [isSubmittingJob, setIsSubmittingJob] = useState(false);
-  const [jobId, setJobId] = useState(null);
-  const [jobStatus, setJobStatus] = useState(null);
-  const [jobError, setJobError] = useState(null);
-  const [jobSubmissionMessage, setJobSubmissionMessage] = useState('');
-  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
-  const [jobLogs, setJobLogs] = useState([]);
-  const [lastStatusCheck, setLastStatusCheck] = useState(null);
-  const [consecutiveTimeouts, setConsecutiveTimeouts] = useState(0);
-  const [hasSavedJob, setHasSavedJob] = useState(false); // Track if there's a saved job
 
-  // Helper functions for job state persistence
-  const saveJobStateToStorage = useCallback((jobData) => {
-    try {
-      // Check if localStorage is available
-      if (typeof window === 'undefined' || !window.localStorage) {
-        return;
-      }
-      
-      // Validate jobData
-      if (!jobData || typeof jobData !== 'object') {
-        return;
-      }
-      
-      const dataToSave = {
-        ...jobData,
-        timestamp: Date.now()
-      };
-      
-      localStorage.setItem('drnJobState', JSON.stringify(dataToSave));
-      
-    } catch (error) {
-      console.warn('Failed to save job state to localStorage:', error);
-    }
-  }, []);
+  // Full pipeline states
+  const [fullPipelineJobId, setFullPipelineJobId] = useState(null);
+  const [fullPipelineStatus, setFullPipelineStatus] = useState(null);
+  const [fullPipelineError, setFullPipelineError] = useState(null);
+  const [isSubmittingFullPipeline, setIsSubmittingFullPipeline] = useState(false);
+  const [isCheckingFullPipelineStatus, setIsCheckingFullPipelineStatus] = useState(false);
+  // fullPipelineResults state removed - not currently used (backend returns placeholder)
+  const [currentStep, setCurrentStep] = useState(null);
+  const [stepProgress, setStepProgress] = useState(null);
 
-  const loadJobStateFromStorage = useCallback(() => {
-    try {
-      // Check if localStorage is available
-      if (typeof window === 'undefined' || !window.localStorage) {
-        return null;
-      }
-      
-      const saved = localStorage.getItem('drnJobState');
-      if (saved && saved !== 'undefined') {
-        const jobData = JSON.parse(saved);
-        // Validate the jobData structure
-        if (jobData && typeof jobData === 'object' && jobData.timestamp) {
-          // Only restore if saved within last 24 hours
-          if (Date.now() - jobData.timestamp < 24 * 60 * 60 * 1000) {
-            return jobData;
-          } else {
-            // Clean up old job state
-            localStorage.removeItem('drnJobState');
-          }
-        }
-      }
-    } catch (error) {
-      console.warn('Failed to load job state from localStorage:', error);
-      // Clean up corrupted data
-      try {
-        localStorage.removeItem('drnJobState');
-      } catch {
-        // Ignore cleanup error
-      }
-    }
-    return null;
-  }, []);
-
-  const clearJobStateFromStorage = useCallback(() => {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        localStorage.removeItem('drnJobState');
-      }
-    } catch (error) {
-      console.warn('Failed to clear job state from localStorage:', error);
-    }
-  }, []);
 
   const validateWithinConus = (lat, lng) => (
     lat >= 24.396308 &&
@@ -121,6 +60,7 @@ export default function DRNConfig({ savedData }) {
     lng >= -125.00165 &&
     lng <= -66.93457
   );
+
 
   // Load saved data on component mount
   useEffect(() => {
@@ -132,7 +72,6 @@ export default function DRNConfig({ savedData }) {
       }
       // Load other saved parameters
       if (savedData.parameters) {
-        setNumStart(savedData.parameters.numStart || 1);
         const savedDuration = savedData.parameters.yearRun;
         if (typeof savedDuration === 'number') {
           if (savedDuration <= 2) {
@@ -140,14 +79,56 @@ export default function DRNConfig({ savedData }) {
           } else {
             setYearRun(savedDuration);
           }
-        } else {
+          } else {
           setYearRun(24);
         }
       } else {
         setYearRun(24);
       }
     }
+    
+    // Load saved job from localStorage
+    const latestJobId = localStorage.getItem('drn_latest_job_id');
+    if (latestJobId) {
+      const savedJob = localStorage.getItem(`drn_job_${latestJobId}`);
+      if (savedJob) {
+        try {
+          const jobInfo = JSON.parse(savedJob);
+          // Only restore if job is not completed or failed
+          if (jobInfo.status !== 'completed' && jobInfo.status !== 'failed') {
+            setFullPipelineJobId(jobInfo.jobId);
+            setFullPipelineStatus(jobInfo.status || 'submitted');
+            // Restore locations and parameters
+            if (jobInfo.locations) {
+              setSelectedLocations(jobInfo.locations);
+            }
+            if (jobInfo.parameters) {
+              if (jobInfo.parameters.monthRun) setYearRun(jobInfo.parameters.monthRun);
+              if (jobInfo.parameters.timeStep) setTimeStep(jobInfo.parameters.timeStep);
+              if (jobInfo.parameters.feedstock) setFeedstock(jobInfo.parameters.feedstock);
+            }
+            // Set a flag to resume polling after component is fully mounted
+            // This will be handled by a separate useEffect
+      }
+    } catch (error) {
+          console.error('Error loading saved job:', error);
+    }
+      }
+    }
   }, [savedData]);
+
+  // Resume polling for restored jobs
+  useEffect(() => {
+    if (fullPipelineJobId && (fullPipelineStatus === 'submitted' || fullPipelineStatus === 'pending' || fullPipelineStatus === 'running')) {
+      // Small delay to ensure all functions are defined
+      const timer = setTimeout(() => {
+        pollFullPipelineStatus(fullPipelineJobId);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullPipelineJobId]); // Only run when jobId changes (on restore)
+
 
   const validateCoordinates = (lat, lng) => {
     const parsedLat = parseFloat(lat);
@@ -179,13 +160,13 @@ export default function DRNConfig({ savedData }) {
       alert('Maximum 5 locations allowed. Please remove some locations first.');
       return false;
     }
-
+    
     const newLocation = {
       lat: validation.lat,
       lng: validation.lng,
-      ewRiverInput: 0
+      ewRiverInput: 1
     };
-
+    
     setSelectedLocations(prev => {
       const newLocations = [...prev, newLocation];
       setCurrentLocationIndex(newLocations.length - 1);
@@ -195,16 +176,14 @@ export default function DRNConfig({ savedData }) {
     return true;
   };
 
-  const handleManualAddLocation = () => {
-    const added = addLocation(manualLat, manualLng);
-    if (added) {
-      setManualLat('');
-      setManualLng('');
-    }
-  };
  
   // Handle location selection
   const handleLocationSelect = (location) => {
+    // In single mode, only allow one location - prevent adding if one already exists
+    if (locationMode === 'single' && selectedLocations.length >= 1) {
+      alert('Single location mode: Please remove the existing location before selecting a new one.');
+      return;
+    }
     addLocation(location.lat, location.lng);
   };
 
@@ -235,7 +214,7 @@ export default function DRNConfig({ savedData }) {
       return updated;
     });
   };
- 
+
   // Remove a specific location
   const removeLocation = (index) => {
     const newLocations = selectedLocations.filter((_, i) => i !== index);
@@ -246,6 +225,14 @@ export default function DRNConfig({ savedData }) {
       setCurrentLocationIndex(Math.max(0, newLocations.length - 1));
     } else if (currentLocationIndex === index) {
       setCurrentLocationIndex(Math.max(0, newLocations.length - 1));
+    }
+    
+    // In multiple mode, reset outlet check status when locations change
+    // (outlet check results are no longer valid after removing locations)
+    if (locationMode === 'multiple') {
+      setOutletCheckStatus(null);
+      setOutletCheckError(null);
+      setOutletCheckResults(null);
     }
   };
 
@@ -258,368 +245,299 @@ export default function DRNConfig({ savedData }) {
   // Get current selected location for backward compatibility
   const selectedLocation = currentLocationIndex >= 0 ? selectedLocations[currentLocationIndex] : null;
 
-  // Define checkJobStatus early to avoid dependency issues
-  const checkJobStatus = useCallback(async (jobId) => {
-    if (!jobId) return;
-
-    setIsCheckingStatus(true);
-    try {
-      const apiUrl = getApiUrl(`api/check-job-status/${jobId}`);
-      console.log('Checking job status at:', apiUrl);
-      
-      const response = await fetch(apiUrl, {
-        headers: {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
-        },
-        // Add timeout to prevent hanging requests
-        signal: AbortSignal.timeout(180000) // 3 minute timeout for Duo 2FA
-      });
-      
-      console.log('Response status:', response.status);
-      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
-      
-      // Check if response has content
-      const responseText = await response.text();
-      console.log('Response text:', responseText);
-      
-      let result;
-      try {
-        result = JSON.parse(responseText);
-      } catch (parseError) {
-        console.error('JSON parse error:', parseError);
-        console.error('Raw response:', responseText);
-        throw new Error(`Invalid JSON response from server. Got: ${responseText.substring(0, 100)}...`);
-      }
-
-      if (response.ok) {
-        const logs = result.logs || [];
-        let message = '';
-        let error = null;
-
-        // Update message based on status
-        switch (result.status) {
-          case 'running':
-            message = `Job ${jobId} is currently running...`;
-            break;
-          case 'completed':
-            message = `Job ${jobId} completed successfully!`;
-            break;
-          case 'failed':
-            message = `Job ${jobId} failed. Check logs for details.`;
-            error = result.error || 'Job execution failed';
-            break;
-          case 'pending':
-            message = `Job ${jobId} is pending in queue...`;
-            break;
-          default:
-            message = `Job ${jobId} status: ${result.status}`;
-        }
-
-        // Update state
-        setJobStatus(result.status);
-        setJobLogs(logs);
-        setJobSubmissionMessage(message);
-        if (error) {
-          setJobError(error);
-        }
-
-        // Clear any previous connection errors
-        if (jobError && (jobError.includes('timeout') || jobError.includes('Authentication'))) {
-          setJobError(null);
-        }
-
-        // Reset consecutive timeouts on successful check
-        setConsecutiveTimeouts(0);
-        setLastStatusCheck(new Date());
-
-        // Save updated job state to localStorage
-        const jobState = {
-          jobId: jobId,
-          jobStatus: result.status,
-          jobError: error,
-          jobSubmissionMessage: message,
-          jobLogs: logs,
-          lastStatusCheck: new Date().toISOString()
-        };
-        saveJobStateToStorage(jobState);
-      } else {
-        throw new Error(result.error || 'Failed to check job status');
-      }
-    } catch (error) {
-      console.error('Error checking job status:', error);
-      
-      // Handle specific error types with better messaging
-      if (error.name === 'AbortError' || error.name === 'TimeoutError' || error.message.includes('timed out')) {
-        // Increment consecutive timeouts
-        const newTimeouts = consecutiveTimeouts + 1;
-        setConsecutiveTimeouts(newTimeouts);
-        
-        // Show different messages based on consecutive timeouts
-        if (newTimeouts === 1) {
-          setJobSubmissionMessage(`Job ${jobId} - SSH authentication timeout (likely Duo 2FA). Retrying automatically...`);
-        } else if (newTimeouts < 3) {
-          setJobSubmissionMessage(`Job ${jobId} - SSH timeout (${newTimeouts} in a row). May need manual Duo verification on server.`);
-        } else {
-          setJobError(`SSH authentication issues (${newTimeouts} timeouts). Server may need Duo 2FA verification. Job likely still running.`);
-        }
-        console.warn(`Status check timed out (${newTimeouts} consecutive), will retry automatically`);
-      } else if (error.message.includes('Authentication timeout')) {
-        setJobError('SSH authentication timeout. Job may still be running. Will retry automatically.');
-      } else if (error.message.includes('fetch') || error.message.includes('NetworkError')) {
-        setJobError('Network error. Check your connection. Will retry automatically.');
-      } else if (error.message.includes('500') || error.message.includes('Internal Server Error')) {
-        setJobError('Server error. Job may still be running. Will retry automatically.');
-      } else {
-        // Only set persistent errors for unexpected errors
-        setJobError(`Status check failed: ${error.message}`);
-      }
-    } finally {
-      setIsCheckingStatus(false);
-    }
-  }, [saveJobStateToStorage, jobError, consecutiveTimeouts]);
-
-  // Use refs to store stable references to functions
-  const checkJobStatusRef = useRef(checkJobStatus);
-  const clearJobStateFromStorageRef = useRef(clearJobStateFromStorage);
-  const loadJobStateFromStorageRef = useRef(loadJobStateFromStorage);
-
-  // Update refs when functions change
-  useEffect(() => {
-    checkJobStatusRef.current = checkJobStatus;
-    clearJobStateFromStorageRef.current = clearJobStateFromStorage;
-    loadJobStateFromStorageRef.current = loadJobStateFromStorage;
-  });
-
-  // Restore job state from localStorage on component mount
-  useEffect(() => {
-    let mounted = true; // Prevent state updates if component unmounts
-    
-    const restoreJobState = async () => {
-      try {
-        const savedJobState = loadJobStateFromStorageRef.current();
-        console.log('Checking for saved job state:', savedJobState);
-        
-        if (savedJobState && savedJobState.jobId && mounted) {
-          console.log('Restoring saved job:', savedJobState.jobId, 'Status:', savedJobState.jobStatus);
-          // Mark that there's a saved job
-          setHasSavedJob(true);
-          
-          // Validate the saved state structure
-          setJobId(savedJobState.jobId || null);
-          setJobStatus(savedJobState.jobStatus || null);
-          setJobError(savedJobState.jobError || null);
-          setJobSubmissionMessage(savedJobState.jobSubmissionMessage || '');
-          setJobLogs(Array.isArray(savedJobState.jobLogs) ? savedJobState.jobLogs : []);
-          
-          // Restore last status check time if available
-          if (savedJobState.lastStatusCheck) {
-            setLastStatusCheck(new Date(savedJobState.lastStatusCheck));
-          }
-          
-          // If job is still active, start monitoring
-          if (savedJobState.jobId && ['submitted', 'pending', 'running'].includes(savedJobState.jobStatus)) {
-            // Check status immediately (with a slight delay to ensure everything is initialized)
-            setTimeout(() => {
-              if (mounted) {
-                checkJobStatusRef.current(savedJobState.jobId).catch(error => {
-                  console.warn('Initial status check failed:', error.message);
-                  // Don't throw error, just log it - the periodic checker will retry
-                });
-              }
-            }, 1000);
-          }
-        } else {
-          // No saved job found
-          console.log('No saved job state found in localStorage');
-          setHasSavedJob(false);
-        }
-      } catch (error) {
-        console.error('Error restoring job state:', error);
-        // Clear potentially corrupted state
-        if (mounted) {
-          clearJobStateFromStorageRef.current();
-          setHasSavedJob(false);
-        }
-      }
-    };
-
-    restoreJobState();
-
-    return () => {
-      mounted = false;
-    };
-  }, []); // Empty dependency array to run only once on mount
-
-  // Job status monitoring effect with adaptive retry intervals
-  useEffect(() => {
-    let interval;
-    
-    if (jobId && (jobStatus === 'submitted' || jobStatus === 'pending' || jobStatus === 'running')) {
-      // Adaptive interval based on consecutive timeouts
-      // Start at 5 minutes to reduce Duo 2FA prompts, increase to max 15 minutes for persistent issues
-      const baseInterval = 300000; // 5 minutes (reduced 2FA prompts)
-      const maxInterval = 900000;  // 15 minutes
-      const adaptiveInterval = Math.min(baseInterval * (1 + consecutiveTimeouts * 0.5), maxInterval);
-      
-      console.log(`Setting up job monitoring every ${adaptiveInterval/60000} minutes (${consecutiveTimeouts} consecutive timeouts)`);
-      
-      interval = setInterval(async () => {
-        try {
-          await checkJobStatus(jobId);
-        } catch (error) {
-          console.warn('Periodic status check failed:', error.message);
-          // Don't stop monitoring on errors, just log and continue
-        }
-      }, adaptiveInterval);
-    }
-
-    return () => {
-      if (interval) {
-        clearInterval(interval);
-      }
-    };
-  }, [jobId, jobStatus, checkJobStatus, consecutiveTimeouts]);
-
-  // Job submission functions
-  const submitJobToGrace = async () => {
-    if (selectedLocations.length === 0) {
-      setJobSubmissionMessage('Please select at least one location first');
+  // Full pipeline functions
+  const submitFullPipeline = async () => {
+    if (selectedLocations.length < 1) {
+      setFullPipelineError('Please select at least 1 location first');
       return;
     }
 
-    setIsSubmittingJob(true);
-    setJobError(null);
-    setJobSubmissionMessage(`Submitting DRN job for ${selectedLocations.length} location(s) to Yale Grace server...`);
+    setIsSubmittingFullPipeline(true);
+    setFullPipelineError(null);
+    setFullPipelineStatus('submitting');
 
     try {
-      const jobData = {
-        model: 'DRN',
-        locations: selectedLocations.map(location => ({
-          lat: location.lat,
-          lng: location.lng,
-          ewRiverInput: location.ewRiverInput || 0
-        })),
-        numStart,
-        yearRun,
-        timeStep
+      // Convert selectedLocations to coordinates format
+      const coordinates = selectedLocations.map(loc => [loc.lat, loc.lng]);
+
+      // Get rate_rock from first location's EW River Input
+      const rateRockFromLocation = selectedLocations.length > 0 
+        ? (selectedLocations[0].ewRiverInput || 1)
+        : 1;
+
+      const pipelineData = {
+        coordinates: coordinates,
+        rate_rock: rateRockFromLocation, // Using EW River Input from first location
+        month_run: yearRun, // yearRun is already in months
+        time_step: timeStep,
+        feedstock: feedstock,
+        monte_count: 0 // monteCount - commented out, using 0 as default
       };
 
-      // Call backend proxy API
-      const response = await fetch(getApiUrl('api/run-job'), {
+      const apiUrl = getApiUrl('api/drn/full-pipeline');
+      console.log('Submitting full pipeline to:', apiUrl);
+      console.log('Pipeline data:', pipelineData);
+      
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'ngrok-skip-browser-warning': 'true',
         },
-        body: JSON.stringify(jobData),
+        body: JSON.stringify(pipelineData),
       });
+      
+      console.log('Response status:', response.status);
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+      
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type');
+      let result;
+      
+      if (contentType && contentType.includes('application/json')) {
+        result = await response.json();
+      } else {
+        const text = await response.text();
+        console.error('Non-JSON response:', text);
+        throw new Error(`Server returned non-JSON response: ${text.substring(0, 200)}`);
+      }
 
-      const result = await response.json();
+      console.log('Response result:', result);
 
       if (response.ok && result.job_id) {
-        const jobState = {
+        setFullPipelineJobId(result.job_id);
+        setFullPipelineStatus('submitted');
+        
+        // Save job to localStorage
+        const jobInfo = {
           jobId: result.job_id,
-          jobStatus: 'submitted',
-          jobError: null,
-          jobSubmissionMessage: `DRN job submitted successfully for ${selectedLocations.length} location(s)! Job ID: ${result.job_id}`,
-          jobLogs: []
+          graceJobId: result.grace_job_id,
+          status: 'submitted',
+          submittedAt: new Date().toISOString(),
+          locations: selectedLocations,
+          parameters: {
+            monthRun: yearRun,
+            timeStep: timeStep,
+            feedstock: feedstock,
+            rateRock: selectedLocations.length > 0 ? (selectedLocations[0].ewRiverInput || 1) : 1
+          }
         };
+        localStorage.setItem(`drn_job_${result.job_id}`, JSON.stringify(jobInfo));
+        // Also save as the most recent job
+        localStorage.setItem('drn_latest_job_id', result.job_id);
         
-        setJobId(jobState.jobId);
-        setJobStatus(jobState.jobStatus);
-        setJobSubmissionMessage(jobState.jobSubmissionMessage);
-        
-        // Save job state to localStorage
-        saveJobStateToStorage(jobState);
+        // Start polling for status
+        pollFullPipelineStatus(result.job_id);
       } else {
-        throw new Error(result.error || 'Failed to submit job');
+        throw new Error(result.error || result.message || 'Failed to submit full pipeline job');
       }
     } catch (error) {
-      console.error('Error submitting job:', error);
-      setJobError(error.message);
-      setJobSubmissionMessage('Failed to submit job. Please try again.');
+      console.error('Error submitting full pipeline:', error);
+      const errorMessage = error.message || 'Unknown error occurred';
+      setFullPipelineError(errorMessage);
+      setFullPipelineStatus('failed');
+      alert(`Failed to submit job: ${errorMessage}`);
     } finally {
-      setIsSubmittingJob(false);
+      setIsSubmittingFullPipeline(false);
     }
   };
 
-  const resetJob = useCallback(() => {
-    setJobId(null);
-    setJobStatus(null);
-    setJobError(null);
-    setJobSubmissionMessage('');
-    setJobLogs([]);
-    setLastStatusCheck(null);
-    setConsecutiveTimeouts(0);
-    setHasSavedJob(false); // Clear saved job status
+  // Helper function to update saved job in localStorage
+  const updateSavedJob = (jobId, updates) => {
+    if (!jobId) return;
+    const savedJob = localStorage.getItem(`drn_job_${jobId}`);
+    if (savedJob) {
+      try {
+        const jobInfo = JSON.parse(savedJob);
+        const updatedJob = { ...jobInfo, ...updates };
+        localStorage.setItem(`drn_job_${jobId}`, JSON.stringify(updatedJob));
+      } catch (error) {
+        console.error('Error updating saved job:', error);
+      }
+    }
+  };
+
+  const checkFullPipelineStatus = async (jobId) => {
+    if (!jobId) return;
     
-    // Clear job state from localStorage
-    clearJobStateFromStorage();
-  }, [clearJobStateFromStorage]);
-
-  const handleSaveModel = async () => {
-    if (!user) {
-      setSaveMessage('Please log in to save models');
-      return;
-    }
-
-    if (selectedLocations.length === 0) {
-      setSaveMessage('Please select at least one location first');
-      return;
-    }
-
-    setIsSaving(true);
-    setSaveMessage('');
-
+    setIsCheckingFullPipelineStatus(true);
+    setFullPipelineError(null);
+    
     try {
-      const modelData = {
-        name: `DRN Model - ${selectedLocations.length} locations`,
-        location: selectedLocations.length > 0 
-          ? `${selectedLocations[0].lat.toFixed(3)}, ${selectedLocations[0].lng.toFixed(3)} + ${selectedLocations.length - 1} more`
-          : 'No locations selected',
-        parameters: {
-          locations: selectedLocations.map(location => ({
-            lat: location.lat,
-            lng: location.lng,
-            ewRiverInput: location.ewRiverInput || 0
-          })),
-          numStart,
-          yearRun,
-          timeStep
+      const response = await fetch(getApiUrl(`api/drn/full-pipeline/${jobId}/status`), {
+        headers: {
+          'ngrok-skip-browser-warning': 'true',
         },
-        timestamp: new Date().toISOString(),
-        userId: user?.id || 'anonymous'
-      };
-
-      let savedModel;
+      });
+      const result = await response.json();
       
-      if (savedData) {
-        // Update existing model
-        savedModel = userService.updateUserModel(user.id, savedData.id, modelData);
-        if (savedModel) {
-          setSaveMessage('Model updated successfully!');
-        } else {
-          setSaveMessage('Failed to update model');
-        }
-      } else {
-        // Create new model
-        savedModel = userService.saveUserModel(user.id, modelData);
-        if (savedModel) {
-          setSaveMessage('Model saved successfully!');
-        } else {
-          setSaveMessage('Failed to save model');
-        }
+      // Update saved job status
+      if (result.status) {
+        updateSavedJob(jobId, { status: result.status });
       }
-      
-      setTimeout(() => setSaveMessage(''), 3000);
+
+      if (result.status === 'completed') {
+        setFullPipelineStatus('completed');
+        // Fetch results
+        fetchFullPipelineResults(jobId);
+      } else if (result.status === 'failed') {
+        setFullPipelineStatus('failed');
+        setFullPipelineError(result.error || 'Full pipeline job failed');
+      } else if (result.status === 'unknown') {
+        // Unknown status - might be transitioning, continue checking
+        setFullPipelineStatus('unknown');
+        // Update step information if available
+        if (result.current_step) {
+          setCurrentStep(result.current_step);
+        }
+        if (result.step_progress) {
+          setStepProgress(result.step_progress);
+        }
+        // Continue polling to get updated status
+        pollFullPipelineStatus(jobId);
+      } else {
+          setFullPipelineStatus(result.status);
+          // Update step information
+          if (result.current_step) {
+            setCurrentStep(result.current_step);
+          }
+          if (result.step_progress) {
+            setStepProgress(result.step_progress);
+          }
+          // Continue polling if still processing
+          if (result.status === 'pending' || result.status === 'running') {
+            pollFullPipelineStatus(jobId);
+          }
+      }
     } catch (error) {
-      console.error('Error saving model:', error);
-      setSaveMessage('Error saving model');
+      console.error('Error checking full pipeline status:', error);
+      setFullPipelineError(error.message || 'Failed to check status');
     } finally {
-      setIsSaving(false);
+      setIsCheckingFullPipelineStatus(false);
     }
   };
+
+  const pollFullPipelineStatus = async (jobId) => {
+    const checkStatus = async () => {
+      try {
+        const response = await fetch(getApiUrl(`api/drn/full-pipeline/${jobId}/status`), {
+          headers: {
+            'ngrok-skip-browser-warning': 'true',
+          },
+        });
+        const result = await response.json();
+
+        if (result.status === 'completed') {
+          setFullPipelineStatus('completed');
+          // Update saved job status
+          updateSavedJob(jobId, { status: 'completed' });
+          // Update step information even when completed (to show final step)
+          if (result.current_step) {
+            setCurrentStep(result.current_step);
+          }
+          if (result.step_progress) {
+            setStepProgress(result.step_progress);
+          } else {
+            // If no step_progress but job is completed, set to show all steps completed
+            setCurrentStep('All Steps Completed');
+            setStepProgress({
+              step: 5,
+              name: 'Compile Results',
+              status: 'completed'
+            });
+          }
+          fetchFullPipelineResults(jobId);
+        } else if (result.status === 'failed') {
+          setFullPipelineStatus('failed');
+          setFullPipelineError('Full pipeline job failed');
+          // Update saved job status
+          updateSavedJob(jobId, { status: 'failed' });
+          // Update step information even when failed
+          if (result.current_step) {
+            setCurrentStep(result.current_step);
+          }
+          if (result.step_progress) {
+            setStepProgress(result.step_progress);
+          }
+        } else {
+          // Update saved job status
+          updateSavedJob(jobId, { status: result.status });
+          setFullPipelineStatus(result.status);
+          // Update step information
+          if (result.current_step) {
+            setCurrentStep(result.current_step);
+          }
+          if (result.step_progress) {
+            setStepProgress(result.step_progress);
+          }
+          // Continue polling if still processing
+          if (result.status === 'pending' || result.status === 'running') {
+            setTimeout(checkStatus, 30000); // Poll every 30 seconds
+          }
+        }
+      } catch (error) {
+        console.error('Error polling full pipeline status:', error);
+        setTimeout(checkStatus, 60000); // Retry after 60 seconds on error
+      }
+    };
+
+    checkStatus();
+  };
+
+
+  const fetchFullPipelineResults = async (jobId) => {
+    try {
+      const response = await fetch(getApiUrl(`api/drn/full-pipeline/${jobId}/results`), {
+        headers: {
+          'ngrok-skip-browser-warning': 'true',
+        },
+      });
+      const result = await response.json();
+
+      if (response.ok && result.results) {
+        // Results available (currently placeholder from backend)
+        console.log('Full pipeline results:', result.results);
+      } else if (response.status === 202) {
+        // Still processing
+        setTimeout(() => fetchFullPipelineResults(jobId), 5000);
+        } else {
+        throw new Error(result.error || 'Failed to fetch results');
+        }
+      } catch (error) {
+      console.error('Error fetching full pipeline results:', error);
+      setFullPipelineError(error.message);
+    }
+  };
+
+
+
+  const downloadFullPipelineResults = async (jobId) => {
+    try {
+      const response = await fetch(getApiUrl(`api/drn/full-pipeline/${jobId}/download`), {
+        headers: {
+          'ngrok-skip-browser-warning': 'true',
+        },
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `drn_results_${jobId}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        } else {
+        throw new Error('Failed to download results');
+        }
+        } catch (error) {
+      console.error('Error downloading results:', error);
+      setFullPipelineError(error.message);
+    }
+  };
+
 
   const updateLocationParameter = (index, key, value) => {
     const newLocations = [...selectedLocations];
@@ -627,8 +545,191 @@ export default function DRNConfig({ savedData }) {
     setSelectedLocations(newLocations);
   };
 
+  // Handle mode selection
+  const handleModeSelection = (mode) => {
+    setLocationMode(mode);
+    setShowModeSelection(false);
+    // Clear any existing locations when switching modes
+    if (selectedLocations.length > 0) {
+      setSelectedLocations([]);
+      setCurrentLocationIndex(-1);
+      setOutletCheckStatus(null);
+      setOutletCheckError(null);
+      setRunIndividuallyMode(false);
+    }
+  };
+
+  // Check if multiple locations share the same outlet
+  const checkOutletCompatibility = async () => {
+    if (locationMode !== 'multiple' || selectedLocations.length < 2) {
+      return;
+    }
+
+    setOutletCheckStatus('checking');
+    setOutletCheckError(null);
+    setOutletCheckResults(null);
+
+    try {
+      const coordinates = selectedLocations.map(loc => [loc.lat, loc.lng]);
+      
+      // Submit the check - backend now runs synchronously and returns results immediately
+      const response = await fetch(getApiUrl('api/drn/check-outlet-compatibility'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+        body: JSON.stringify({ coordinates }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to check outlet compatibility');
+      }
+
+      // Backend returns results immediately (synchronous execution)
+      // Check if result has job_id (async mode) or results directly (sync mode)
+      if (result.job_id) {
+        // Async mode: Backend returned a job_id, need to poll
+        const jobId = result.job_id;
+        
+        // Poll for status and results
+        const pollForResults = async (retryCount = 0) => {
+          const initialWaitTime = 120000; // 2 minutes in milliseconds
+          const pollingInterval = 2000; // 2 seconds
+          const maxRetries = 300;
+          
+          try {
+            if (retryCount === 0) {
+              setTimeout(() => pollForResults(1), initialWaitTime);
+      return;
+    }
+
+            const statusResponse = await fetch(getApiUrl(`api/drn/check-outlet-compatibility/${jobId}/status`), {
+              headers: {
+                'ngrok-skip-browser-warning': 'true',
+              },
+            });
+            
+            const statusResult = await statusResponse.json();
+            
+            if (!statusResponse.ok) {
+              throw new Error(statusResult.error || 'Failed to check status');
+            }
+
+            const status = statusResult.status;
+
+            if (status === 'completed' || statusResult.results) {
+              const results = statusResult.results || statusResult;
+              setOutletCheckResults(results);
+              if (results.same_outlet) {
+                setOutletCheckStatus('same');
+        } else {
+                setOutletCheckStatus('different');
+              }
+            } else if (status === 'failed' || status === 'cancelled' || status === 'timeout') {
+              setOutletCheckStatus('error');
+              setOutletCheckError(`Job ${status}`);
+            } else if (status === 'pending' || status === 'running' || status === 'unknown') {
+              if (retryCount < maxRetries) {
+                setTimeout(() => pollForResults(retryCount + 1), pollingInterval);
+      } else {
+                setOutletCheckStatus('error');
+                setOutletCheckError('Timeout waiting for results');
+              }
+        } else {
+              if (retryCount < maxRetries) {
+                setTimeout(() => pollForResults(retryCount + 1), pollingInterval);
+              } else {
+                setOutletCheckStatus('error');
+                setOutletCheckError('Unknown status');
+              }
+            }
+    } catch (error) {
+            console.error('Error polling outlet compatibility:', error);
+            if (retryCount < maxRetries) {
+              setTimeout(() => pollForResults(retryCount + 1), pollingInterval);
+            } else {
+              setOutletCheckStatus('error');
+              setOutletCheckError(error.message);
+            }
+          }
+        };
+
+        pollForResults();
+      } else {
+        // Synchronous mode: Results returned immediately
+        setOutletCheckResults(result);
+        if (result.same_outlet) {
+          setOutletCheckStatus('same');
+        } else {
+          setOutletCheckStatus('different');
+        }
+      }
+    } catch (error) {
+      console.error('Error checking outlet compatibility:', error);
+      setOutletCheckStatus('error');
+      setOutletCheckError(error.message);
+    }
+  };
+
+
+  // Removed automatic checking - user will trigger manually via button
+
   return (
     <div>
+      {/* Mode Selection Modal */}
+      {showModeSelection && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 bg-gray-900/40">
+          <div className="bg-white p-8 rounded-lg shadow-xl max-w-2xl w-full mx-4">
+            <h2 className="text-2xl font-bold mb-6 text-center text-gray-800">
+              Select Location Mode
+            </h2>
+            <p className="text-gray-600 mb-6 text-center">
+              Do you plan to apply crushed rock at:
+            </p>
+            
+            <div className="space-y-4">
+              <button
+                onClick={() => handleModeSelection('single')}
+                className="w-full p-6 border-2 border-blue-500 rounded-lg hover:bg-blue-50 transition-all text-left"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-semibold text-gray-800 mb-2">
+                      (A) One location only
+                    </h3>
+                    <p className="text-gray-600">
+                      Select a single location on the map and generate its watershed.
+                    </p>
+                  </div>
+                  <div className="text-3xl">📍</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => handleModeSelection('multiple')}
+                className="w-full p-6 border-2 border-green-500 rounded-lg hover:bg-green-50 transition-all text-left"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-semibold text-gray-800 mb-2">
+                      (B) Multiple locations that drain to the same outlet
+                    </h3>
+                    <p className="text-gray-600">
+                      Select multiple locations. The system will check if they share the same outlet.
+                    </p>
+                  </div>
+                  <div className="text-3xl">📍📍</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
       <div className="flex gap-6">
         <div className="w-3/5">
           <h3 className="text-xl font-bold text-center mb-6 text-gray-800">DRN Area of Interest</h3>
@@ -639,75 +740,170 @@ export default function DRNConfig({ savedData }) {
           
           <MapComponent 
             onLocationSelect={handleLocationSelect} 
-            disabled={!!jobId} 
+            disabled={
+              !locationMode || 
+              (!!fullPipelineJobId && (fullPipelineStatus === 'submitted' || fullPipelineStatus === 'pending' || fullPipelineStatus === 'running')) ||          
+              (locationMode === 'multiple' && (outletCheckStatus === 'same' || outletCheckStatus === 'checking')) ||
+              (locationMode === 'single' && selectedLocations.length >= 1)
+            } 
             selectedLocations={selectedLocations}
             currentLocationIndex={currentLocationIndex}
           />
-          
-          {/* Job Logs Display - Moved under the map */}
-          {jobLogs.length > 0 && (
-            <div className="mt-12 bg-gray-900 text-green-400 p-4 rounded-lg border font-mono text-sm max-h-64 overflow-y-auto">
-              <div className="font-semibold mb-3 text-white text-base">
-                Job Logs: <span className="text-blue-300">drn_{jobId}_1.out</span>
+          {!locationMode && (
+            <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-center">
+              <p className="text-yellow-800">
+                Please select a location mode above to enable map interaction.
+              </p>
+            </div>
+          )}
+
+          {/* Output Folder Section - PDFs and Download */}
+          {fullPipelineJobId && (
+            <div className="mt-16 space-y-3">
+              {/* Download Button - Only enabled when job is completed */}
+              {fullPipelineStatus === 'completed' && (
+                <Button 
+                  onClick={() => downloadFullPipelineResults(fullPipelineJobId)} 
+                  className="w-full text-lg font-semibold bg-green-500 text-white hover:bg-green-600 rounded-md p-8"
+                >
+                  Download Model Results (.zip)
+                </Button>
+              )}
+              
+              {/* Show message when job is still running */}
+              {fullPipelineStatus !== 'completed' && fullPipelineStatus !== null && (
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md text-center">
+                  <p className="text-sm text-yellow-800">
+                    Download will be available when the job is completed.
+                  </p>
               </div>
-              {jobLogs.map((log, index) => (
-                <div key={index} className="mb-1 break-words">{log}</div>
-              ))}
+              )}
+
             </div>
           )}
         </div>
         <div className="w-2/5">
           <h3 className="text-xl font-bold text-center mb-6 text-gray-800">DRN Model Configuration</h3>
-          <Card className="mt-17 p-6 shadow-lg rounded-2xl border border-gray-200">
+          <Card className="mt-15 p-6 shadow-lg rounded-xl border border-gray-200">
             <CardContent>
-              <h3 className="text-xl font-semibold">1. Select Locations within CONUS (up to 5)</h3>
-              <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-                <div className="flex justify-between gap-2">
-                  <div>
-                    <Label htmlFor="manualLat" className="text-sm font-medium text-blue-900">Latitude</Label>
-                    <Input
-                      id="manualLat"
-                      type="number"
-                      step="0.0001"
-                      value={manualLat}
-                      onChange={(e) => setManualLat(e.target.value)}
-                      placeholder="e.g., 40.1234"
-                      className="mt-1"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="manualLng" className="text-sm font-medium text-blue-900">Longitude</Label>
-                    <Input
-                      id="manualLng"
-                      type="number"
-                      step="0.0001"
-                      value={manualLng}
-                      onChange={(e) => setManualLng(e.target.value)}
-                      placeholder="e.g., -105.5678"
-                      className="mt-1"
-                    />
-                  </div>
-                  <div className="flex items-end justify-end">
-                    <Button
-                      type="button"
-                      onClick={handleManualAddLocation}
-                      className="w-20 bg-blue-600 hover:bg-blue-700 text-white"
-                    >
-                      Add
-                    </Button>
-                  </div>
-                </div>
+              {/* Saved Job Restore Section */}
+              {!fullPipelineJobId && (() => {
+                const latestJobId = localStorage.getItem('drn_latest_job_id');
+                if (latestJobId) {
+                  const savedJob = localStorage.getItem(`drn_job_${latestJobId}`);
+                  if (savedJob) {
+                    try {
+                      const jobInfo = JSON.parse(savedJob);
+                      // Only show if job is not completed or failed
+                      if (jobInfo.status !== 'completed' && jobInfo.status !== 'failed') {
+                        return (
+                          <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h4 className="text-sm font-semibold text-blue-900 mb-1">Saved Job Found</h4>
+                                <p className="text-xs text-blue-700">
+                                  Job ID: {jobInfo.jobId} • Status: {jobInfo.status || 'submitted'}
+                                  {jobInfo.submittedAt && (
+                                    <> • Submitted: {new Date(jobInfo.submittedAt).toLocaleString()}</>
+                                  )}
+                                </p>
+                              </div>
+                              <Button
+                                onClick={() => {
+                                  setFullPipelineJobId(jobInfo.jobId);
+                                  setFullPipelineStatus(jobInfo.status || 'submitted');
+                                  if (jobInfo.locations) {
+                                    setSelectedLocations(jobInfo.locations);
+                                  }
+                                  if (jobInfo.parameters) {
+                                    if (jobInfo.parameters.monthRun) setYearRun(jobInfo.parameters.monthRun);
+                                    if (jobInfo.parameters.timeStep) setTimeStep(jobInfo.parameters.timeStep);
+                                    if (jobInfo.parameters.feedstock) setFeedstock(jobInfo.parameters.feedstock);
+                                  }
+                                  setCurrentPage(2);
+                                  pollFullPipelineStatus(jobInfo.jobId);
+                                }}
+                                className="bg-blue-500 hover:bg-blue-600 text-white text-sm px-4 py-2"
+                              >
+                                Restore Job
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      }
+                    } catch (error) {
+                      console.error('Error parsing saved job:', error);
+                    }
+                  }
+                }
+                return null;
+              })()}
+              
+              {/* Page Navigation */}
+              <div className="flex items-stretch mb-6 pb-4 border-b">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  className={`flex-1 px-3 py-1 h-12 text-sm font-medium transition-colors rounded-l-sm border-r h-9 ${
+                    currentPage === 1
+                      ? 'bg-blue-500 text-white border-blue-600'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300 border-gray-300'
+                  }`}
+                >
+                  1. Select Locations
+                </button>
+                <button
+                  onClick={() => {
+                    // Only allow going to page 2 if:
+                    // - Single location mode with at least 1 location, OR
+                    // - Multiple location mode with outlet compatibility checked and same outlet                                                                               
+                    const canGoToPage2 = 
+                      (locationMode === 'single' && selectedLocations.length >= 1) ||                                                                           
+                      (locationMode === 'multiple' && selectedLocations.length >= 2 && outletCheckStatus === 'same');                                             
+                    if (canGoToPage2) {
+                      setCurrentPage(2);
+                    }
+                  }}
+                  disabled={
+                    !(
+                      (locationMode === 'single' && selectedLocations.length >= 1) ||                                                                           
+                      (locationMode === 'multiple' && selectedLocations.length >= 2 && outletCheckStatus === 'same')                                              
+                    )
+                  }
+                  className={`flex-1 px-3 py-1 h-12 text-sm font-medium transition-colors rounded-r-sm h-9 ${                                                        
+                    (locationMode === 'single' && selectedLocations.length >= 1) ||                                                                             
+                    (locationMode === 'multiple' && selectedLocations.length >= 2 && outletCheckStatus === 'same')                                                
+                      ? currentPage === 2
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  }`}
+                >
+                  2. Model Parameters
+                </button>
               </div>
+
+              {/* Page 1: Step 1 - Location Selection */}
+              {currentPage === 1 && (
+                <>
+                  <h4 className="text-md font-semibold mb-4">
+                    Click on the map to select locations within CONUS
+                    {locationMode === 'single' ? ' (1 location)' : ' (up to 5 locations)'}
+                  </h4>
+              {!locationMode && (
+                <p className="text-sm text-gray-500 mb-4">
+                  Please select a location mode above to begin.
+                </p>
+              )}
               <div className="flex justify-between items-center mb-4 mt-3">
                 <p className="text-gray-500">
                   {selectedLocations.length > 0 
                     ? `${selectedLocations.length} location(s) selected. Current: ${selectedLocation?.lat.toFixed(3)}, ${selectedLocation?.lng.toFixed(3)}`
                     : "No locations selected"}
                 </p>
-                {selectedLocations.length > 0 && (
+                {selectedLocations.length > 0 && locationMode !== 'single' && (
                   <Button
                     onClick={clearAllLocations}
-                    className="px-3 py-1 mr-3 text-sm bg-red-500 hover:bg-red-600 text-white"
+                    className="px-3 py-1 mr-3 text-sm bg-red-500 hover:bg-red-600 text-white"                                                                   
                   >
                     Clear All
                   </Button>
@@ -725,7 +921,7 @@ export default function DRNConfig({ savedData }) {
                       >
                         <div className="flex justify-between items-center mb-2">
                           <span className="font-semibold text-sm text-gray-700">
-                            <strong>Location {index + 1}:</strong> {location.lat.toFixed(6)}, {location.lng.toFixed(6)}
+                            <strong>Location {index + 1}:</strong> 
                           </span>
                           <button
                             onClick={() => removeLocation(index)}
@@ -741,9 +937,9 @@ export default function DRNConfig({ savedData }) {
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <div>
                               <label className="block text-gray-600 text-xs uppercase tracking-wide">Latitude</label>
-                              <input
+                            <input
                                 key={`lat-${index}-${location.lat}`}
-                                type="number"
+                              type="number"
                                 step="0.0001"
                                 defaultValue={location.lat}
                                 onBlur={(e) => handleCoordinateBlur(index, 'lat', e.target.value, e.target)}
@@ -762,20 +958,8 @@ export default function DRNConfig({ savedData }) {
                               />
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <label htmlFor={`ewRiverInput-${index}`} className="block text-gray-600 text-sm">EW River Input (ton/ha/yr):</label>
-                            <input
-                              id={`ewRiverInput-${index}`}
-                              name={`ewRiverInput-${index}`}
-                              type="number"
-                              step="0.1"
-                              min="0"
-                              value={location.ewRiverInput || ''}
-                              onChange={(e) => updateLocationParameter(index, 'ewRiverInput', parseFloat(e.target.value) || 0)}
-                              className="w-1/2 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
-                              placeholder="0.00"
-                            />
-                          </div>
+                          
+                          
                         </div>
                       </div>
                     ))}
@@ -783,34 +967,138 @@ export default function DRNConfig({ savedData }) {
                 </div>
               )}
               
-              <h3 className="text-xl font-semibold">2. Set DRN Model Parameters</h3>
-                <div className="flex items-center gap-4 mb-4">
-                  <Label htmlFor="numStart" className="w-44 font-semibold">Start Index of Flow Paths</Label>
-                  <Input
-                    id="numStart"
-                    name="numStart"
-                    type="number" 
-                    value={numStart} 
-                    onChange={(e) => setNumStart(e.target.value)} 
-                    className="flex-1" 
-                  />
+              {/* Check Outlet Compatibility Button (Multiple Mode Only) */}
+              {locationMode === 'multiple' && selectedLocations.length >= 2 && (
+                <div className="mb-4">
+                  <Button
+                    onClick={checkOutletCompatibility}
+                    disabled={outletCheckStatus === 'checking'}
+                    className="w-full bg-purple-500 hover:bg-purple-600 text-white py-2 rounded-md font-semibold disabled:opacity-50"
+                  >
+                    {outletCheckStatus === 'checking' 
+                      ? 'Checking Outlet Compatibility...' 
+                      : 'Check Outlet Compatibility'}
+                  </Button>
+                  <p className="text-xs text-gray-500 mt-1 text-center">
+                    Check if all selected locations drain to the same outlet
+                  </p>
+
+                  {/* Outlet Compatibility Status Display */}
+                  {outletCheckStatus === 'checking' && (
+                    <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                        <p className="text-blue-700">Checking if all locations drain to the same outlet...</p>
                 </div>
+                    </div>
+                  )}
+
+                  {outletCheckStatus === 'same' && outletCheckResults && (
+                    <div className="mt-4 p-4 bg-green-50 border-2 border-green-500 rounded-lg">
+                      <div className="flex items-center gap-3 mb-3">
+                        <h3 className="text-lg font-bold text-green-800">All Locations Share the Same Outlet</h3>
+                      </div>
+                      <p className="text-gray-700 mb-3 text-sm">
+                       You can proceed with model configuration for all locations.
+                      </p>
+                    </div>
+                  )}
+
+                  {outletCheckStatus === 'different' && outletCheckResults && (
+                    <div className="mt-4 p-4 bg-yellow-50 border-2 border-yellow-500 rounded-lg">
+                      <div className="flex items-center gap-3 mb-3">
+                        <h3 className="text-md font-bold text-yellow-800">Locations Have Different Outlets</h3>
+                      </div>
+                      {outletCheckResults.results && outletCheckResults.results.length > 0 && (
+                        <div className="rounded p-3 mb-3 max-h-48 overflow-y-auto">
+                          <div className="space-y-1 text-xs">
+                            {outletCheckResults.results.map((result, idx) => (
+                              <div key={idx} className="border-l-2 border-yellow-500 pl-2">
+                                <p className="text-gray-700">
+                                  <strong>Location {idx + 1}:</strong> ({result.lat?.toFixed(4)}, {result.lon?.toFixed(4)})
+                                </p>
+                                <p className="text-gray-600">
+                                  COMID: {result.comid} → Outlet COMID: {result.outlet_comid}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+           
+                      <div className="bg-blue-50 border border-blue-200 rounded p-3">
+                        <p className="text-sm text-gray-700 mb-1">
+                          <strong>Options:</strong>
+                        </p>
+                        <ul className="text-xs text-gray-600 space-y-1 list-disc list-inside">
+                          <li>Remove some locations to keep only those with the same outlet</li>
+                          <li>Run simulations individually for each location</li>
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+
+                  {outletCheckStatus === 'error' && (
+                    <div className="mt-4 p-4 bg-red-50 border-2 border-red-500 rounded-lg">
+                      <div className="flex items-center gap-3 mb-3">
+                        <span className="text-2xl">✗</span>
+                        <h4 className="text-lg font-bold text-red-800">Error Checking Outlet Compatibility</h4>
+                      </div>
+                      <p className="text-gray-700 mb-3 text-sm">
+                        {outletCheckError || 'An error occurred while checking outlet compatibility.'}
+                      </p>
+                      <Button
+                        onClick={checkOutletCompatibility}
+                        className="w-full bg-red-600 hover:bg-red-700 text-white"
+                      >
+                        Retry
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Next Button for Page 1 */}
+              {currentPage === 1 && (
+                <div className="mt-6">
+                  <Button
+                    onClick={() => setCurrentPage(2)}
+                    disabled={
+                      !(
+                        (locationMode === 'single' && selectedLocations.length >= 1) ||                                                                         
+                        (locationMode === 'multiple' && selectedLocations.length >= 2 && outletCheckStatus === 'same')                                            
+                      )
+                    }
+                    className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-md font-semibold disabled:opacity-50 disabled:cursor-not-allowed"   
+                  > Continue to Step 2 </Button>
+                </div>
+              )}
+                </>
+              )}
+
+              {/* Page 2: Step 2 - Model Parameters */}
+              {currentPage === 2 && (
+                <>
+                  <h4 className="text-md font-semibold mb-4">Set DRN Model Parameters</h4>
+                    {/* Global Parameters for All Locations */}
+                    <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                      <h4 className="text-md font-semibold text-blue-900 mb-6">Global Parameters</h4>
 
                 <div className="flex items-center gap-4 mb-4">
-                  <Label htmlFor="yearRun" className="w-44 font-semibold">Simulation Months (up to 24 months)</Label>
+                              <Label htmlFor="yearRun" className="w-44 font-semibold">Simulation Duration (months)</Label>
                   <Input
                     id="yearRun"
                     name="yearRun"
-                    type="number"
-                    min={1}
-                    max={24}
-                    value={yearRun}
-                    onChange={(e) => {
-                      const value = Number(e.target.value);
-                      const sanitized = Number.isNaN(value) ? 1 : Math.max(1, Math.min(24, Math.round(value)));
-                      setYearRun(sanitized);
-                    }}
-                    className="flex-1"
+                    type="number" 
+                                min={1}
+                                max={24}
+                    value={yearRun} 
+                                onChange={(e) => {
+                                  const value = Number(e.target.value);
+                                  const sanitized = Number.isNaN(value) ? 1 : Math.max(1, Math.min(24, Math.round(value)));
+                                  setYearRun(sanitized);
+                                }}
+                    className="flex-1" 
                   />
                 </div>
 
@@ -820,86 +1108,128 @@ export default function DRNConfig({ savedData }) {
                     id="timeStep"
                     name="timeStep"
                     type="number" 
-                    step="0.1" 
+                                step="1" 
                     value={timeStep} 
                     onChange={(e) => setTimeStep(e.target.value)} 
                     className="flex-1" 
                   />
                 </div>
-                <div className="space-y-4">
-                  
-                    <Button
-                      type="button"
-                      onClick={handleSaveModel}
-                      disabled={isSaving || selectedLocations.length === 0}
-                      className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-md font-semibold"
-                    >
-                      {isSaving ? 'Saving...' : savedData ? 'Update Model Configuration' : 'Save Model Configuration'}
-                    </Button>
 
-                    {!jobId ? (
-                      <div className="space-y-2">
-                        <Button 
-                          onClick={submitJobToGrace} 
-                          className="w-full bg-blue-500 text-white hover:bg-blue-600 rounded-md p-2 disabled:opacity-50"
-                          disabled={selectedLocations.length === 0 || isSubmittingJob}
-                        >
-                          {isSubmittingJob ? 'Submitting...' : 'Submit DRN Job to Grace'}
-                        </Button>
-                        
-                        {/* Restore Job Button - only show if there's a saved job in localStorage */}
-                        <Button 
-                          onClick={() => {
-                            const savedJobState = loadJobStateFromStorage();
-                            if (savedJobState && savedJobState.jobId) {
-                              setJobId(savedJobState.jobId);
-                              setJobStatus(savedJobState.jobStatus);
-                              setJobError(savedJobState.jobError);
-                              setJobSubmissionMessage(savedJobState.jobSubmissionMessage || `Restored job ${savedJobState.jobId}`);
-                              setJobLogs(Array.isArray(savedJobState.jobLogs) ? savedJobState.jobLogs : []);
-                              setHasSavedJob(true); // Mark that there's a saved job
-                              
-                              // Check status if active
-                              if (['submitted', 'pending', 'running'].includes(savedJobState.jobStatus)) {
-                                checkJobStatus(savedJobState.jobId);
-                              }
-                            }
-                          }}
-                          className="w-full bg-purple-500 text-white hover:bg-purple-600 rounded-md p-2 text-sm"
-                          style={{ display: hasSavedJob ? 'block' : 'none' }}
-                        >
-                          Restore Previous Job
-                        </Button>
-                        
-
+                      <div className="flex items-center gap-4 mb-4">
+                        <Label htmlFor="feedstock" className="w-44 font-semibold">Feedstock Type</Label>
+                        <Select value={feedstock} onValueChange={setFeedstock}>
+                          <SelectTrigger className="flex-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="basalt">Basalt</SelectItem>
+                            <SelectItem value="carbonate">Carbonate</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
+                    </div>
+
+                    {/* Location-Specific Parameters */}
+                    {selectedLocations.length > 0 && (
+                      <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                        <h4 className="text-md font-semibold text-blue-900 mb-3">EW River Input</h4>
+                        
+                        <div className="space-y-3">
+                          {selectedLocations.map((location, index) => (
+                            <div key={index} className="grid grid-cols-3 gap-4 p-2 ">
+                              <div className="flex items-center">
+                                <Label className="text-sm font-semibold text-gray-700">
+                                  Location {index + 1}:
+                                </Label>
+                              </div>
+                              <div className="flex items-center">
+                                <Input
+                                  id={`ewRiverInput-${index}`}
+                                  name={`ewRiverInput-${index}`}
+                                  type="number"
+                                  step="0.1"
+                                  min="0"
+                                  value={location.ewRiverInput || ''}
+                                  onChange={(e) => updateLocationParameter(index, 'ewRiverInput', parseFloat(e.target.value) || 1)}
+                                  className="flex-1"
+                                  placeholder="1.0"
+                                />
+                              </div>
+                              <div className="flex items-center">
+                                <Label className="text-sm font-semibold text-gray-700">
+                                  ton/ha/yr
+                                </Label>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+
+                {/* Monte Carlo Count - Commented out
+                <div className="flex items-center gap-4 mb-4">
+                  <Label htmlFor="monteCount" className="w-44 font-semibold">Monte Carlo Count</Label>
+                  <Input
+                    id="monteCount"
+                    name="monteCount"
+                    type="number" 
+                    step="1" 
+                    min="0"
+                    max="100"
+                    value={monteCount} 
+                    onChange={(e) => {
+                      const value = parseInt(e.target.value) || 0;
+                      setMonteCount(Math.min(100, Math.max(0, value)));
+                    }} 
+                    className="flex-1" 
+                  />
+                  <span className="text-xs text-gray-500">(max: 100)</span>
+                </div>
+                */}
+
+                <div className="space-y-4">
+                  {!fullPipelineJobId ? (
+                    <Button 
+                      onClick={submitFullPipeline} 
+                      className="w-full bg-blue-500 text-white hover:bg-blue-600 rounded-md p-3 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={selectedLocations.length < 1 || isSubmittingFullPipeline}
+                    >
+                      {isSubmittingFullPipeline ? 'Submitting...' : 'Run DRN Model'}
+                        </Button>
                     ) : (
                       <div className="space-y-2">
                         <div className="flex gap-2">
                           <Button 
-                            onClick={() => checkJobStatus(jobId)} 
+                            onClick={() => checkFullPipelineStatus(fullPipelineJobId)} 
                             className="flex-1 bg-yellow-500 text-white hover:bg-yellow-600 rounded-md p-2 disabled:opacity-50"
-                            disabled={isCheckingStatus}
+                            disabled={isCheckingFullPipelineStatus}
                           >
-                            {isCheckingStatus ? 'Checking...' : 'Check Status'}
+                            {isCheckingFullPipelineStatus ? 'Checking...' : 'Check Status'}
                           </Button>
                           <Button 
-                            onClick={resetJob} 
-                            className="bg-gray-500 text-white hover:bg-gray-600 rounded-md px-3"
+                            onClick={() => {
+                              setFullPipelineJobId(null);
+                              setFullPipelineStatus(null);
+                              setFullPipelineError(null);
+                              setCurrentStep(null);
+                              setStepProgress(null);
+                            }} 
+                            className="bg-red-500 text-white hover:bg-red-600 rounded-md px-3"
                           >
                             Reset
                           </Button>
                         </div>
                         
                         {/* Show retry button if there's a connection error */}
-                        {jobError && (jobError.includes('timeout') || jobError.includes('Authentication') || jobError.includes('Network')) && (
+                        {fullPipelineError && (fullPipelineError.includes('timeout') || fullPipelineError.includes('Authentication') || fullPipelineError.includes('Network')) && (
                           <Button 
                             onClick={() => {
-                              setJobError(null); // Clear the error
-                              checkJobStatus(jobId); // Retry status check
+                              setFullPipelineError(null);
+                              checkFullPipelineStatus(fullPipelineJobId);
                             }}
                             className="w-full bg-orange-500 text-white hover:bg-orange-600 rounded-md p-2 text-sm"
-                            disabled={isCheckingStatus}
+                            disabled={isCheckingFullPipelineStatus}
                           >
                             Retry Connection
                           </Button>
@@ -907,75 +1237,109 @@ export default function DRNConfig({ savedData }) {
                       </div>
                     )}
                  
-
-                  {/* Job Status Display */}
-                  {(jobSubmissionMessage || jobError) && (
-                    <div className="space-y-3">
-                      <div className={`text-center p-3 rounded-lg text-sm ${
-                        jobError 
-                          ? 'bg-red-100 text-red-700 border border-red-200' 
-                          : jobStatus === 'completed'
-                          ? 'bg-green-100 text-green-700 border border-green-200'
-                          : jobStatus === 'running'
-                          ? 'bg-blue-100 text-blue-700 border border-blue-200'
-                          : jobStatus === 'pending'
-                          ? 'bg-yellow-100 text-yellow-700 border border-yellow-200'
-                          : 'bg-gray-100 text-gray-700 border border-gray-200'
-                      }`}>
-                        {jobError ? ` Error: ${jobError}` : jobSubmissionMessage}
+                  {/* Back Button for Page 2 */}
+                  <div className="mb-4">
+                    <Button
+                      onClick={() => setCurrentPage(1)}
+                      className="w-full bg-gray-500 hover:bg-gray-600 text-white py-2 rounded-md font-semibold"
+                    >
+                      Back to Step 1
+                    </Button>
                       </div>
 
-                      {jobId && (
+                  {/* Full Pipeline Status Display */}
+                  {(fullPipelineJobId || fullPipelineError) && (
+                    <div className="space-y-3">
+                      {fullPipelineJobId && (
                         <div className="bg-gray-50 p-3 rounded-lg border">
                           <div className="flex justify-between items-center mb-2">
-                            <span className="font-semibold text-sm">Job Details:</span>
+                            <span className="font-semibold text-sm">Full Pipeline Job Details:</span>
                             <div className="flex items-center gap-2">
                               <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                jobStatus === 'completed' ? 'bg-green-100 text-green-700' :
-                                jobStatus === 'running' ? 'bg-blue-100 text-blue-700' :
-                                jobStatus === 'failed' ? 'bg-red-100 text-red-700' :
-                                jobStatus === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                                fullPipelineStatus === 'completed' ? 'bg-green-100 text-green-700' :
+                                fullPipelineStatus === 'running' ? 'bg-blue-100 text-blue-700' :
+                                fullPipelineStatus === 'failed' ? 'bg-red-100 text-red-700' :
+                                fullPipelineStatus === 'pending' || fullPipelineStatus === 'submitted' ? 'bg-yellow-100 text-yellow-700' :
                                 'bg-gray-100 text-gray-700'
                               }`}>
-                                {jobStatus || 'unknown'}
+                                {fullPipelineStatus || 'unknown'}
                               </span>
                             </div>
                           </div>
                           <div className="text-xs text-gray-600 space-y-1">
-                            <div><strong>Job ID:</strong> {jobId}</div>
-                            <div><strong>Model:</strong> DRN</div>
+                            <div><strong>Job ID:</strong> {fullPipelineJobId}</div>
                             <div><strong>Locations:</strong> {selectedLocations.length} location(s)</div>
-                            <div><strong>Current Location:</strong> {selectedLocation?.lat.toFixed(4)}, {selectedLocation?.lng.toFixed(4)}</div>
-                            <div><strong>Parameters:</strong> Start: {numStart}, Months: {yearRun}, Timestep: {timeStep}</div>
-                            <div><strong>Location Parameters:</strong> {selectedLocations.length} location(s) with individual EW River Input values</div>
-                            {lastStatusCheck && (
-                              <div><strong>Last checked:</strong> {lastStatusCheck.toLocaleTimeString()}</div>
-                            )}
-                            {consecutiveTimeouts > 0 && (
-                              <div className="text-orange-600"><strong>Connection issues:</strong> {consecutiveTimeouts} consecutive timeouts</div>
+                            <div><strong>Parameters:</strong> Months: {yearRun}, Timestep: {timeStep}, Feedstock: {feedstock}</div>
+                            {/* Monte Count: {monteCount} - commented out */}
+                            {(currentStep || fullPipelineStatus === 'completed') && (
+                              <div className="mt-2 pt-2 border-t border-gray-300">                                                                              
+                                <div className="flex items-center gap-2">
+                                  <strong>Current Step:</strong>
+                                  <span className={`px-2 py-1 rounded text-xs font-medium ${                                                                    
+                                    fullPipelineStatus === 'completed' ? 'bg-green-100 text-green-700' :
+                                    stepProgress?.status === 'completed' ? 'bg-green-100 text-green-700' :                                                      
+                                    stepProgress?.status === 'failed' ? 'bg-red-100 text-red-700' :                                                             
+                                    'bg-blue-100 text-blue-700'
+                                  }`}>
+                                    {fullPipelineStatus === 'completed' ? 'All 5 Steps Completed' : currentStep}
+                                  </span>
+                                </div>
+                                {stepProgress && (
+                                  <div className="mt-2">
+                                    <div className="text-xs text-gray-500 mb-1">Pipeline Progress:</div>                                                        
+                                    <div className="flex gap-1">
+                                      {[1, 2, 3, 4, 5].map((stepNum) => {
+                                        // If job is completed, show all steps as completed (green)
+                                        if (fullPipelineStatus === 'completed') {
+                                          return (
+                                            <div
+                                              key={stepNum}
+                                              className="flex-1 h-2 rounded bg-green-500"
+                                              title={`Step ${stepNum}: ${['Site Selection', 'Sample Interpolation', 'DRN Preparation', 'DRN Run', 'Compile Results'][stepNum - 1]} (Completed)`}
+                                            />
+                                          );
+                                        }
+                                        // Otherwise, show progress based on current step
+                                        return (
+                                          <div
+                                            key={stepNum}
+                                            className={`flex-1 h-2 rounded ${
+                                              stepNum < stepProgress.step
+                                                ? 'bg-green-500'
+                                                : stepNum === stepProgress.step
+                                                ? stepProgress.status === 'failed'
+                                                  ? 'bg-red-500'
+                                                  : 'bg-blue-500 animate-pulse'
+                                                : 'bg-gray-300'
+                                            }`}
+                                            title={`Step ${stepNum}: ${['Site Selection', 'Sample Interpolation', 'DRN Preparation', 'DRN Run', 'Compile Results'][stepNum - 1]}`}
+                                          />
+                                        );
+                                      })}
+                                    </div>
+                                    <div className="text-xs text-gray-500 mt-1">
+                                      {fullPipelineStatus === 'completed' 
+                                        ? 'All 5 steps completed' 
+                                        : `${stepProgress.step} of 5 steps`}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </div>
                         </div>
                       )}
 
-
                     </div>
                   )}
                 </div>
-                
-                {saveMessage && (
-                  <div className={`text-center p-3 rounded-lg text-sm ${
-                    saveMessage.includes('successfully') 
-                      ? 'bg-green-100 text-green-700' 
-                      : 'bg-red-100 text-red-700'
-                  }`}>
-                    {saveMessage}
-                  </div>
+                </>
                 )}
             </CardContent>
           </Card>
         </div>
       </div>
+
     </div>
   );
 }

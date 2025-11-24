@@ -1,5 +1,5 @@
 import L from "leaflet";
-import { MapContainer, TileLayer, Marker, useMapEvents, GeoJSON } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, useMapEvents, GeoJSON, Tooltip } from "react-leaflet";
 import { useState, useEffect } from "react";
 import "leaflet/dist/leaflet.css";
 
@@ -100,8 +100,8 @@ export default function MapComponent({ onLocationSelect, disabled = false, selec
 
   return (
     <div className="w-full h-[600px]">
-      {/* Checkbox to toggle river layer */}
-      <div className="mb-4 flex justify-between items-center">
+      {/* Checkboxes to toggle layers */}
+      <div className="mb-4 flex justify-between items-center gap-4">
         <label className="relative inline-flex items-center cursor-pointer">
           <input
             type="checkbox"
@@ -139,6 +139,7 @@ export default function MapComponent({ onLocationSelect, disabled = false, selec
             // Render the river GeoJSON if the checkbox is checked
             showRivers && riverData && <GeoJSON data={riverData} renderer={canvasRenderer} style={{ color: "blue", weight: 0.5 }} />
           )}
+
           
           {/* Render all selected locations with different colors */}
           {selectedLocations.map((location, index) => (
@@ -146,7 +147,11 @@ export default function MapComponent({ onLocationSelect, disabled = false, selec
               key={index}
               position={[location.lat, location.lng]}
               icon={createCustomIcon(index === currentLocationIndex)}
-            />
+            >
+              <Tooltip permanent direction="top" offset={[0, -10]}>
+                Location {index + 1}
+              </Tooltip>
+            </Marker>
           ))}
           
           <LocationMarker />

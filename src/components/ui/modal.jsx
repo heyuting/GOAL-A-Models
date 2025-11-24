@@ -24,7 +24,7 @@ const Modal = ({ isOpen, onClose, onAddLayer }) => {
     return (
      <div className="fixed inset-0 flex items-center justify-center z-50">
 
-      <div className="absolute inset-0 bg-black opacity-30"> </div>
+      <div className="absolute inset-0 bg-gray-900/40"> </div>
 
         <div className="bg-white p-6 rounded-lg shadow-lg w-1/3 z-10">
           <h3 className="text-xl mb-4">Enter Layer Name</h3>
