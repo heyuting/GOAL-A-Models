@@ -690,6 +690,8 @@ function DashboardPage() {
 function ModelPage() {
   const { modelName } = useParams();
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
   const [savedModelData, setSavedModelData] = useState(null);
 
   useEffect(() => {
@@ -698,7 +700,48 @@ function ModelPage() {
     }
   }, [location.state]);
 
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!authLoading && !user) {
+      navigate('/login', { replace: true });
+    }
+  }, [user, authLoading, navigate]);
+
   const modelNameUpperCase = modelName?.toUpperCase();
+
+  // Show loading state while checking authentication
+  if (authLoading) {
+    return (
+      <div className="p-10 bg-gray-100 min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show message if not authenticated (will redirect, but show message briefly)
+  if (!user) {
+    return (
+      <div className="p-10 bg-gray-100 min-h-screen flex items-center justify-center">
+        <Card className="shadow-lg max-w-md w-full">
+          <CardContent className="p-6 text-center">
+            <h2 className="text-2xl font-bold text-gray-800 mb-4">Authentication Required</h2>
+            <p className="text-gray-600 mb-6">
+              You must be logged in to access model configurations.
+            </p>
+            <Button 
+              onClick={() => navigate('/login')}
+              className="w-full bg-blue-500 text-white hover:bg-blue-600"
+            >
+              Go to Login
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="p-10 bg-gray-100 min-h-screen">

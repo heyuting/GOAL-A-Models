@@ -32,7 +32,7 @@ if (typeof document !== 'undefined') {
   document.head.appendChild(styleElement);
 }
 
-export default function MapComponent({ onLocationSelect, disabled = false, selectedLocations = [], currentLocationIndex = -1 }) {
+export default function MapComponent({ onLocationSelect, disabled = false, selectedLocations = [], currentLocationIndex = -1, watershedResults = null }) {
   const [riverData, setRiverData] = useState(null);
   const [boundaryData, setBoundaryData] = useState(null);
   const [loading, setLoading] = useState(true); // State to handle river loading state
@@ -75,10 +75,15 @@ export default function MapComponent({ onLocationSelect, disabled = false, selec
   function LocationMarker() {
     useMapEvents({
       click(e) {
+        // Debug: Log click event
+        console.log('Map clicked, disabled:', disabled);
         // Only allow location selection if not disabled
         if (!disabled) {
           const { lat, lng } = e.latlng;
+          console.log('Calling onLocationSelect with:', { lat, lng });
           onLocationSelect({ lat, lng });
+        } else {
+          console.log('Map is disabled, ignoring click');
         }
       },
     });
@@ -140,6 +145,52 @@ export default function MapComponent({ onLocationSelect, disabled = false, selec
             showRivers && riverData && <GeoJSON data={riverData} renderer={canvasRenderer} style={{ color: "blue", weight: 0.5 }} />
           )}
 
+          {/* Render watershed results if available */}
+          {watershedResults && (
+            <>
+              {watershedResults.sf_ws_all && (
+                <GeoJSON
+                  data={watershedResults.sf_ws_all}
+                  style={{ color: "#10b981", weight: 2, fillColor: "#10b981", fillOpacity: 0.2 }}
+                  eventHandlers={{ add: (e) => e.target.bringToBack() }}
+                  smoothFactor={2.0}
+                  renderer={canvasRenderer}
+                />
+              )}
+              {watershedResults.sf_river_ode && (
+                <GeoJSON
+                  data={watershedResults.sf_river_ode}
+                  style={{ color: "#3b82f6", weight: 2 }}
+                  smoothFactor={2.0}
+                  renderer={canvasRenderer}
+                />
+              )}
+              {watershedResults.sf_river_trib && (
+                <GeoJSON
+                  data={watershedResults.sf_river_trib}
+                  style={{ color: "#60a5fa", weight: 1.5 }}
+                  smoothFactor={2.0}
+                  renderer={canvasRenderer}
+                />
+              )}
+              {watershedResults.sf_river_middle && (
+                <GeoJSON
+                  data={watershedResults.sf_river_middle}
+                  style={{ color: "#93c5fd", weight: 1 }}
+                  smoothFactor={2.0}
+                  renderer={canvasRenderer}
+                />
+              )}
+              {watershedResults.sf_river_rock && (
+                <GeoJSON
+                  data={watershedResults.sf_river_rock}
+                  style={{ color: "#f59e0b", weight: 2, dashArray: "5, 5" }}
+                  smoothFactor={2.0}
+                  renderer={canvasRenderer}
+                />
+              )}
+            </>
+          )}
           
           {/* Render all selected locations with different colors */}
           {selectedLocations.map((location, index) => (

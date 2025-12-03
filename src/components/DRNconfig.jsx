@@ -5,6 +5,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useAuth } from "@/contexts/AuthContext";
+import userService from "@/services/userService";
 
 // API base URL configuration - Use relative URLs for local development (proxied through Vite)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
@@ -21,10 +23,12 @@ const getApiUrl = (endpoint) => {
 };
 
 export default function DRNConfig({ savedData }) {
+  const { user, loading: authLoading } = useAuth();
   
   // Mode selection: 'single' or 'multiple'
   const [locationMode, setLocationMode] = useState(null); // null = not selected yet, 'single' or 'multiple'
-  const [showModeSelection, setShowModeSelection] = useState(true);
+  // Don't show mode selection modal if we have savedData (viewing a saved model)
+  const [showModeSelection, setShowModeSelection] = useState(!savedData);
   const [currentPage, setCurrentPage] = useState(1); // 1 = Step 1 (Location Selection), 2 = Step 2 (Model Parameters)
   
   // Multiple location mode states
@@ -32,6 +36,13 @@ export default function DRNConfig({ savedData }) {
   const [outletCheckError, setOutletCheckError] = useState(null);
   const [_runIndividuallyMode, setRunIndividuallyMode] = useState(false); // If true, locations will be run as separate simulations (currently unused)
   const [outletCheckResults, setOutletCheckResults] = useState(null); // Store the full results
+  
+  // Watershed generation states
+  const [_watershedJobId, setWatershedJobId] = useState(null);
+  const [watershedStatus, setWatershedStatus] = useState(null);
+  const [watershedResults, setWatershedResults] = useState(null);
+  const [isGeneratingWatershed, setIsGeneratingWatershed] = useState(false);
+  const [watershedError, setWatershedError] = useState(null);
   
   // DRN parameters
   const [selectedLocations, setSelectedLocations] = useState([]);
@@ -52,6 +63,11 @@ export default function DRNConfig({ savedData }) {
   // fullPipelineResults state removed - not currently used (backend returns placeholder)
   const [currentStep, setCurrentStep] = useState(null);
   const [stepProgress, setStepProgress] = useState(null);
+  
+  // Model saving state
+  const [isModelSaved, setIsModelSaved] = useState(false);
+  const [isSavingModel, setIsSavingModel] = useState(false);
+  const [saveModelMessage, setSaveModelMessage] = useState(null);
 
 
   const validateWithinConus = (lat, lng) => (
@@ -65,54 +81,154 @@ export default function DRNConfig({ savedData }) {
   // Load saved data on component mount
   useEffect(() => {
     if (savedData) {
-      // Load saved locations if they exist
-      if (savedData.parameters && savedData.parameters.locations) {
-        setSelectedLocations(savedData.parameters.locations);
-        setCurrentLocationIndex(savedData.parameters.locations.length - 1);
-      }
-      // Load other saved parameters
-      if (savedData.parameters) {
-        const savedDuration = savedData.parameters.yearRun;
-        if (typeof savedDuration === 'number') {
-          if (savedDuration <= 2) {
-            setYearRun(savedDuration * 12);
-          } else {
-            setYearRun(savedDuration);
-          }
-          } else {
-          setYearRun(24);
-        }
-      } else {
-        setYearRun(24);
-      }
-    }
-    
-    // Load saved job from localStorage
-    const latestJobId = localStorage.getItem('drn_latest_job_id');
-    if (latestJobId) {
-      const savedJob = localStorage.getItem(`drn_job_${latestJobId}`);
-      if (savedJob) {
-        try {
-          const jobInfo = JSON.parse(savedJob);
-          // Only restore if job is not completed or failed
-          if (jobInfo.status !== 'completed' && jobInfo.status !== 'failed') {
-            setFullPipelineJobId(jobInfo.jobId);
-            setFullPipelineStatus(jobInfo.status || 'submitted');
-            // Restore locations and parameters
+      console.log('Loading saved model data:', savedData);
+      
+      // Hide mode selection modal when viewing saved model
+      setShowModeSelection(false);
+      
+      // If savedData has a jobId, restore the job state first
+      if (savedData.jobId) {
+        console.log('Restoring job from saved model data, jobId:', savedData.jobId);
+        setFullPipelineJobId(savedData.jobId);
+        // Use savedData status, defaulting to 'completed' if saved model was completed
+        const jobStatus = savedData.status === 'completed' ? 'completed' : (savedData.status || 'completed');
+        setFullPipelineStatus(jobStatus);
+        
+        // Try to load full job details from localStorage
+        const savedJob = localStorage.getItem(`drn_job_${savedData.jobId}`);
+        if (savedJob) {
+          try {
+            const jobInfo = JSON.parse(savedJob);
+            console.log('Found job in localStorage:', jobInfo);
+            // Prioritize savedData status if it's 'completed', otherwise use jobInfo status
+            const finalStatus = savedData.status === 'completed' ? 'completed' : (jobInfo.status || jobStatus);
+            setFullPipelineStatus(finalStatus);
+            // Use jobInfo data if available, otherwise use savedData
             if (jobInfo.locations) {
               setSelectedLocations(jobInfo.locations);
+              setCurrentLocationIndex(jobInfo.locations.length - 1);
+            } else if (savedData.locations) {
+              setSelectedLocations(savedData.locations);
+              setCurrentLocationIndex(savedData.locations.length - 1);
             }
             if (jobInfo.parameters) {
               if (jobInfo.parameters.monthRun) setYearRun(jobInfo.parameters.monthRun);
               if (jobInfo.parameters.timeStep) setTimeStep(jobInfo.parameters.timeStep);
               if (jobInfo.parameters.feedstock) setFeedstock(jobInfo.parameters.feedstock);
             }
-            // Set a flag to resume polling after component is fully mounted
-            // This will be handled by a separate useEffect
+            if (jobInfo.locationMode) {
+              setLocationMode(jobInfo.locationMode);
+              setShowModeSelection(false);
+            }
+            // If job is completed, navigate to page 2 to show download section
+            if (jobInfo.status === 'completed' || jobStatus === 'completed') {
+              setCurrentPage(2);
+              // Set step progress to show all steps completed
+              setCurrentStep('All 5 Steps Completed');
+              setStepProgress({
+                step: 5,
+                name: 'Compile Results',
+                status: 'completed'
+              });
       }
     } catch (error) {
-          console.error('Error loading saved job:', error);
-    }
+            console.error('Error loading job from localStorage:', error);
+          }
+        } else {
+          // No localStorage job, use savedData directly
+          if (savedData.locations) {
+            setSelectedLocations(savedData.locations);
+            setCurrentLocationIndex(savedData.locations.length - 1);
+          }
+          if (savedData.parameters) {
+            if (savedData.parameters.simulationDuration) {
+              setYearRun(savedData.parameters.simulationDuration);
+            }
+            if (savedData.parameters.outputTimestep) {
+              setTimeStep(savedData.parameters.outputTimestep);
+            }
+            if (savedData.parameters.feedstock) {
+              setFeedstock(savedData.parameters.feedstock);
+            }
+            if (savedData.parameters.locationMode) {
+              setLocationMode(savedData.parameters.locationMode);
+              setShowModeSelection(false);
+            }
+          }
+          // If job is completed, navigate to page 2 to show download section
+          if (jobStatus === 'completed') {
+            setCurrentPage(2);
+            // Set step progress to show all steps completed
+            setCurrentStep('All 5 Steps Completed');
+            setStepProgress({
+              step: 5,
+              name: 'Compile Results',
+              status: 'completed'
+            });
+          }
+        }
+      } else {
+        // No jobId in savedData, load from savedData parameters
+      if (savedData.parameters && savedData.parameters.locations) {
+        setSelectedLocations(savedData.parameters.locations);
+        setCurrentLocationIndex(savedData.parameters.locations.length - 1);
+      }
+      if (savedData.parameters) {
+          const savedDuration = savedData.parameters.yearRun || savedData.parameters.simulationDuration;
+          if (typeof savedDuration === 'number') {
+            if (savedDuration <= 2) {
+              setYearRun(savedDuration * 12);
+            } else {
+              setYearRun(savedDuration);
+            }
+          } else {
+            setYearRun(24);
+          }
+          if (savedData.parameters.outputTimestep) {
+            setTimeStep(savedData.parameters.outputTimestep);
+          }
+          if (savedData.parameters.feedstock) {
+            setFeedstock(savedData.parameters.feedstock);
+          }
+          if (savedData.parameters.locationMode) {
+            setLocationMode(savedData.parameters.locationMode);
+            setShowModeSelection(false);
+          }
+        } else {
+          setYearRun(24);
+        }
+      }
+    } else {
+      // No savedData, try to load from localStorage
+      const latestJobId = localStorage.getItem('drn_latest_job_id');
+      if (latestJobId) {
+        const savedJob = localStorage.getItem(`drn_job_${latestJobId}`);
+        if (savedJob) {
+          try {
+            const jobInfo = JSON.parse(savedJob);
+            console.log('Restoring job from localStorage:', jobInfo);
+            // Restore job regardless of status (including completed and failed)
+            setFullPipelineJobId(jobInfo.jobId);
+            setFullPipelineStatus(jobInfo.status || 'submitted');
+            // Restore locations and parameters
+            if (jobInfo.locations) {
+              setSelectedLocations(jobInfo.locations);
+              setCurrentLocationIndex(jobInfo.locations.length - 1);
+            }
+            if (jobInfo.parameters) {
+              if (jobInfo.parameters.monthRun) setYearRun(jobInfo.parameters.monthRun);
+              if (jobInfo.parameters.timeStep) setTimeStep(jobInfo.parameters.timeStep);
+              if (jobInfo.parameters.feedstock) setFeedstock(jobInfo.parameters.feedstock);
+            }
+            // Restore location mode if available
+            if (jobInfo.locationMode) {
+              setLocationMode(jobInfo.locationMode);
+              setShowModeSelection(false);
+            }
+          } catch (error) {
+            console.error('Error loading saved job:', error);
+          }
+        }
       }
     }
   }, [savedData]);
@@ -179,6 +295,9 @@ export default function DRNConfig({ savedData }) {
  
   // Handle location selection
   const handleLocationSelect = (location) => {
+    console.log('handleLocationSelect called with:', location);
+    console.log('locationMode:', locationMode, 'selectedLocations.length:', selectedLocations.length);
+    
     // In single mode, only allow one location - prevent adding if one already exists
     if (locationMode === 'single' && selectedLocations.length >= 1) {
       alert('Single location mode: Please remove the existing location before selecting a new one.');
@@ -227,6 +346,14 @@ export default function DRNConfig({ savedData }) {
       setCurrentLocationIndex(Math.max(0, newLocations.length - 1));
     }
     
+    // Clear watershed results when a location is removed
+    // (watersheds were generated for the previous set of locations)
+    setWatershedResults(null);
+    setWatershedStatus(null);
+    setWatershedJobId(null);
+    setWatershedError(null);
+    setIsGeneratingWatershed(false);
+    
     // In multiple mode, reset outlet check status when locations change
     // (outlet check results are no longer valid after removing locations)
     if (locationMode === 'multiple') {
@@ -240,6 +367,13 @@ export default function DRNConfig({ savedData }) {
   const clearAllLocations = () => {
     setSelectedLocations([]);
     setCurrentLocationIndex(-1);
+    
+    // Clear watershed results when all locations are cleared
+    setWatershedResults(null);
+    setWatershedStatus(null);
+    setWatershedJobId(null);
+    setWatershedError(null);
+    setIsGeneratingWatershed(false);
   };
 
   // Get current selected location for backward compatibility
@@ -315,6 +449,7 @@ export default function DRNConfig({ savedData }) {
           status: 'submitted',
           submittedAt: new Date().toISOString(),
           locations: selectedLocations,
+          locationMode: locationMode, // Save location mode
           parameters: {
             monthRun: yearRun,
             timeStep: timeStep,
@@ -437,7 +572,7 @@ export default function DRNConfig({ savedData }) {
           }
           if (result.step_progress) {
             setStepProgress(result.step_progress);
-          } else {
+        } else {
             // If no step_progress but job is completed, set to show all steps completed
             setCurrentStep('All Steps Completed');
             setStepProgress({
@@ -459,7 +594,7 @@ export default function DRNConfig({ savedData }) {
           if (result.step_progress) {
             setStepProgress(result.step_progress);
           }
-        } else {
+      } else {
           // Update saved job status
           updateSavedJob(jobId, { status: result.status });
           setFullPipelineStatus(result.status);
@@ -511,6 +646,90 @@ export default function DRNConfig({ savedData }) {
 
 
 
+  // Save model to user's account
+  const saveModelToAccount = async () => {
+    console.log('saveModelToAccount called. User:', user, 'user.id:', user?.id);
+    if (!user || !user.id) {
+      console.log('User not logged in, showing message');
+      setSaveModelMessage('Please log in to save models');
+      setTimeout(() => setSaveModelMessage(null), 3000);
+      return;
+    }
+
+    if (!fullPipelineJobId || fullPipelineStatus !== 'completed') {
+      setSaveModelMessage('Model must be completed before saving');
+      setTimeout(() => setSaveModelMessage(null), 3000);
+      return;
+    }
+
+    setIsSavingModel(true);
+    setSaveModelMessage(null);
+
+    try {
+      // Prepare model data
+      const modelData = {
+        type: 'DRN',
+        jobId: fullPipelineJobId,
+        status: fullPipelineStatus,
+        locations: selectedLocations.map(loc => ({
+          lat: loc.lat,
+          lng: loc.lng,
+          ewRiverInput: loc.ewRiverInput || 1
+        })),
+        parameters: {
+          simulationDuration: yearRun,
+          outputTimestep: timeStep,
+          feedstock: feedstock,
+          locationMode: locationMode,
+          numLocations: selectedLocations.length
+        },
+        outletCheckResults: outletCheckResults ? {
+          sameOutlet: outletCheckResults.same_outlet,
+          outletComids: outletCheckResults.outlet_comids,
+          uniqueOutlets: outletCheckResults.unique_outlets
+        } : null,
+        completedAt: new Date().toISOString()
+      };
+
+      // Save to userService
+      const savedModel = userService.saveUserModel(user.id, modelData);
+
+      if (savedModel) {
+        setIsModelSaved(true);
+        setSaveModelMessage('Model saved successfully! View it in Account → My Models');
+        setTimeout(() => setSaveModelMessage(null), 5000);
+        } else {
+        throw new Error('Failed to save model');
+        }
+      } catch (error) {
+      console.error('Error saving model:', error);
+      setSaveModelMessage('Failed to save model. Please try again.');
+      setTimeout(() => setSaveModelMessage(null), 3000);
+    } finally {
+      setIsSavingModel(false);
+    }
+  };
+
+  // Check if model is already saved when job completes
+  useEffect(() => {
+    if (user && user.id && fullPipelineJobId && fullPipelineStatus === 'completed') {
+      const savedModels = userService.getUserModels(user.id);
+      const isSaved = savedModels.some(model => 
+        model.type === 'DRN' && model.jobId === fullPipelineJobId
+      );
+      console.log('Checking if model is saved:', {
+        userId: user.id,
+        jobId: fullPipelineJobId,
+        savedModelsCount: savedModels.length,
+        isSaved
+      });
+      setIsModelSaved(isSaved);
+    } else {
+      // Reset isModelSaved when job status changes or user changes
+      setIsModelSaved(false);
+    }
+  }, [user, fullPipelineJobId, fullPipelineStatus]);
+
   const downloadFullPipelineResults = async (jobId) => {
     try {
       const response = await fetch(getApiUrl(`api/drn/full-pipeline/${jobId}/download`), {
@@ -552,6 +771,12 @@ export default function DRNConfig({ savedData }) {
     // Clear any existing locations when switching modes
     if (selectedLocations.length > 0) {
       setSelectedLocations([]);
+      // Clear watershed results when locations are cleared
+      setWatershedResults(null);
+      setWatershedStatus(null);
+      setWatershedJobId(null);
+      setWatershedError(null);
+      setIsGeneratingWatershed(false);
       setCurrentLocationIndex(-1);
       setOutletCheckStatus(null);
       setOutletCheckError(null);
@@ -625,7 +850,7 @@ export default function DRNConfig({ savedData }) {
               setOutletCheckResults(results);
               if (results.same_outlet) {
                 setOutletCheckStatus('same');
-        } else {
+      } else {
                 setOutletCheckStatus('different');
               }
             } else if (status === 'failed' || status === 'cancelled' || status === 'timeout') {
@@ -645,7 +870,7 @@ export default function DRNConfig({ savedData }) {
                 setOutletCheckStatus('error');
                 setOutletCheckError('Unknown status');
               }
-            }
+      }
     } catch (error) {
             console.error('Error polling outlet compatibility:', error);
             if (retryCount < maxRetries) {
@@ -663,7 +888,20 @@ export default function DRNConfig({ savedData }) {
         setOutletCheckResults(result);
         if (result.same_outlet) {
           setOutletCheckStatus('same');
-        } else {
+          
+          // If watersheds are provided directly in the response, use them
+          if (result.watersheds) {
+            setWatershedResults(result.watersheds);
+            setWatershedStatus('completed');
+            console.log(`Received ${Object.keys(result.watersheds).length} watershed layers directly`);
+          }
+          // If watershed_job_id is provided (async mode), start polling for watershed results
+          else if (result.watershed_job_id) {
+            setWatershedJobId(result.watershed_job_id);
+            setWatershedStatus('submitted');
+            pollWatershedResults(result.watershed_job_id);
+          }
+      } else {
           setOutletCheckStatus('different');
         }
       }
@@ -674,8 +912,172 @@ export default function DRNConfig({ savedData }) {
     }
   };
 
+  // Poll for watershed results
+  const pollWatershedResults = async (jobId) => {
+    const poll = async (retryCount = 0) => {
+      const maxRetries = 300; // 10 minutes max (300 * 2 seconds)
+      const pollingInterval = 2000; // 2 seconds
+      
+      try {
+        // Check watershed job status
+        const statusResponse = await fetch(getApiUrl(`api/drn/watershed/${jobId}/status`), {
+          headers: {
+            'ngrok-skip-browser-warning': 'true',
+          },
+        });
+        
+        const statusResult = await statusResponse.json();
+        
+        if (!statusResponse.ok) {
+          throw new Error(statusResult.error || 'Failed to check watershed status');
+        }
+
+        const status = statusResult.status;
+
+        if (status === 'completed') {
+          setWatershedStatus('completed');
+          // Fetch watershed results
+          fetchWatershedResults(jobId);
+        } else if (status === 'failed' || status === 'cancelled' || status === 'timeout') {
+          setWatershedStatus('failed');
+        } else if (status === 'pending' || status === 'running' || status === 'unknown') {
+          setWatershedStatus(status);
+          if (retryCount < maxRetries) {
+            setTimeout(() => poll(retryCount + 1), pollingInterval);
+        } else {
+            setWatershedStatus('timeout');
+        }
+      } else {
+          if (retryCount < maxRetries) {
+            setTimeout(() => poll(retryCount + 1), pollingInterval);
+        } else {
+            setWatershedStatus('timeout');
+        }
+      }
+    } catch (error) {
+        console.error('Error polling watershed status:', error);
+        if (retryCount < maxRetries) {
+          setTimeout(() => poll(retryCount + 1), pollingInterval);
+        } else {
+          setWatershedStatus('error');
+        }
+      }
+    };
+
+    poll();
+  };
+
+  // Fetch watershed results
+  const fetchWatershedResults = async (jobId) => {
+    try {
+      const response = await fetch(getApiUrl(`api/drn/watershed/${jobId}/results`), {
+        headers: {
+          'ngrok-skip-browser-warning': 'true',
+        },
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to fetch watershed results');
+      }
+
+      setWatershedResults(result.shapefiles);
+    } catch (error) {
+      console.error('Error fetching watershed results:', error);
+      setWatershedStatus('error');
+    }
+  };
+
+  // Generate watersheds for selected locations
+  const generateWatersheds = async () => {
+    if (selectedLocations.length === 0) {
+      setWatershedError('Please select at least one location');
+      setTimeout(() => setWatershedError(null), 3000);
+      return;
+    }
+
+    setIsGeneratingWatershed(true);
+    setWatershedError(null);
+    setWatershedResults(null);
+
+    try {
+      const coordinates = selectedLocations.map(loc => [loc.lat, loc.lng]);
+      
+      // Call backend to generate watersheds locally
+      const response = await fetch(getApiUrl('api/drn/generate-watershed'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+        body: JSON.stringify({ coordinates }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to generate watersheds');
+      }
+
+      // Check if watersheds are returned directly (local execution)
+      if (result.watersheds) {
+        setWatershedResults(result.watersheds);
+        setWatershedStatus('completed');
+        console.log(`Successfully generated ${Object.keys(result.watersheds).length} watershed layers`);
+      } 
+      // Otherwise, it's a SLURM job - poll for results
+      else if (result.job_id) {
+        setWatershedJobId(result.job_id);
+        setWatershedStatus('submitted');
+        pollWatershedResults(result.job_id);
+      } else {
+        throw new Error('Unexpected response format');
+      }
+    } catch (error) {
+      console.error('Error generating watersheds:', error);
+      setWatershedError(error.message);
+      setWatershedStatus('error');
+    } finally {
+      setIsGeneratingWatershed(false);
+    }
+  };
 
   // Removed automatic checking - user will trigger manually via button
+
+  // Show loading state while checking authentication
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center p-10">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show message if not authenticated
+  if (!user) {
+    return (
+      <div className="p-6">
+        <Card className="shadow-lg max-w-md mx-auto">
+          <CardContent className="p-6 text-center">
+            <h2 className="text-2xl font-bold text-gray-800 mb-4">Authentication Required</h2>
+            <p className="text-gray-600 mb-6">
+              You must be logged in to access DRN model configuration.
+            </p>
+            <Button 
+              onClick={() => window.location.href = '/#/login'}
+              className="w-full bg-blue-500 text-white hover:bg-blue-600"
+            >
+              Go to Login
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -740,14 +1142,28 @@ export default function DRNConfig({ savedData }) {
           
           <MapComponent 
             onLocationSelect={handleLocationSelect} 
-            disabled={
-              !locationMode || 
-              (!!fullPipelineJobId && (fullPipelineStatus === 'submitted' || fullPipelineStatus === 'pending' || fullPipelineStatus === 'running')) ||          
-              (locationMode === 'multiple' && (outletCheckStatus === 'same' || outletCheckStatus === 'checking')) ||
-              (locationMode === 'single' && selectedLocations.length >= 1)
-            } 
+            disabled={(() => {
+              // Allow location selection if no locations are selected yet, even if job is pending
+              // This allows users to start a new configuration
+              const hasNoLocations = selectedLocations.length === 0;
+              const isDisabled = !locationMode || 
+                (!!fullPipelineJobId && !hasNoLocations && (fullPipelineStatus === 'submitted' || fullPipelineStatus === 'pending' || fullPipelineStatus === 'running')) ||          
+                (locationMode === 'multiple' && (outletCheckStatus === 'same' || outletCheckStatus === 'checking')) ||                                            
+                (locationMode === 'single' && selectedLocations.length >= 1);
+              console.log('Map disabled check:', {
+                locationMode,
+                fullPipelineJobId,
+                fullPipelineStatus,
+                outletCheckStatus,
+                selectedLocationsLength: selectedLocations.length,
+                hasNoLocations,
+                isDisabled
+              });
+              return isDisabled;
+            })()} 
             selectedLocations={selectedLocations}
             currentLocationIndex={currentLocationIndex}
+            watershedResults={watershedResults}
           />
           {!locationMode && (
             <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-center">
@@ -760,25 +1176,72 @@ export default function DRNConfig({ savedData }) {
           {/* Output Folder Section - PDFs and Download */}
           {fullPipelineJobId && (
             <div className="mt-16 space-y-3">
-              {/* Download Button - Only enabled when job is completed */}
+              {/* Download and Save Buttons - Only enabled when job is completed */}
               {fullPipelineStatus === 'completed' && (
-                <Button 
-                  onClick={() => downloadFullPipelineResults(fullPipelineJobId)} 
-                  className="w-full text-lg font-semibold bg-green-500 text-white hover:bg-green-600 rounded-md p-8"
-                >
-                  Download Model Results (.zip)
-                </Button>
+                <div className="space-y-3">
+                  <Button 
+                    onClick={() => downloadFullPipelineResults(fullPipelineJobId)}                                                                                
+                    className="w-full text-lg font-semibold bg-green-500 text-white hover:bg-green-600 rounded-md p-8"                                            
+                  >
+                    Download Model Results (.zip)
+                  </Button>
+                  
+                  {/* Save Model Button - Always show, but disabled if not logged in */}
+                  <Button 
+                    onClick={() => {
+                      console.log('Save button clicked. User:', user, 'user.id:', user?.id, 'isModelSaved:', isModelSaved, 'isSavingModel:', isSavingModel, 'fullPipelineStatus:', fullPipelineStatus);
+                      saveModelToAccount();
+                    }}
+                    disabled={(() => {
+                      const isDisabled = isSavingModel || isModelSaved || !user || !user.id;
+                      console.log('Save button disabled check:', {
+                        isSavingModel,
+                        isModelSaved,
+                        hasUser: !!user,
+                        hasId: !!user?.id,
+                        userId: user?.id,
+                        isDisabled
+                      });
+                      return isDisabled;
+                    })()}
+                    className={`w-full text-lg font-semibold rounded-md p-8 ${
+                      isModelSaved 
+                        ? 'bg-gray-400 text-white cursor-not-allowed' 
+                        : (!user || !user.id)
+                        ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                        : 'bg-blue-500 text-white hover:bg-blue-600'
+                    }`}
+                    >
+                      {isSavingModel 
+                        ? 'Saving...' 
+                        : isModelSaved 
+                        ? '✓ Model Saved to My Account' 
+                        : (!user || !user.id)
+                        ? 'Save to My Account (Login Required)'
+                        : 'Save Model to My Account'}
+                    </Button>
+                  
+                  {/* Save Model Message */}
+                  {saveModelMessage && (
+                    <div className={`p-3 rounded-md text-center ${
+                      saveModelMessage.includes('successfully') 
+                        ? 'bg-green-50 border border-green-200 text-green-800' 
+                        : 'bg-red-50 border border-red-200 text-red-800'
+                    }`}>
+                      <p className="text-sm">{saveModelMessage}</p>
+              </div>
+                  )}
+                </div>
               )}
               
               {/* Show message when job is still running */}
-              {fullPipelineStatus !== 'completed' && fullPipelineStatus !== null && (
-                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md text-center">
+              {fullPipelineStatus !== 'completed' && fullPipelineStatus !== null && (                                                                           
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md text-center">                                                              
                   <p className="text-sm text-yellow-800">
-                    Download will be available when the job is completed.
+                    Model results will be available to download when the job is completed.
                   </p>
-              </div>
+                </div>
               )}
-
             </div>
           )}
         </div>
@@ -967,6 +1430,37 @@ export default function DRNConfig({ savedData }) {
                 </div>
               )}
               
+              {/* Generate Watershed Button */}
+              {selectedLocations.length > 0 && (
+                <div className="mb-4">
+                  <Button
+                    onClick={generateWatersheds}
+                    disabled={isGeneratingWatershed}
+                    className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-md font-semibold disabled:opacity-50"
+                  >
+                    {isGeneratingWatershed 
+                      ? 'Generating Watersheds...' 
+                      : 'Generate Watershed'}
+                  </Button>
+                  
+                  {watershedStatus === 'submitted' && (
+                    <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-center">
+                      <p className="text-sm text-blue-700">
+                        Watershed generation in progress...
+                      </p>
+                </div>
+                  )}
+                  
+                  {watershedError && (
+                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-center">
+                      <p className="text-sm text-red-700">
+                        Error: {watershedError}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Check Outlet Compatibility Button (Multiple Mode Only) */}
               {locationMode === 'multiple' && selectedLocations.length >= 2 && (
                 <div className="mb-4">
@@ -1098,7 +1592,7 @@ export default function DRNConfig({ savedData }) {
                                   const sanitized = Number.isNaN(value) ? 1 : Math.max(1, Math.min(24, Math.round(value)));
                                   setYearRun(sanitized);
                                 }}
-                    className="flex-1" 
+                    className="flex-1 bg-white" 
                   />
                 </div>
 
@@ -1111,14 +1605,14 @@ export default function DRNConfig({ savedData }) {
                                 step="1" 
                     value={timeStep} 
                     onChange={(e) => setTimeStep(e.target.value)} 
-                    className="flex-1" 
+                    className="flex-1 bg-white" 
                   />
                 </div>
 
                       <div className="flex items-center gap-4 mb-4">
                         <Label htmlFor="feedstock" className="w-44 font-semibold">Feedstock Type</Label>
                         <Select value={feedstock} onValueChange={setFeedstock}>
-                          <SelectTrigger className="flex-1">
+                          <SelectTrigger className="flex-1 bg-white">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -1151,7 +1645,7 @@ export default function DRNConfig({ savedData }) {
                                   min="0"
                                   value={location.ewRiverInput || ''}
                                   onChange={(e) => updateLocationParameter(index, 'ewRiverInput', parseFloat(e.target.value) || 1)}
-                                  className="flex-1"
+                                  className="flex-1 bg-white"
                                   placeholder="1.0"
                                 />
                               </div>

@@ -283,9 +283,12 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
                           <Button 
                             variant="outline" 
                             size="sm" 
-                            onClick={() => handleViewModel(model)}
-                            disabled={!model || (!model.model && !model.name)}
-                            title={!model || (!model.model && !model.name) ? 'Model data incomplete' : 'View model configuration'}
+                            onClick={() => {
+                              console.log('View button clicked for model:', model);
+                              handleViewModel(model);
+                            }}
+                            className="bg-blue-500 text-white hover:bg-blue-600 border-blue-500"
+                            title="View model configuration and download results"
                           >
                             View
                           </Button>
