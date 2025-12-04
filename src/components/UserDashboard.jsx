@@ -16,7 +16,8 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
       try {
         const models = userService.getUserModels(user.id);
         console.log('Retrieved models:', models);
-        setSavedModels(Array.isArray(models) ? models : []);
+        // Create a new array reference to ensure React detects the change
+        setSavedModels(Array.isArray(models) ? [...models] : []);
         setLoading(false);
       } catch (error) {
         console.error('Error loading models:', error);
@@ -34,19 +35,6 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
     });
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'completed':
-        return 'bg-green-100 text-green-800';
-      case 'running':
-        return 'bg-blue-100 text-blue-800';
-      case 'failed':
-        return 'bg-red-100 text-red-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-
   const handleDeleteModel = (modelId) => {
     if (window.confirm('Are you sure you want to delete this model?')) {
       const success = userService.deleteUserModel(user.id, modelId);
@@ -60,22 +48,6 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
     }
   };
 
-  const handleRefreshModels = () => {
-    if (user) {
-      console.log('Refreshing models for user:', user.id);
-      setLoading(true);
-      try {
-        const models = userService.getUserModels(user.id);
-        console.log('Refreshed models:', models);
-        setSavedModels(Array.isArray(models) ? models : []);
-      } catch (error) {
-        console.error('Error refreshing models:', error);
-        setSavedModels([]);
-      } finally {
-        setLoading(false);
-      }
-    }
-  };
 
   const handleViewModel = (model) => {
     console.log('View button clicked for model:', model);
@@ -214,19 +186,9 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
           <div className="space-y-4">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-semibold text-gray-800">Saved Models</h2>
-              <div className="flex gap-2">
-                <Button 
-                  variant="outline" 
-                  onClick={handleRefreshModels}
-                  disabled={loading}
-                  className="border-gray-300 hover:bg-gray-50"
-                >
-                  {loading ? 'Loading...' : 'Refresh'}
-                </Button>
-                <Button className="bg-blue-500 hover:bg-blue-600" onClick={onNavigateToModels}>
-                  Run New Model
-                </Button>
-              </div>
+              <Button className="bg-blue-500 hover:bg-blue-600" onClick={onNavigateToModels}>
+                Run New Model
+              </Button>
             </div>
             
             {savedModels.length === 0 ? (
@@ -254,32 +216,16 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
                               <span className="ml-2 font-medium">{model.model || 'DRN'}</span>
                             </div>
                             <div>
-                              <span className="text-gray-600">Location:</span>
-                              <span className="ml-2 font-medium">{model.location || 'No location'}</span>
-                            </div>
-                            <div>
                               <span className="text-gray-600">Created:</span>
                               <span className="ml-2 font-medium">
                                 {model.createdAt ? formatDate(model.createdAt) : 
                                  model.timestamp ? formatDate(model.timestamp) : 'Unknown date'}
                               </span>
                             </div>
-                            {model.parameters && (
-                              <div className="md:col-span-3">
-                                <span className="text-gray-600">Parameters:</span>
-                                <span className="ml-2 font-medium">
-                                  {model.parameters.locations ? 
-                                   `${model.parameters.locations.length} location(s)` : 
-                                   'Standard parameters'}
-                                </span>
-                              </div>
-                            )}
+
                           </div>
                         </div>
                         <div className="flex items-center space-x-3">
-                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(model.status || 'saved')}`}>
-                            {model.status || 'saved'}
-                          </span>
                           <Button 
                             variant="outline" 
                             size="sm" 

@@ -1,3 +1,2 @@
 *.geojson filter=lfs diff=lfs merge=lfs -text
-public/river_simplify.geojson filter=lfs diff=lfs merge=lfs -text
 public/sf_river_simplified.json filter=lfs diff=lfs merge=lfs -text

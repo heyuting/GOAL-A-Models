@@ -34,7 +34,7 @@ export default function DRNConfig({ savedData }) {
   // Multiple location mode states
   const [outletCheckStatus, setOutletCheckStatus] = useState(null); // null, 'checking', 'same', 'different', 'error'
   const [outletCheckError, setOutletCheckError] = useState(null);
-  const [_runIndividuallyMode, setRunIndividuallyMode] = useState(false); // If true, locations will be run as separate simulations (currently unused)
+  const [_runIndividuallyMode, _setRunIndividuallyMode] = useState(false); // If true, locations will be run as separate simulations (currently unused)
   const [outletCheckResults, setOutletCheckResults] = useState(null); // Store the full results
   
   // Watershed generation states
@@ -67,7 +67,12 @@ export default function DRNConfig({ savedData }) {
   // Model saving state
   const [isModelSaved, setIsModelSaved] = useState(false);
   const [isSavingModel, setIsSavingModel] = useState(false);
-  const [saveModelMessage, setSaveModelMessage] = useState(null);
+  const [showNameModal, setShowNameModal] = useState(false);
+  const [modelName, setModelName] = useState('');
+  
+  // Download state
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadStatus, setDownloadStatus] = useState('');
 
 
   const validateWithinConus = (lat, lng) => (
@@ -198,39 +203,9 @@ export default function DRNConfig({ savedData }) {
           setYearRun(24);
         }
       }
-    } else {
-      // No savedData, try to load from localStorage
-      const latestJobId = localStorage.getItem('drn_latest_job_id');
-      if (latestJobId) {
-        const savedJob = localStorage.getItem(`drn_job_${latestJobId}`);
-        if (savedJob) {
-          try {
-            const jobInfo = JSON.parse(savedJob);
-            console.log('Restoring job from localStorage:', jobInfo);
-            // Restore job regardless of status (including completed and failed)
-            setFullPipelineJobId(jobInfo.jobId);
-            setFullPipelineStatus(jobInfo.status || 'submitted');
-            // Restore locations and parameters
-            if (jobInfo.locations) {
-              setSelectedLocations(jobInfo.locations);
-              setCurrentLocationIndex(jobInfo.locations.length - 1);
-            }
-            if (jobInfo.parameters) {
-              if (jobInfo.parameters.monthRun) setYearRun(jobInfo.parameters.monthRun);
-              if (jobInfo.parameters.timeStep) setTimeStep(jobInfo.parameters.timeStep);
-              if (jobInfo.parameters.feedstock) setFeedstock(jobInfo.parameters.feedstock);
-            }
-            // Restore location mode if available
-            if (jobInfo.locationMode) {
-              setLocationMode(jobInfo.locationMode);
-              setShowModeSelection(false);
-            }
-          } catch (error) {
-            console.error('Error loading saved job:', error);
-          }
-        }
-      }
     }
+    // No savedData - don't restore from localStorage
+    // Only restore when explicitly viewing from Account → My Models (savedData is provided)
   }, [savedData]);
 
   // Resume polling for restored jobs
@@ -412,6 +387,10 @@ export default function DRNConfig({ savedData }) {
       console.log('Submitting full pipeline to:', apiUrl);
       console.log('Pipeline data:', pipelineData);
       
+      // Create an AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
+      
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
@@ -419,7 +398,9 @@ export default function DRNConfig({ savedData }) {
           'ngrok-skip-browser-warning': 'true',
         },
         body: JSON.stringify(pipelineData),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       
       console.log('Response status:', response.status);
       console.log('Response headers:', Object.fromEntries(response.headers.entries()));
@@ -468,7 +449,15 @@ export default function DRNConfig({ savedData }) {
       }
     } catch (error) {
       console.error('Error submitting full pipeline:', error);
-      const errorMessage = error.message || 'Unknown error occurred';
+      let errorMessage = error.message || 'Unknown error occurred';
+      
+      // Handle timeout specifically
+      if (error.name === 'AbortError') {
+        errorMessage = 'Request timed out. The server may be taking longer than expected to submit the job. Please try again or check your connection.';
+      } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+        errorMessage = 'Network error. Please check your connection and try again.';
+      }
+      
       setFullPipelineError(errorMessage);
       setFullPipelineStatus('failed');
       alert(`Failed to submit job: ${errorMessage}`);
@@ -513,11 +502,32 @@ export default function DRNConfig({ savedData }) {
 
       if (result.status === 'completed') {
         setFullPipelineStatus('completed');
+        // Update saved model in Account → My Models if it exists
+        if (user && user.id) {
+          userService.updateUserModelByJobId(user.id, jobId, {
+            status: 'completed',
+            currentStep: 'All 5 Steps Completed',
+            stepProgress: {
+              step: 5,
+              name: 'Compile Results',
+              status: 'completed'
+            },
+            completedAt: new Date().toISOString()
+          });
+        }
         // Fetch results
         fetchFullPipelineResults(jobId);
       } else if (result.status === 'failed') {
         setFullPipelineStatus('failed');
         setFullPipelineError(result.error || 'Full pipeline job failed');
+        // Update saved model in Account → My Models if it exists
+        if (user && user.id) {
+          userService.updateUserModelByJobId(user.id, jobId, {
+            status: 'failed',
+            currentStep: result.current_step || null,
+            stepProgress: result.step_progress || null
+          });
+        }
       } else if (result.status === 'unknown') {
         // Unknown status - might be transitioning, continue checking
         setFullPipelineStatus('unknown');
@@ -528,10 +538,26 @@ export default function DRNConfig({ savedData }) {
         if (result.step_progress) {
           setStepProgress(result.step_progress);
         }
+        // Update saved model in Account → My Models if it exists
+        if (user && user.id) {
+          userService.updateUserModelByJobId(user.id, jobId, {
+            status: result.status,
+            currentStep: result.current_step || null,
+            stepProgress: result.step_progress || null
+          });
+        }
         // Continue polling to get updated status
         pollFullPipelineStatus(jobId);
       } else {
           setFullPipelineStatus(result.status);
+          // Update saved model in Account → My Models if it exists
+          if (user && user.id) {
+            userService.updateUserModelByJobId(user.id, jobId, {
+              status: result.status,
+              currentStep: result.current_step || null,
+              stepProgress: result.step_progress || null
+            });
+          }
           // Update step information
           if (result.current_step) {
             setCurrentStep(result.current_step);
@@ -566,6 +592,19 @@ export default function DRNConfig({ savedData }) {
           setFullPipelineStatus('completed');
           // Update saved job status
           updateSavedJob(jobId, { status: 'completed' });
+          // Update saved model in Account → My Models if it exists
+          if (user && user.id) {
+            userService.updateUserModelByJobId(user.id, jobId, {
+              status: 'completed',
+              currentStep: 'All 5 Steps Completed',
+              stepProgress: {
+                step: 5,
+                name: 'Compile Results',
+                status: 'completed'
+              },
+              completedAt: new Date().toISOString()
+            });
+          }
           // Update step information even when completed (to show final step)
           if (result.current_step) {
             setCurrentStep(result.current_step);
@@ -587,6 +626,14 @@ export default function DRNConfig({ savedData }) {
           setFullPipelineError('Full pipeline job failed');
           // Update saved job status
           updateSavedJob(jobId, { status: 'failed' });
+          // Update saved model in Account → My Models if it exists
+          if (user && user.id) {
+            userService.updateUserModelByJobId(user.id, jobId, {
+              status: 'failed',
+              currentStep: result.current_step || null,
+              stepProgress: result.step_progress || null
+            });
+          }
           // Update step information even when failed
           if (result.current_step) {
             setCurrentStep(result.current_step);
@@ -597,6 +644,14 @@ export default function DRNConfig({ savedData }) {
       } else {
           // Update saved job status
           updateSavedJob(jobId, { status: result.status });
+          // Update saved model in Account → My Models if it exists
+          if (user && user.id) {
+            userService.updateUserModelByJobId(user.id, jobId, {
+              status: result.status,
+              currentStep: result.current_step || null,
+              stepProgress: result.step_progress || null
+            });
+          }
           setFullPipelineStatus(result.status);
           // Update step information
           if (result.current_step) {
@@ -609,8 +664,8 @@ export default function DRNConfig({ savedData }) {
           if (result.status === 'pending' || result.status === 'running') {
             setTimeout(checkStatus, 30000); // Poll every 30 seconds
           }
-        }
-      } catch (error) {
+      }
+    } catch (error) {
         console.error('Error polling full pipeline status:', error);
         setTimeout(checkStatus, 60000); // Retry after 60 seconds on error
       }
@@ -647,30 +702,53 @@ export default function DRNConfig({ savedData }) {
 
 
   // Save model to user's account
-  const saveModelToAccount = async () => {
-    console.log('saveModelToAccount called. User:', user, 'user.id:', user?.id);
+  // Handle opening the name modal
+  const handleSaveModelClick = () => {
     if (!user || !user.id) {
-      console.log('User not logged in, showing message');
-      setSaveModelMessage('Please log in to save models');
-      setTimeout(() => setSaveModelMessage(null), 3000);
+      alert('Please log in to save models');
       return;
     }
 
-    if (!fullPipelineJobId || fullPipelineStatus !== 'completed') {
-      setSaveModelMessage('Model must be completed before saving');
-      setTimeout(() => setSaveModelMessage(null), 3000);
+    if (!fullPipelineJobId) {
+      alert('No job to save. Please submit a job first.');
+      return;
+    }
+
+    // Generate a default name based on job info
+    const defaultName = `DRN Model - ${selectedLocations.length} location(s) - ${new Date().toLocaleDateString()}`;
+    setModelName(defaultName);
+    setShowNameModal(true);
+  };
+
+  // Save model to user's account (can save jobs in any state: pending, running, completed, etc.)
+  const saveModelToAccount = async (name) => {
+    console.log('saveModelToAccount called. User:', user, 'user.id:', user?.id, 'name:', name);
+    if (!user || !user.id) {
+      console.log('User not logged in');
+      alert('Please log in to save models');
+      return;
+    }
+
+    if (!fullPipelineJobId) {
+      alert('No job to save. Please submit a job first.');
+      return;
+    }
+
+    if (!name || !name.trim()) {
+      alert('Please enter a name for the model run');
       return;
     }
 
     setIsSavingModel(true);
-    setSaveModelMessage(null);
+    setShowNameModal(false);
 
     try {
-      // Prepare model data
+      // Prepare model data - include current status
       const modelData = {
         type: 'DRN',
+        name: name.trim(), // Save the user-provided name
         jobId: fullPipelineJobId,
-        status: fullPipelineStatus,
+        status: fullPipelineStatus || 'pending', // Save current status (pending, running, completed, etc.)
         locations: selectedLocations.map(loc => ({
           lat: loc.lat,
           lng: loc.lng,
@@ -688,7 +766,11 @@ export default function DRNConfig({ savedData }) {
           outletComids: outletCheckResults.outlet_comids,
           uniqueOutlets: outletCheckResults.unique_outlets
         } : null,
-        completedAt: new Date().toISOString()
+        currentStep: currentStep, // Save current step information
+        stepProgress: stepProgress, // Save step progress
+        savedAt: new Date().toISOString(), // Changed from completedAt to savedAt
+        // Only set completedAt if job is actually completed
+        ...(fullPipelineStatus === 'completed' && { completedAt: new Date().toISOString() })
       };
 
       // Save to userService
@@ -696,23 +778,21 @@ export default function DRNConfig({ savedData }) {
 
       if (savedModel) {
         setIsModelSaved(true);
-        setSaveModelMessage('Model saved successfully! View it in Account → My Models');
-        setTimeout(() => setSaveModelMessage(null), 5000);
+        alert('Model saved successfully! View it in Account → My Models');
         } else {
         throw new Error('Failed to save model');
         }
       } catch (error) {
       console.error('Error saving model:', error);
-      setSaveModelMessage('Failed to save model. Please try again.');
-      setTimeout(() => setSaveModelMessage(null), 3000);
+      alert('Failed to save model. Please try again.');
     } finally {
       setIsSavingModel(false);
     }
   };
 
-  // Check if model is already saved when job completes
+  // Check if model is already saved (for any job status)
   useEffect(() => {
-    if (user && user.id && fullPipelineJobId && fullPipelineStatus === 'completed') {
+    if (user && user.id && fullPipelineJobId) {
       const savedModels = userService.getUserModels(user.id);
       const isSaved = savedModels.some(model => 
         model.type === 'DRN' && model.jobId === fullPipelineJobId
@@ -725,21 +805,56 @@ export default function DRNConfig({ savedData }) {
       });
       setIsModelSaved(isSaved);
     } else {
-      // Reset isModelSaved when job status changes or user changes
+      // Reset isModelSaved when job changes or user changes
       setIsModelSaved(false);
     }
-  }, [user, fullPipelineJobId, fullPipelineStatus]);
+  }, [user, fullPipelineJobId]);
 
   const downloadFullPipelineResults = async (jobId) => {
+    if (isDownloading) {
+      return; // Prevent multiple simultaneous downloads
+    }
+    
+    setIsDownloading(true);
+    setFullPipelineError(null);
+    setDownloadStatus('Connecting to server...');
+    
+    // Store timer references to clear them later
+    const statusTimers = [];
+    let isActive = true;
+    
+    // Update status messages to show progress
+    const statusUpdates = [
+      { time: 2000, message: 'Creating ZIP file on Grace HPC...' },
+      { time: 5000, message: 'Compressing results...' },
+      { time: 10000, message: 'Transferring files...' },
+      { time: 15000, message: 'Almost ready...' },
+    ];
+    
+    statusUpdates.forEach(({ time, message }) => {
+      const timer = setTimeout(() => {
+        if (isActive) {
+          setDownloadStatus(message);
+        }
+      }, time);
+      statusTimers.push(timer);
+    });
+    
     try {
+      setDownloadStatus('Requesting download...');
+      
       const response = await fetch(getApiUrl(`api/drn/full-pipeline/${jobId}/download`), {
         headers: {
           'ngrok-skip-browser-warning': 'true',
         },
       });
 
+      setDownloadStatus('Receiving data...');
+
       if (response.ok) {
+        setDownloadStatus('Processing file...');
         const blob = await response.blob();
+        setDownloadStatus('Starting download...');
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -748,12 +863,31 @@ export default function DRNConfig({ savedData }) {
         a.click();
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
+        setDownloadStatus('Download complete!');
+        // Clear status after a moment
+        setTimeout(() => {
+          setDownloadStatus('');
+          isActive = false;
+            }, 1000);
         } else {
-        throw new Error('Failed to download results');
+        const errorText = await response.text();
+        throw new Error(errorText || 'Failed to download results');
         }
         } catch (error) {
       console.error('Error downloading results:', error);
-      setFullPipelineError(error.message);
+      setFullPipelineError(error.message || 'Failed to download results. Please try again.');
+      setDownloadStatus('Download failed');
+      alert(`Download failed: ${error.message || 'Unknown error'}`);
+      // Clear status after showing error
+      setTimeout(() => {
+        setDownloadStatus('');
+        isActive = false;
+      }, 3000);
+    } finally {
+      // Clear all status timers
+      statusTimers.forEach(timer => clearTimeout(timer));
+      isActive = false;
+      setIsDownloading(false);
     }
   };
 
@@ -764,23 +898,59 @@ export default function DRNConfig({ savedData }) {
     setSelectedLocations(newLocations);
   };
 
-  // Handle mode selection
+  // Handle mode selection - start with a brand new model run
   const handleModeSelection = (mode) => {
     setLocationMode(mode);
     setShowModeSelection(false);
-    // Clear any existing locations when switching modes
-    if (selectedLocations.length > 0) {
+    
+    // Clear all existing state to start fresh (only if not viewing saved model)
+    if (!savedData) {
+      // Clear locations
       setSelectedLocations([]);
-      // Clear watershed results when locations are cleared
+      setCurrentLocationIndex(-1);
+      setCurrentPage(1);
+      
+      // Clear job state
+      setFullPipelineJobId(null);
+      setFullPipelineStatus(null);
+      setFullPipelineError(null);
+      setCurrentStep(null);
+      setStepProgress(null);
+      
+      // Clear watershed results
       setWatershedResults(null);
       setWatershedStatus(null);
-      setWatershedJobId(null);
       setWatershedError(null);
       setIsGeneratingWatershed(false);
-      setCurrentLocationIndex(-1);
+      
+      // Clear outlet check status
       setOutletCheckStatus(null);
+      setOutletCheckResults(null);
       setOutletCheckError(null);
-      setRunIndividuallyMode(false);
+      
+      // Clear download state
+      setIsDownloading(false);
+      setDownloadStatus('');
+      
+      // Clear save state
+      setIsModelSaved(false);
+      
+      // Reset to default parameters
+      setYearRun(12);
+      setTimeStep(1);
+      setFeedstock('basalt');
+    } else {
+      // If viewing saved model, only clear locations when switching modes
+      if (selectedLocations.length > 0) {
+        setSelectedLocations([]);
+        setWatershedResults(null);
+        setWatershedStatus(null);
+        setWatershedError(null);
+        setIsGeneratingWatershed(false);
+        setCurrentLocationIndex(-1);
+        setOutletCheckStatus(null);
+        setOutletCheckError(null);
+      }
     }
   };
 
@@ -1081,6 +1251,60 @@ export default function DRNConfig({ savedData }) {
 
   return (
     <div>
+      {/* Model Name Modal */}
+      {showNameModal && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 bg-gray-900/40">
+          <div className="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">
+            <h2 className="text-2xl font-bold mb-4 text-center text-gray-800">
+              Name Your Model Run
+            </h2>
+            <p className="text-gray-600 mb-4 text-center text-sm">
+              Enter a name to identify this model run in your saved models
+            </p>
+            
+            <div className="mb-6">
+              <Label htmlFor="modelName" className="text-sm font-medium text-gray-700 mb-2 block">
+                Model Name
+              </Label>
+              <Input
+                id="modelName"
+                type="text"
+                value={modelName}
+                onChange={(e) => setModelName(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-md"
+                placeholder="Enter model name"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && modelName.trim()) {
+                    saveModelToAccount(modelName);
+                  }
+                }}
+                autoFocus
+              />
+            </div>
+            
+            <div className="flex gap-3">
+              <Button
+                onClick={() => saveModelToAccount(modelName)}
+                disabled={!modelName.trim() || isSavingModel}
+                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white"
+              >
+                {isSavingModel ? 'Saving...' : 'Save'}
+              </Button>
+              <Button
+                onClick={() => {
+                  setShowNameModal(false);
+                  setModelName('');
+                }}
+                disabled={isSavingModel}
+                className="flex-1 bg-gray-500 hover:bg-gray-600 text-white"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Mode Selection Modal */}
       {showModeSelection && (
         <div className="fixed inset-0 flex items-center justify-center z-50 bg-gray-900/40">
@@ -1165,83 +1389,27 @@ export default function DRNConfig({ savedData }) {
             currentLocationIndex={currentLocationIndex}
             watershedResults={watershedResults}
           />
-          {!locationMode && (
-            <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-center">
-              <p className="text-yellow-800">
-                Please select a location mode above to enable map interaction.
-              </p>
-            </div>
-          )}
 
           {/* Output Folder Section - PDFs and Download */}
           {fullPipelineJobId && (
             <div className="mt-16 space-y-3">
-              {/* Download and Save Buttons - Only enabled when job is completed */}
+              {/* Download Button - Only show when job is completed */}
               {fullPipelineStatus === 'completed' && (
-                <div className="space-y-3">
-                  <Button 
-                    onClick={() => downloadFullPipelineResults(fullPipelineJobId)}                                                                                
-                    className="w-full text-lg font-semibold bg-green-500 text-white hover:bg-green-600 rounded-md p-8"                                            
-                  >
-                    Download Model Results (.zip)
-                  </Button>
-                  
-                  {/* Save Model Button - Always show, but disabled if not logged in */}
-                  <Button 
-                    onClick={() => {
-                      console.log('Save button clicked. User:', user, 'user.id:', user?.id, 'isModelSaved:', isModelSaved, 'isSavingModel:', isSavingModel, 'fullPipelineStatus:', fullPipelineStatus);
-                      saveModelToAccount();
-                    }}
-                    disabled={(() => {
-                      const isDisabled = isSavingModel || isModelSaved || !user || !user.id;
-                      console.log('Save button disabled check:', {
-                        isSavingModel,
-                        isModelSaved,
-                        hasUser: !!user,
-                        hasId: !!user?.id,
-                        userId: user?.id,
-                        isDisabled
-                      });
-                      return isDisabled;
-                    })()}
-                    className={`w-full text-lg font-semibold rounded-md p-8 ${
-                      isModelSaved 
-                        ? 'bg-gray-400 text-white cursor-not-allowed' 
-                        : (!user || !user.id)
-                        ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
-                        : 'bg-blue-500 text-white hover:bg-blue-600'
-                    }`}
-                    >
-                      {isSavingModel 
-                        ? 'Saving...' 
-                        : isModelSaved 
-                        ? '✓ Model Saved to My Account' 
-                        : (!user || !user.id)
-                        ? 'Save to My Account (Login Required)'
-                        : 'Save Model to My Account'}
-                    </Button>
-                  
-                  {/* Save Model Message */}
-                  {saveModelMessage && (
-                    <div className={`p-3 rounded-md text-center ${
-                      saveModelMessage.includes('successfully') 
-                        ? 'bg-green-50 border border-green-200 text-green-800' 
-                        : 'bg-red-50 border border-red-200 text-red-800'
-                    }`}>
-                      <p className="text-sm">{saveModelMessage}</p>
-              </div>
-                  )}
-                </div>
+                <Button 
+                  onClick={() => downloadFullPipelineResults(fullPipelineJobId)}
+                  disabled={isDownloading}
+                  className={`w-full text-lg font-semibold rounded-md p-8 ${
+                    isDownloading 
+                      ? 'bg-gray-400 text-white cursor-not-allowed' 
+                      : 'bg-green-500 text-white hover:bg-green-600'
+                  }`}
+                >
+                  {isDownloading 
+                    ? (downloadStatus || 'Preparing Download...') 
+                    : 'Download Model Results (.zip)'}
+                </Button>
               )}
               
-              {/* Show message when job is still running */}
-              {fullPipelineStatus !== 'completed' && fullPipelineStatus !== null && (                                                                           
-                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md text-center">                                                              
-                  <p className="text-sm text-yellow-800">
-                    Model results will be available to download when the job is completed.
-                  </p>
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -1249,8 +1417,8 @@ export default function DRNConfig({ savedData }) {
           <h3 className="text-xl font-bold text-center mb-6 text-gray-800">DRN Model Configuration</h3>
           <Card className="mt-15 p-6 shadow-lg rounded-xl border border-gray-200">
             <CardContent>
-              {/* Saved Job Restore Section */}
-              {!fullPipelineJobId && (() => {
+              {/* Saved Job Restore Section - Only show when viewing from Account → My Models */}
+              {!fullPipelineJobId && savedData && (() => {
                 const latestJobId = localStorage.getItem('drn_latest_job_id');
                 if (latestJobId) {
                   const savedJob = localStorage.getItem(`drn_job_${latestJobId}`);
@@ -1731,13 +1899,22 @@ export default function DRNConfig({ savedData }) {
                       </div>
                     )}
                  
-                  {/* Back Button for Page 2 */}
+                  {/* Save Model Run Button for Page 2 */}
                   <div className="mb-4">
                     <Button
-                      onClick={() => setCurrentPage(1)}
-                      className="w-full bg-gray-500 hover:bg-gray-600 text-white py-2 rounded-md font-semibold"
+                      onClick={handleSaveModelClick}
+                      disabled={!fullPipelineJobId || isSavingModel || isModelSaved || !user || !user.id}
+                      className={`w-full py-2 rounded-md font-semibold ${
+                        !fullPipelineJobId || isSavingModel || isModelSaved || !user || !user.id
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                          : 'bg-blue-500 hover:bg-blue-600 text-white'
+                      }`}
                     >
-                      Back to Step 1
+                      {isSavingModel 
+                        ? 'Saving...' 
+                        : isModelSaved 
+                        ? 'Model Run Saved'
+                        : 'Save Model Run'}
                     </Button>
                       </div>
 

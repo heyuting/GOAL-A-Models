@@ -746,15 +746,6 @@ function ModelPage() {
   return (
     <div className="p-10 bg-gray-100 min-h-screen">
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
-        <div className="flex justify-end items-center mb-6">
-          {savedModelData && (
-            <div className="text-sm text-gray-600">
-              <span className="text-blue-600">
-                (Viewing saved configuration: {savedModelData.name})
-              </span>
-            </div>
-          )}
-        </div>
         <Card className="shadow-lg rounded-2xl border border-gray-200 overflow-hidden">
           <CardContent className="p-6">
             {modelNameUpperCase === "DRN" ? 

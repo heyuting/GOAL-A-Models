@@ -163,6 +163,39 @@ class UserService {
     return models.find(model => model.id === modelId);
   }
 
+  // Update a user's model by jobId
+  updateUserModelByJobId(userId, jobId, updates) {
+    try {
+      const allModels = localStorage.getItem(this.modelsKey);
+      const models = allModels ? JSON.parse(allModels) : {};
+      
+      if (!models[userId]) {
+        console.warn(`No models found for user ${userId}`);
+        return null;
+      }
+      
+      const modelIndex = models[userId].findIndex(model => model.jobId === jobId);
+      if (modelIndex !== -1) {
+        const updatedModel = {
+          ...models[userId][modelIndex],
+          ...updates,
+          updatedAt: new Date().toISOString()
+        };
+        models[userId][modelIndex] = updatedModel;
+        localStorage.setItem(this.modelsKey, JSON.stringify(models));
+        console.log(`Updated model with jobId ${jobId} for user ${userId}:`, updatedModel);
+        return updatedModel;
+      } else {
+        console.warn(`Model with jobId ${jobId} not found for user ${userId}. Available jobIds:`, 
+          models[userId].map(m => m.jobId));
+        return null;
+      }
+    } catch (error) {
+      console.error('Error updating user model by jobId:', error);
+      return null;
+    }
+  }
+
   // Delete user account and all associated data
   deleteUserAccount(userId) {
     try {
