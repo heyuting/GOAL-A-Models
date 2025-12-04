@@ -24,3 +24,6 @@ dist-ssr
 *.sw?
 dist/
 .env
+
+# Large data files
+public/sf_river_simplified.json
