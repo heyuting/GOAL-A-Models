@@ -43,7 +43,7 @@ export default function MapComponent({ onLocationSelect, disabled = false, selec
   // Fetch the river data once when the component mounts
   useEffect(() => {
     if (!riverData) { // Only fetch if we haven't already loaded the data
-      fetch("/river_simplify.geojson") // Assuming the file is in the public folder
+      fetch("/sf_river_simplified.json") // Assuming the file is in the public folder
         .then((response) => response.json())
         .then((data) => {
           setRiverData(data); // Set the river data
