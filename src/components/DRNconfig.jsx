@@ -270,8 +270,6 @@ export default function DRNConfig({ savedData }) {
  
   // Handle location selection
   const handleLocationSelect = (location) => {
-    console.log('handleLocationSelect called with:', location);
-    console.log('locationMode:', locationMode, 'selectedLocations.length:', selectedLocations.length);
     
     // In single mode, only allow one location - prevent adding if one already exists
     if (locationMode === 'single' && selectedLocations.length >= 1) {
@@ -384,9 +382,7 @@ export default function DRNConfig({ savedData }) {
       };
 
       const apiUrl = getApiUrl('api/drn/full-pipeline');
-      console.log('Submitting full pipeline to:', apiUrl);
-      console.log('Pipeline data:', pipelineData);
-      
+ 
       // Create an AbortController for timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
@@ -513,7 +509,7 @@ export default function DRNConfig({ savedData }) {
               status: 'completed'
             },
             completedAt: new Date().toISOString()
-          });
+          }).catch(error => console.error('Error updating saved model:', error));
         }
         // Fetch results
         fetchFullPipelineResults(jobId);
@@ -526,7 +522,7 @@ export default function DRNConfig({ savedData }) {
             status: 'failed',
             currentStep: result.current_step || null,
             stepProgress: result.step_progress || null
-          });
+          }).catch(error => console.error('Error updating saved model:', error));
         }
       } else if (result.status === 'unknown') {
         // Unknown status - might be transitioning, continue checking
@@ -544,7 +540,7 @@ export default function DRNConfig({ savedData }) {
             status: result.status,
             currentStep: result.current_step || null,
             stepProgress: result.step_progress || null
-          });
+          }).catch(error => console.error('Error updating saved model:', error));
         }
         // Continue polling to get updated status
         pollFullPipelineStatus(jobId);
@@ -686,7 +682,6 @@ export default function DRNConfig({ savedData }) {
 
       if (response.ok && result.results) {
         // Results available (currently placeholder from backend)
-        console.log('Full pipeline results:', result.results);
       } else if (response.status === 202) {
         // Still processing
         setTimeout(() => fetchFullPipelineResults(jobId), 5000);
@@ -722,9 +717,7 @@ export default function DRNConfig({ savedData }) {
 
   // Save model to user's account (can save jobs in any state: pending, running, completed, etc.)
   const saveModelToAccount = async (name) => {
-    console.log('saveModelToAccount called. User:', user, 'user.id:', user?.id, 'name:', name);
     if (!user || !user.id) {
-      console.log('User not logged in');
       alert('Please log in to save models');
       return;
     }
@@ -773,8 +766,8 @@ export default function DRNConfig({ savedData }) {
         ...(fullPipelineStatus === 'completed' && { completedAt: new Date().toISOString() })
       };
 
-      // Save to userService
-      const savedModel = userService.saveUserModel(user.id, modelData);
+      // Save to userService (now async)
+      const savedModel = await userService.saveUserModel(user.id, modelData);
 
       if (savedModel) {
         setIsModelSaved(true);
@@ -793,17 +786,23 @@ export default function DRNConfig({ savedData }) {
   // Check if model is already saved (for any job status)
   useEffect(() => {
     if (user && user.id && fullPipelineJobId) {
-      const savedModels = userService.getUserModels(user.id);
-      const isSaved = savedModels.some(model => 
-        model.type === 'DRN' && model.jobId === fullPipelineJobId
-      );
-      console.log('Checking if model is saved:', {
-        userId: user.id,
-        jobId: fullPipelineJobId,
-        savedModelsCount: savedModels.length,
-        isSaved
-      });
-      setIsModelSaved(isSaved);
+      userService.getUserModels(user.id)
+        .then((savedModels) => {
+          const isSaved = savedModels.some(model => 
+            model.type === 'DRN' && model.jobId === fullPipelineJobId
+          );
+          console.log('Checking if model is saved:', {
+            userId: user.id,
+            jobId: fullPipelineJobId,
+            savedModelsCount: savedModels.length,
+            isSaved
+          });
+          setIsModelSaved(isSaved);
+        })
+        .catch((error) => {
+          console.error('Error checking if model is saved:', error);
+          setIsModelSaved(false);
+        });
     } else {
       // Reset isModelSaved when job changes or user changes
       setIsModelSaved(false);
@@ -1374,15 +1373,6 @@ export default function DRNConfig({ savedData }) {
                 (!!fullPipelineJobId && !hasNoLocations && (fullPipelineStatus === 'submitted' || fullPipelineStatus === 'pending' || fullPipelineStatus === 'running')) ||          
                 (locationMode === 'multiple' && (outletCheckStatus === 'same' || outletCheckStatus === 'checking')) ||                                            
                 (locationMode === 'single' && selectedLocations.length >= 1);
-              console.log('Map disabled check:', {
-                locationMode,
-                fullPipelineJobId,
-                fullPipelineStatus,
-                outletCheckStatus,
-                selectedLocationsLength: selectedLocations.length,
-                hasNoLocations,
-                isDisabled
-              });
               return isDisabled;
             })()} 
             selectedLocations={selectedLocations}

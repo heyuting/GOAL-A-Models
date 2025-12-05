@@ -498,7 +498,7 @@ export default function ATSConfig({ savedData }) {
       
       if (savedData) {
         // Update existing model
-        savedModel = userService.updateUserModel(user.id, savedData.id, modelData);
+        savedModel = await userService.updateUserModel(user.id, savedData.id, modelData);
         if (savedModel) {
           setSaveMessage('Model updated successfully!');
         } else {
@@ -506,7 +506,7 @@ export default function ATSConfig({ savedData }) {
         }
       } else {
         // Create new model
-        savedModel = userService.saveUserModel(user.id, modelData);
+        savedModel = await userService.saveUserModel(user.id, modelData);
         if (savedModel) {
           setSaveMessage('Model saved successfully!');
         } else {

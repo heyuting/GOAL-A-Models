@@ -12,18 +12,18 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
 
   useEffect(() => {
     if (user) {
-      console.log('Loading models for user:', user.id, user);
-      try {
-        const models = userService.getUserModels(user.id);
-        console.log('Retrieved models:', models);
-        // Create a new array reference to ensure React detects the change
-        setSavedModels(Array.isArray(models) ? [...models] : []);
-        setLoading(false);
-      } catch (error) {
-        console.error('Error loading models:', error);
-        setSavedModels([]);
-        setLoading(false);
-      }
+      setLoading(true);
+      userService.getUserModels(user.id)
+        .then((models) => {
+          // Create a new array reference to ensure React detects the change
+          setSavedModels(Array.isArray(models) ? [...models] : []);
+          setLoading(false);
+        })
+        .catch((error) => {
+          console.error('Error loading models:', error);
+          setSavedModels([]);
+          setLoading(false);
+        });
     }
   }, [user]);
 
@@ -35,14 +35,19 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
     });
   };
 
-  const handleDeleteModel = (modelId) => {
+  const handleDeleteModel = async (modelId) => {
     if (window.confirm('Are you sure you want to delete this model?')) {
-      const success = userService.deleteUserModel(user.id, modelId);
-      if (success) {
-        setSavedModels(prev => prev.filter(model => model.id !== modelId && model.timestamp !== modelId));
-        console.log('Model deleted successfully:', modelId);
-      } else {
-        console.error('Failed to delete model:', modelId);
+      try {
+        const success = await userService.deleteUserModel(user.id, modelId);
+        if (success) {
+          setSavedModels(prev => prev.filter(model => model.id !== modelId && model.timestamp !== modelId));
+          console.log('Model deleted successfully:', modelId);
+        } else {
+          console.error('Failed to delete model:', modelId);
+          alert('Failed to delete model. Please try again.');
+        }
+      } catch (error) {
+        console.error('Error deleting model:', error);
         alert('Failed to delete model. Please try again.');
       }
     }
