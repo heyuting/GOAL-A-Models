@@ -386,10 +386,7 @@ export default function DRNConfig({ savedData }) {
 
       const apiUrl = getApiUrl('api/drn/full-pipeline');
  
-      // Create an AbortController for timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
-      
+      // No timeout needed - backend returns immediately with job_id
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
@@ -397,9 +394,7 @@ export default function DRNConfig({ savedData }) {
           'ngrok-skip-browser-warning': 'true',
         },
         body: JSON.stringify(pipelineData),
-        signal: controller.signal,
       });
-      clearTimeout(timeoutId);
       
       console.log('Response status:', response.status);
       console.log('Response headers:', Object.fromEntries(response.headers.entries()));
@@ -420,13 +415,14 @@ export default function DRNConfig({ savedData }) {
 
       if (response.ok && result.job_id) {
         setFullPipelineJobId(result.job_id);
-        setFullPipelineStatus('submitted');
+        // Status might be "submitting" initially, backend will update to "submitted" when done
+        setFullPipelineStatus(result.status || 'submitting');
         
         // Save job to localStorage
         const jobInfo = {
           jobId: result.job_id,
-          graceJobId: result.grace_job_id,
-          status: 'submitted',
+          graceJobId: result.grace_job_id || null, // May be null initially
+          status: result.status || 'submitting',
           submittedAt: new Date().toISOString(),
           locations: selectedLocations,
           locationMode: locationMode, // Save location mode
@@ -441,7 +437,7 @@ export default function DRNConfig({ savedData }) {
         // Also save as the most recent job
         localStorage.setItem('drn_latest_job_id', result.job_id);
         
-        // Start polling for status
+        // Start polling for status (will check if status changes from "submitting" to "submitted")
         pollFullPipelineStatus(result.job_id);
       } else {
         throw new Error(result.error || result.message || 'Failed to submit full pipeline job');
@@ -450,10 +446,8 @@ export default function DRNConfig({ savedData }) {
       console.error('Error submitting full pipeline:', error);
       let errorMessage = error.message || 'Unknown error occurred';
       
-      // Handle timeout specifically
-      if (error.name === 'AbortError') {
-        errorMessage = 'Request timed out. The server may be taking longer than expected to submit the job. Please try again or check your connection.';
-      } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+      // Handle network errors
+      if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
         errorMessage = 'Network error. Please check your connection and try again.';
       }
       
@@ -496,7 +490,25 @@ export default function DRNConfig({ savedData }) {
       
       // Update saved job status
       if (result.status) {
-        updateSavedJob(jobId, { status: result.status });
+        updateSavedJob(jobId, { 
+          status: result.status,
+          graceJobId: result.grace_job_id || undefined // Update grace_job_id when available
+        });
+      }
+
+      // If status changed from "submitting" to "submitted", update localStorage
+      if (result.status === 'submitted' && fullPipelineStatus === 'submitting') {
+        const savedJob = localStorage.getItem(`drn_job_${jobId}`);
+        if (savedJob) {
+          try {
+            const jobInfo = JSON.parse(savedJob);
+            jobInfo.status = 'submitted';
+            jobInfo.graceJobId = result.grace_job_id || jobInfo.graceJobId;
+            localStorage.setItem(`drn_job_${jobId}`, JSON.stringify(jobInfo));
+          } catch (error) {
+            console.error('Error updating localStorage job:', error);
+          }
+        }
       }
 
       if (result.status === 'completed') {
