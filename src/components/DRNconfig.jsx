@@ -125,10 +125,10 @@ export default function DRNConfig({ savedData }) {
               setLocationMode(jobInfo.locationMode);
               setShowModeSelection(false);
             }
-            // If job is completed, navigate to page 2 to show download section
+            // When viewing saved model, always navigate to page 2 to show model status
+            setCurrentPage(2);
+            // If job is completed, set step progress to show all steps completed
             if (jobInfo.status === 'completed' || jobStatus === 'completed') {
-              setCurrentPage(2);
-              // Set step progress to show all steps completed
               setCurrentStep('All 5 Steps Completed');
               setStepProgress({
                 step: 5,
@@ -160,10 +160,10 @@ export default function DRNConfig({ savedData }) {
               setShowModeSelection(false);
             }
           }
-          // If job is completed, navigate to page 2 to show download section
+          // When viewing saved model, always navigate to page 2 to show model status
+          setCurrentPage(2);
+          // If job is completed, set step progress to show all steps completed
           if (jobStatus === 'completed') {
-            setCurrentPage(2);
-            // Set step progress to show all steps completed
             setCurrentStep('All 5 Steps Completed');
             setStepProgress({
               step: 5,
@@ -174,6 +174,9 @@ export default function DRNConfig({ savedData }) {
         }
       } else {
         // No jobId in savedData, load from savedData parameters
+        // When viewing saved model, always navigate to page 2
+        setCurrentPage(2);
+        
       if (savedData.parameters && savedData.parameters.locations) {
         setSelectedLocations(savedData.parameters.locations);
         setCurrentLocationIndex(savedData.parameters.locations.length - 1);
@@ -709,8 +712,8 @@ export default function DRNConfig({ savedData }) {
       return;
     }
 
-    // Generate a default name based on job info
-    const defaultName = `DRN Model - ${selectedLocations.length} location(s) - ${new Date().toLocaleDateString()}`;
+    // Generate a default name based on job info, including job ID
+    const defaultName = `DRN Model - Job ID: ${fullPipelineJobId}`;
     setModelName(defaultName);
     setShowNameModal(true);
   };
@@ -1464,8 +1467,11 @@ export default function DRNConfig({ savedData }) {
               <div className="flex items-stretch mb-6 pb-4 border-b">
                 <button
                   onClick={() => setCurrentPage(1)}
+                  disabled={!!savedData}
                   className={`flex-1 px-3 py-1 h-12 text-sm font-medium transition-colors rounded-l-sm border-r h-9 ${
-                    currentPage === 1
+                    savedData
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200'
+                      : currentPage === 1
                       ? 'bg-blue-500 text-white border-blue-600'
                       : 'bg-gray-200 text-gray-700 hover:bg-gray-300 border-gray-300'
                   }`}
@@ -1485,13 +1491,14 @@ export default function DRNConfig({ savedData }) {
                     }
                   }}
                   disabled={
-                    !(
+                    // Always enabled when viewing saved model, otherwise check normal conditions
+                    savedData ? false : !(
                       (locationMode === 'single' && selectedLocations.length >= 1) ||                                                                           
                       (locationMode === 'multiple' && selectedLocations.length >= 2 && outletCheckStatus === 'same')                                              
                     )
                   }
                   className={`flex-1 px-3 py-1 h-12 text-sm font-medium transition-colors rounded-r-sm h-9 ${                                                        
-                    (locationMode === 'single' && selectedLocations.length >= 1) ||                                                                             
+                    savedData || (locationMode === 'single' && selectedLocations.length >= 1) ||                                                                             
                     (locationMode === 'multiple' && selectedLocations.length >= 2 && outletCheckStatus === 'same')                                                
                       ? currentPage === 2
                         ? 'bg-blue-500 text-white'
@@ -1587,37 +1594,6 @@ export default function DRNConfig({ savedData }) {
                   </div>
                 </div>
               )}
-              
-              {/* Generate Watershed Button */}
-              {selectedLocations.length > 0 && (
-                <div className="mb-4">
-                  <Button
-                    onClick={generateWatersheds}
-                    disabled={isGeneratingWatershed}
-                    className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-md font-semibold disabled:opacity-50"
-                  >
-                    {isGeneratingWatershed 
-                      ? 'Generating Watersheds...' 
-                      : 'Generate Watershed'}
-                  </Button>
-                  
-                  {watershedStatus === 'submitted' && (
-                    <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-center">
-                      <p className="text-sm text-blue-700">
-                        Watershed generation in progress...
-                      </p>
-                </div>
-                  )}
-                  
-                  {watershedError && (
-                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-center">
-                      <p className="text-sm text-red-700">
-                        Error: {watershedError}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
 
               {/* Check Outlet Compatibility Button (Multiple Mode Only) */}
               {locationMode === 'multiple' && selectedLocations.length >= 2 && (
@@ -1631,9 +1607,6 @@ export default function DRNConfig({ savedData }) {
                       ? 'Checking Outlet Compatibility...' 
                       : 'Check Outlet Compatibility'}
                   </Button>
-                  <p className="text-xs text-gray-500 mt-1 text-center">
-                    Check if all selected locations drain to the same outlet
-                  </p>
 
                   {/* Outlet Compatibility Status Display */}
                   {outletCheckStatus === 'checking' && (
@@ -1705,6 +1678,37 @@ export default function DRNConfig({ savedData }) {
                       >
                         Retry
                       </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Generate Watershed Button */}
+              {selectedLocations.length > 0 && (
+                <div className="mb-4">
+                  <Button
+                    onClick={generateWatersheds}
+                    disabled={isGeneratingWatershed}
+                    className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-md font-semibold disabled:opacity-50"
+                  >
+                    {isGeneratingWatershed 
+                      ? 'Generating Watersheds...' 
+                      : 'Generate Watershed'}
+                  </Button>
+                  
+                  {watershedStatus === 'submitted' && (
+                    <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-center">
+                      <p className="text-sm text-blue-700">
+                        Watershed generation in progress...
+                      </p>
+                </div>
+                  )}
+                  
+                  {watershedError && (
+                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-center">
+                      <p className="text-sm text-red-700">
+                        Error: {watershedError}
+                      </p>
                     </div>
                   )}
                 </div>
