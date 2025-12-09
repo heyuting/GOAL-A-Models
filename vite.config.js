@@ -23,7 +23,7 @@ export default defineConfig(({ mode }) => {
       proxy: {
         // Proxy for Yale Grace job submission API
         '/api': {
-          target: env.VITE_API_BASE_URL || 'http://localhost:8080',
+          target: env.VITE_API_BASE_URL || 'http://localhost:8000',
           changeOrigin: true,
           secure: false, // Allow HTTP for localhost
           configure: (proxy, options) => {

@@ -457,6 +457,7 @@ export default function DRNConfig({ savedData }) {
     } finally {
       setIsSubmittingFullPipeline(false);
     }
+   
   };
 
   // Helper function to update saved job in localStorage
