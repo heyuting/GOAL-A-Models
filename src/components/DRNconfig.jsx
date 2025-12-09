@@ -367,25 +367,67 @@ export default function DRNConfig({ savedData }) {
     setFullPipelineStatus('submitting');
 
     try {
-      // Convert selectedLocations to coordinates format
-      const coordinates = selectedLocations.map(loc => [loc.lat, loc.lng]);
+      // Validate inputs before sending
+      if (!yearRun || yearRun <= 0 || !Number.isInteger(yearRun)) {
+        throw new Error('Invalid month run value. Please enter a positive integer.');
+      }
+      
+      if (!timeStep || timeStep <= 0 || !Number.isFinite(timeStep)) {
+        throw new Error('Invalid time step value. Please enter a positive number.');
+      }
+      
+      if (!feedstock || !['basalt', 'carbonate'].includes(feedstock.toLowerCase())) {
+        throw new Error('Invalid feedstock value. Must be either "basalt" or "carbonate".');
+      }
+
+      // Convert selectedLocations to coordinates format and validate
+      const coordinates = selectedLocations.map((loc, index) => {
+        const lat = Number(loc.lat);
+        const lng = Number(loc.lng);
+        
+        if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+          throw new Error(`Invalid latitude for location ${index + 1}: ${loc.lat}`);
+        }
+        
+        if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
+          throw new Error(`Invalid longitude for location ${index + 1}: ${loc.lng}`);
+        }
+        
+        return [lat, lng];
+      });
 
       // Get rate_rock from first location's EW River Input
       const rateRockFromLocation = selectedLocations.length > 0 
         ? (selectedLocations[0].ewRiverInput || 1)
         : 1;
+      
+      // Validate rate_rock
+      const rateRock = Number(rateRockFromLocation);
+      if (!Number.isFinite(rateRock) || rateRock <= 0) {
+        throw new Error(`Invalid rate_rock value: ${rateRockFromLocation}. Must be a positive number.`);
+      }
 
       const pipelineData = {
         coordinates: coordinates,
-        rate_rock: rateRockFromLocation, // Using EW River Input from first location
+        rate_rock: rateRock,
         month_run: yearRun, // yearRun is already in months
         time_step: timeStep,
-        feedstock: feedstock,
+        feedstock: feedstock.toLowerCase(), // Ensure lowercase
         monte_count: 0 // monteCount - commented out, using 0 as default
       };
 
       const apiUrl = getApiUrl('api/drn/full-pipeline');
- 
+      
+      console.log('Submitting full pipeline request:', {
+        url: apiUrl,
+        data: pipelineData,
+        coordinatesCount: coordinates.length,
+        rateRock: rateRock,
+        monthRun: yearRun,
+        timeStep: timeStep,
+        feedstock: feedstock.toLowerCase()
+      });
+      
       // No timeout needed - backend returns immediately with job_id
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -399,20 +441,41 @@ export default function DRNConfig({ savedData }) {
       console.log('Response status:', response.status);
       console.log('Response headers:', Object.fromEntries(response.headers.entries()));
       
-      // Check if response is JSON
-      const contentType = response.headers.get('content-type');
+      // Get response text first to handle both JSON and non-JSON responses
+      const responseText = await response.text();
+      console.log('Response text:', responseText || '(empty)');
+      
       let result;
       
-      if (contentType && contentType.includes('application/json')) {
-        result = await response.json();
-      } else {
-        const text = await response.text();
-        console.error('Non-JSON response:', text);
-        throw new Error(`Server returned non-JSON response: ${text.substring(0, 200)}`);
+      // Check if response is empty
+      if (!responseText || responseText.trim() === '') {
+        if (!response.ok) {
+          if (response.status === 500) {
+            throw new Error('Server error (500) with empty response. Check your backend server logs for details.');
+          } else {
+            throw new Error(`Server returned empty response with status ${response.status}`);
+          }
+        } else {
+          throw new Error('Server returned an empty response');
+        }
+      }
+      
+      // Try to parse as JSON
+      try {
+        result = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+        console.error('Non-JSON response:', responseText);
+        if (!response.ok) {
+          throw new Error(`Server error (${response.status}): ${responseText.substring(0, 200)}`);
+        } else {
+          throw new Error(`Server returned non-JSON response: ${responseText.substring(0, 200)}`);
+        }
       }
 
       console.log('Response result:', result);
 
+      // Check if response is OK and has job_id
       if (response.ok && result.job_id) {
         setFullPipelineJobId(result.job_id);
         // Status might be "submitting" initially, backend will update to "submitted" when done
@@ -440,7 +503,9 @@ export default function DRNConfig({ savedData }) {
         // Start polling for status (will check if status changes from "submitting" to "submitted")
         pollFullPipelineStatus(result.job_id);
       } else {
-        throw new Error(result.error || result.message || 'Failed to submit full pipeline job');
+        // Handle error responses (response.ok is false or no job_id)
+        const errorMsg = result.error || result.message || `Failed to submit full pipeline job (Status: ${response.status})`;
+        throw new Error(errorMsg);
       }
     } catch (error) {
       console.error('Error submitting full pipeline:', error);
