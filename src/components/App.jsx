@@ -29,7 +29,9 @@ const models = [
       "It mechanistically simulates natural weathering processes, including mineral dissolution " +
       "and precipitation, and allows for the targeted addition of organic matter and crushed " +
       "rock feedstocks. SCEPTER is particularly useful for predicting CO₂ sequestration" +
-      "by EW and evaluating agronomic impacts of EW approaches in managed soil systems."
+      "by EW and evaluating agronomic impacts of EW approaches in managed soil systems.",
+    papers: ["https://gmd.copernicus.org/articles/15/4959/2022/gmd-15-4959-2022.html","https://gmd.copernicus.org/articles/17/4515/2024/gmd-17-4515-2024.html"],
+    model: "https://github.com/cdr-laboratory/SCEPTER" 
   },
   { 
     name: "ATS", 
@@ -39,7 +41,9 @@ const models = [
       "reactions, ensuring accurate simulation of water movement and quality. " +
       "ATS uses innovative algorithms to solve transport and geochemical " +
       "problems, making it a versatile and reliable framework for studying " +
-      "environmental processes."
+      "environmental processes.",
+    papers: ["https://agupubs.onlinelibrary.wiley.com/doi/10.1029/2022WR032074","https://www.sciencedirect.com/science/article/pii/S1364815222002031?via%3Dihub"], 
+    model: "https://github.com/amanzi/ats" 
   },
   { 
     name: "DRN", 
@@ -48,7 +52,9 @@ const models = [
       "to map key water quality parameters and simulates changes in carbon dynamics " +
       "during river transport. This model helps evaluate the potential of EW as a " +
       "carbon mitigation strategy by assessing its effects on riverine carbon " +
-      "storage and chemistry."
+      "storage and chemistry.",
+    papers: ["https://iopscience.iop.org/article/10.1088/1748-9326/ada398/meta"], 
+    model: "https://zenodo.org/records/14210379" 
   },
   { 
     name: "SCEPTER+DRN", 
@@ -598,21 +604,60 @@ function HomePage() {
             {models.filter(model => model.name === "SCEPTER" || model.name === "ATS").map((model) => {
               const colors = getModelColors(model.name);
               return (
-                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} key={model.name}>
-                  <div 
-                    onClick={() => navigate(`/model/${model.name.toLowerCase().replace('+', '-')}`)}
-                    className="cursor-pointer h-full"
-                  >
-                    <Card className={`shadow-lg ${colors.borderColor} hover:shadow-xl transition h-full flex flex-col overflow-hidden`}>
-                      <div className={`px-6 py-3 border-b ${colors.borderColor} ${colors.headerBg}`}>
+                <div key={model.name}>
+                  <div className="h-full">
+                    <Card className={`shadow-lg ${colors.borderColor} hover:shadow-xl hover:bg-gray-50 transition h-full flex flex-col overflow-hidden`}>
+                      <div 
+                        className={`px-6 py-3 border-b ${colors.borderColor} ${colors.headerBg} cursor-pointer`}
+                        onClick={() => navigate(`/model/${model.name.toLowerCase().replace('+', '-')}`)}
+                      >
                         <h3 className={`text-xl font-bold ${colors.titleColor} tracking-wide`}>{model.name}</h3>
                       </div>
-                      <CardContent className="px-6 flex flex-col flex-grow bg-white">
-                        <p className="text-gray-600 flex-grow leading-relaxed">{model.description}</p>
+                      <CardContent className="px-6 flex flex-col flex-grow">
+                      <div 
+                        onClick={() => navigate(`/model/${model.name.toLowerCase().replace('+', '-')}`)}
+                        className="cursor-pointer"
+                      >
+                        <p className="text-gray-600 flex-grow leading-relaxed mb-4">{model.description}</p>
+                      </div>  
+                        {(model.papers && model.papers.length > 0) || model.model ? (
+                          <div className="mt-auto pt-3 border-t border-gray-200 space-y-2">
+                            {model.papers && model.papers.length > 0 && (
+                              <div className="flex flex-wrap gap-2">
+                                <span className="text-sm font-semibold text-gray-700">Papers:</span>
+                                {model.papers.map((paper, idx) => (
+                                  <a
+                                    key={idx}
+                                    href={paper}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                                  >
+                                    {idx > 0 && <span className="mx-1">•</span>}
+                                    Paper {idx + 1}
+                                  </a>
+                                ))}
+                              </div>
+                            )}
+                            {model.model && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-semibold text-gray-700">Model:</span>
+                                <a
+                                  href={model.model}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                                >
+                                  Repository
+                                </a>
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
                       </CardContent>
                     </Card>
                   </div>
-                </motion.div>
+                </div>
               );
             })}
           </div>
@@ -622,21 +667,60 @@ function HomePage() {
             {models.filter(model => model.name === "DRN" || model.name === "SCEPTER+DRN").map((model) => {
               const colors = getModelColors(model.name);
               return (
-                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} key={model.name}>
-                  <div 
-                    onClick={() => navigate(`/model/${model.name.toLowerCase().replace('+', '-')}`)}
-                    className="cursor-pointer h-full"
-                  >
-                    <Card className={`shadow-lg ${colors.borderColor} hover:shadow-xl transition h-full flex flex-col overflow-hidden`}>
-                      <div className={`px-6 py-3 border-b ${colors.borderColor} ${colors.headerBg}`}>
+                <div key={model.name}>
+                  <div className="h-full">
+                    <Card className={`shadow-lg ${colors.borderColor} hover:shadow-xl hover:bg-gray-50 transition h-full flex flex-col overflow-hidden`}>
+                      <div 
+                        className={`px-6 py-3 border-b ${colors.borderColor} ${colors.headerBg} cursor-pointer`}
+                        onClick={() => navigate(`/model/${model.name.toLowerCase().replace('+', '-')}`)}
+                      >
                         <h3 className={`text-xl font-bold ${colors.titleColor} tracking-wide`}>{model.name}</h3>
                       </div>
-                      <CardContent className="px-6 flex flex-col flex-grow bg-white">
-                        <p className="text-gray-600 flex-grow leading-relaxed">{model.description}</p>
+                      <CardContent className="px-6 flex flex-col flex-grow ">
+                      <div 
+                        onClick={() => navigate(`/model/${model.name.toLowerCase().replace('+', '-')}`)}
+                        className="cursor-pointer"
+                      >
+                        <p className="text-gray-600 flex-grow leading-relaxed mb-4">{model.description}</p>
+                      </div>
+                        {(model.papers && model.papers.length > 0) || model.model ? (
+                          <div className="mt-auto pt-3 border-t border-gray-200 space-y-2">
+                            {model.papers && model.papers.length > 0 && (
+                              <div className="flex flex-wrap gap-2">
+                                <span className="text-sm font-semibold text-gray-700">Papers:</span>
+                                {model.papers.map((paper, idx) => (
+                                  <a
+                                    key={idx}
+                                    href={paper}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                                  >
+                                    {idx > 0 && <span className="mx-1">•</span>}
+                                    Paper {idx + 1}
+                                  </a>
+                                ))}
+                              </div>
+                            )}
+                            {model.model && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-semibold text-gray-700">Model:</span>
+                                <a
+                                  href={model.model}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                                >
+                                  Repository
+                                </a>
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
                       </CardContent>
                     </Card>
                   </div>
-                </motion.div>
+                </div>
               );
             })}
           </div>
