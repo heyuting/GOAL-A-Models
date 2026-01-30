@@ -1,14 +1,14 @@
 // User service for managing user data and model configurations
-import { 
-  collection, 
-  doc, 
-  getDoc, 
-  getDocs, 
-  setDoc, 
-  updateDoc, 
-  deleteDoc, 
-  query, 
-  where, 
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  query,
+  where,
   serverTimestamp,
   Timestamp
 } from 'firebase/firestore';
@@ -51,7 +51,7 @@ class UserService {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
-    
+
     users.push(newUser);
     this.saveUsers(users);
     return newUser;
@@ -73,7 +73,7 @@ class UserService {
   updateUser(userId, updates) {
     const users = this.getUsers();
     const userIndex = users.findIndex(user => user.id === userId);
-    
+
     if (userIndex !== -1) {
       users[userIndex] = {
         ...users[userIndex],
@@ -91,14 +91,14 @@ class UserService {
     try {
       const allModels = localStorage.getItem(this.modelsKey);
       if (!allModels) return;
-      
+
       const models = JSON.parse(allModels);
       const userModels = models[userId] || [];
-      
+
       if (userModels.length === 0) return;
-      
+
       console.log(`Migrating ${userModels.length} models to Firestore for user ${userId}`);
-      
+
       // Migrate each model to Firestore
       for (const model of userModels) {
         try {
@@ -115,7 +115,7 @@ class UserService {
           console.error(`Error migrating model ${model.id}:`, error);
         }
       }
-      
+
       // Mark migration as done
       localStorage.setItem(`${this.migrationDoneKey}_${userId}`, 'true');
       console.log('Migration completed for user', userId);
@@ -132,19 +132,19 @@ class UserService {
       if (!migrationDone) {
         await this.migrateModelsToFirestore(userId);
       }
-      
+
       // Query Firestore for user's models
       const modelsRef = collection(db, this.modelsCollection);
       const q = query(
-        modelsRef, 
+        modelsRef,
         where('userId', '==', userId)
         // Note: Removed orderBy to avoid requiring a composite index
         // We'll sort in JavaScript instead
       );
-      
+
       const querySnapshot = await getDocs(q);
       const models = [];
-      
+
       querySnapshot.forEach((docSnapshot) => {
         const data = docSnapshot.data();
         models.push({
@@ -157,14 +157,14 @@ class UserService {
           completedAt: data.completedAt?.toDate?.()?.toISOString() || data.completedAt,
         });
       });
-      
+
       // Sort by createdAt descending in JavaScript (most recent first)
       models.sort((a, b) => {
         const dateA = new Date(a.createdAt || a.updatedAt || a.savedAt || 0);
         const dateB = new Date(b.createdAt || b.updatedAt || b.savedAt || 0);
         return dateB - dateA;
       });
-      
+
       return models;
     } catch (error) {
       console.error('Error getting user models from Firestore:', error);
@@ -185,7 +185,7 @@ class UserService {
     try {
       const modelId = Date.now().toString();
       const modelRef = doc(db, this.modelsCollection, modelId);
-      
+
       const modelToSave = {
         ...modelData,
         userId: userId,
@@ -195,9 +195,9 @@ class UserService {
         savedAt: modelData.savedAt ? Timestamp.fromDate(new Date(modelData.savedAt)) : serverTimestamp(),
         completedAt: modelData.completedAt ? Timestamp.fromDate(new Date(modelData.completedAt)) : null,
       };
-      
+
       await setDoc(modelRef, modelToSave);
-      
+
       // Return model with converted timestamps for compatibility
       return {
         id: modelId,
@@ -211,18 +211,18 @@ class UserService {
       try {
         const allModels = localStorage.getItem(this.modelsKey);
         const models = allModels ? JSON.parse(allModels) : {};
-        
+
         if (!models[userId]) {
           models[userId] = [];
         }
-        
+
         const newModel = {
           id: Date.now().toString(),
           ...modelData,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
-        
+
         models[userId].push(newModel);
         localStorage.setItem(this.modelsKey, JSON.stringify(models));
         return newModel;
@@ -238,18 +238,18 @@ class UserService {
     try {
       const modelRef = doc(db, this.modelsCollection, modelId);
       const modelDoc = await getDoc(modelRef);
-      
+
       if (!modelDoc.exists()) {
         console.warn(`Model ${modelId} not found in Firestore`);
         return null;
       }
-      
+
       const modelData = modelDoc.data();
       if (modelData.userId !== userId) {
         console.warn(`User ${userId} does not own model ${modelId}`);
         return null;
       }
-      
+
       // Convert date strings to Timestamps if present
       const firestoreUpdates = { ...updates };
       if (updates.completedAt && typeof updates.completedAt === 'string') {
@@ -258,11 +258,11 @@ class UserService {
       if (updates.savedAt && typeof updates.savedAt === 'string') {
         firestoreUpdates.savedAt = Timestamp.fromDate(new Date(updates.savedAt));
       }
-      
+
       firestoreUpdates.updatedAt = serverTimestamp();
-      
+
       await updateDoc(modelRef, firestoreUpdates);
-      
+
       // Return updated model with converted timestamps
       const updatedData = modelDoc.data();
       return {
@@ -280,11 +280,11 @@ class UserService {
       try {
         const allModels = localStorage.getItem(this.modelsKey);
         const models = allModels ? JSON.parse(allModels) : {};
-        
+
         if (!models[userId]) {
           return null;
         }
-        
+
         const modelIndex = models[userId].findIndex(model => model.id === modelId);
         if (modelIndex !== -1) {
           models[userId][modelIndex] = {
@@ -308,18 +308,18 @@ class UserService {
     try {
       const modelRef = doc(db, this.modelsCollection, modelId);
       const modelDoc = await getDoc(modelRef);
-      
+
       if (!modelDoc.exists()) {
         console.warn(`Model ${modelId} not found in Firestore`);
         return false;
       }
-      
+
       const modelData = modelDoc.data();
       if (modelData.userId !== userId) {
         console.warn(`User ${userId} does not own model ${modelId}`);
         return false;
       }
-      
+
       await deleteDoc(modelRef);
       return true;
     } catch (error) {
@@ -328,11 +328,11 @@ class UserService {
       try {
         const allModels = localStorage.getItem(this.modelsKey);
         const models = allModels ? JSON.parse(allModels) : {};
-        
+
         if (!models[userId]) {
           return false;
         }
-        
+
         const modelIndex = models[userId].findIndex(model => model.id === modelId);
         if (modelIndex !== -1) {
           models[userId].splice(modelIndex, 1);
@@ -352,16 +352,16 @@ class UserService {
     try {
       const modelRef = doc(db, this.modelsCollection, modelId);
       const modelDoc = await getDoc(modelRef);
-      
+
       if (!modelDoc.exists()) {
         return null;
       }
-      
+
       const data = modelDoc.data();
       if (data.userId !== userId) {
         return null;
       }
-      
+
       return {
         id: modelId,
         ...data,
@@ -393,18 +393,19 @@ class UserService {
         where('userId', '==', userId),
         where('jobId', '==', jobId)
       );
-      
+
       const querySnapshot = await getDocs(q);
-      
+
       if (querySnapshot.empty) {
-        console.warn(`Model with jobId ${jobId} not found for user ${userId}`);
+        // Model not found - this is expected if the user hasn't saved the model yet
+        // Silently return null (no console log to avoid cluttering)
         return null;
       }
-      
+
       // Should only be one model with this jobId
       const modelDoc = querySnapshot.docs[0];
       const modelRef = doc(db, this.modelsCollection, modelDoc.id);
-      
+
       // Convert date strings to Timestamps if present
       const firestoreUpdates = { ...updates };
       if (updates.completedAt && typeof updates.completedAt === 'string') {
@@ -413,11 +414,11 @@ class UserService {
       if (updates.savedAt && typeof updates.savedAt === 'string') {
         firestoreUpdates.savedAt = Timestamp.fromDate(new Date(updates.savedAt));
       }
-      
+
       firestoreUpdates.updatedAt = serverTimestamp();
-      
+
       await updateDoc(modelRef, firestoreUpdates);
-      
+
       const updatedData = modelDoc.data();
       const result = {
         id: modelDoc.id,
@@ -428,7 +429,7 @@ class UserService {
         savedAt: firestoreUpdates.savedAt?.toDate?.()?.toISOString() || updatedData.savedAt?.toDate?.()?.toISOString() || updatedData.savedAt,
         completedAt: firestoreUpdates.completedAt?.toDate?.()?.toISOString() || updatedData.completedAt?.toDate?.()?.toISOString() || updatedData.completedAt,
       };
-      
+
       return result;
     } catch (error) {
       console.error('Error updating user model by jobId in Firestore:', error);
@@ -436,12 +437,12 @@ class UserService {
       try {
         const allModels = localStorage.getItem(this.modelsKey);
         const models = allModels ? JSON.parse(allModels) : {};
-        
+
         if (!models[userId]) {
           console.warn(`No models found for user ${userId}`);
           return null;
         }
-        
+
         const modelIndex = models[userId].findIndex(model => model.jobId === jobId);
         if (modelIndex !== -1) {
           const updatedModel = {
@@ -467,29 +468,29 @@ class UserService {
       // Remove user from users list (localStorage)
       const users = this.getUsers();
       const userIndex = users.findIndex(user => user.id === userId);
-      
+
       if (userIndex !== -1) {
         users.splice(userIndex, 1);
         this.saveUsers(users);
       }
-      
+
       // Delete all user's models from Firestore
       try {
         const modelsRef = collection(db, this.modelsCollection);
         const q = query(modelsRef, where('userId', '==', userId));
         const querySnapshot = await getDocs(q);
-        
-        const deletePromises = querySnapshot.docs.map(docSnapshot => 
+
+        const deletePromises = querySnapshot.docs.map(docSnapshot =>
           deleteDoc(doc(db, this.modelsCollection, docSnapshot.id))
         );
-        
+
         await Promise.all(deletePromises);
         console.log(`Deleted ${deletePromises.length} models from Firestore for user ${userId}`);
       } catch (firestoreError) {
         console.error('Error deleting models from Firestore:', firestoreError);
         // Continue with localStorage cleanup even if Firestore fails
       }
-      
+
       // Also clean up localStorage models (fallback)
       const allModels = localStorage.getItem(this.modelsKey);
       if (allModels) {
@@ -499,7 +500,7 @@ class UserService {
           localStorage.setItem(this.modelsKey, JSON.stringify(models));
         }
       }
-      
+
       return true;
     } catch (error) {
       console.error('Error deleting user account:', error);
