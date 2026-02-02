@@ -11,6 +11,20 @@ import userService from '@/services/userService';
 import 'leaflet/dist/leaflet.css';
 import { usStates } from "@/data/usStates"; // Import state codes
 
+// API base URL configuration - Use relative URLs for local development (proxied through Vite)
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const getApiUrl = (endpoint) => {
+  if (API_BASE_URL) return `${API_BASE_URL}/${endpoint}`;
+  return `/${endpoint}`;
+};
+
+// Map particle size option value to numeric value for API (e.g. "psdrain_320um.in" -> 320)
+const particleSizeToNumber = (value) => {
+  if (!value) return null;
+  const match = value.match(/(\d+)um/);
+  return match ? parseInt(match[1], 10) : null;
+};
+
 // Add a new component for handling map zoom
 function MapZoomHandler({ center, zoom }) {
   const map = useMap();
@@ -431,6 +445,7 @@ export default function SCEPTERConfig({ savedData }) {
   const [statisticPeriod, setStatisticPeriod] = useState('7d'); // Default to 7 days
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+  const [saveMessageIsError, setSaveMessageIsError] = useState(false);
 
   // Load saved data when component mounts or savedData changes
   useEffect(() => {
@@ -471,26 +486,88 @@ export default function SCEPTERConfig({ savedData }) {
 
   const handleRunModel = async (e) => {
     e.preventDefault();
-    const data = new FormData();
-    data.append('location', location);
-    data.append('feedstock', feedstock);
-    data.append('particleSize', particleSize);
-    data.append('applicationRate', applicationRate);
-    data.append('targetPH', targetPH);
-    await fetch('/api/run-scepter', {
-      method: 'POST',
-      body: data,
-    });
+
+    // Resolve coordinate from selected point or location string
+    let coordinate = null;
+    if (selectedPoint && typeof selectedPoint.lat === 'number' && typeof selectedPoint.lng === 'number') {
+      coordinate = [selectedPoint.lat, selectedPoint.lng];
+    } else if (location && location.includes(',')) {
+      const [lat, lng] = location.split(',').map((c) => parseFloat(c.trim()));
+      if (!isNaN(lat) && !isNaN(lng)) coordinate = [lat, lng];
+    }
+    if (!coordinate || coordinate.length !== 2) {
+      setSaveMessage('Please select a location on the map or enter valid coordinates.');
+      setSaveMessageIsError(true);
+      return;
+    }
+
+    const particleSizeNum = particleSizeToNumber(particleSize);
+    const applicationRateNum = applicationRate ? parseFloat(applicationRate) : null;
+    if (!feedstock || !feedstock.trim()) {
+      setSaveMessage('Please select a feedstock type.');
+      setSaveMessageIsError(true);
+      return;
+    }
+    if (particleSizeNum == null) {
+      setSaveMessage('Please select a particle size.');
+      setSaveMessageIsError(true);
+      return;
+    }
+    if (applicationRateNum == null || !Number.isFinite(applicationRateNum) || applicationRateNum <= 0) {
+      setSaveMessage('Please enter a valid application rate (positive number).');
+      setSaveMessageIsError(true);
+      return;
+    }
+
+    const body = {
+      coordinate,
+      feedstock: feedstock.trim().toLowerCase(),
+      particle_size: particleSizeNum,
+      application_rate: applicationRateNum,
+    };
+    if (targetPH && targetPH.trim() !== '') {
+      const ph = parseFloat(targetPH);
+      if (Number.isFinite(ph)) body.target_soil_ph = ph;
+    }
+
+    try {
+      const response = await fetch(getApiUrl('api/run-scepter'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+        body: JSON.stringify(body),
+      });
+      const text = await response.text();
+      let result = null;
+      if (text && text.trim()) {
+        try {
+          result = JSON.parse(text);
+        } catch (_) {}
+      }
+      if (!response.ok) {
+        const msg = result?.error || result?.message || text || `Request failed (${response.status})`;
+        setSaveMessage(msg);
+        setSaveMessageIsError(true);
+        return;
+      }
+      setSaveMessage(result?.message || 'SCEPTER model run submitted successfully.');
+      setSaveMessageIsError(false);
+    } catch (err) {
+      console.error('SCEPTER run error:', err);
+      setSaveMessage(err.message || 'Failed to run SCEPTER model. Please try again.');
+      setSaveMessageIsError(true);
+    }
   };
 
   const handleSaveModel = async () => {
     if (!user) {
       setSaveMessage('Please log in to save models');
+      setSaveMessageIsError(true);
       return;
     }
 
     if (!location && !selectedPoint) {
       setSaveMessage('Please select a location first');
+      setSaveMessageIsError(true);
       return;
     }
 
@@ -526,16 +603,20 @@ export default function SCEPTERConfig({ savedData }) {
         savedModel = await userService.updateUserModel(user.id, savedData.id, modelData);
         if (savedModel) {
           setSaveMessage('Model updated successfully!');
+          setSaveMessageIsError(false);
         } else {
           setSaveMessage('Failed to update model');
+          setSaveMessageIsError(true);
         }
       } else {
         // Create new model
         savedModel = await userService.saveUserModel(user.id, modelData);
         if (savedModel) {
           setSaveMessage('Model saved successfully!');
+          setSaveMessageIsError(false);
         } else {
           setSaveMessage('Failed to save model');
+          setSaveMessageIsError(true);
         }
       }
       
@@ -543,6 +624,7 @@ export default function SCEPTERConfig({ savedData }) {
     } catch (error) {
       console.error('Error saving model:', error);
       setSaveMessage('Error saving model');
+      setSaveMessageIsError(true);
     } finally {
       setIsSaving(false);
     }
@@ -831,7 +913,7 @@ export default function SCEPTERConfig({ savedData }) {
                 {/* Location Selection Prompt or Display */}
                 {!(selectedPoint || location) ? (
                   <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-300">
-                    <h3 className="text-sm font-semibold text-yellow-800 mb-2">📍 Select Location First</h3>
+                    <h3 className="text-sm font-semibold text-yellow-800 mb-2">Select Location First</h3>
                     <p className="text-sm text-yellow-700">
                       Please click on the map to select a location before configuring model parameters.
                     </p>
@@ -852,13 +934,14 @@ export default function SCEPTERConfig({ savedData }) {
                   </div>
                 )}
 
-                <div className="bg-white p-4 rounded-2xl shadow-md">
+                <div className={`bg-white p-4 rounded-2xl shadow-md transition-opacity ${!(selectedPoint || location) ? 'opacity-50 pointer-events-none' : ''}`}>
                   <h2 className="text-xl font-bold mb-2">Set Practice Variables</h2>
                   <Label className="block mb-2">Feedstock Type</Label>
                   <select
                     className="w-full border rounded-xl p-2 mb-4"
                     value={feedstock}
                     onChange={(e) => setFeedstock(e.target.value)}
+                    disabled={!(selectedPoint || location)}
                   >
                     <option value="" disabled>Choose Feedstock</option>
                     <option value="Basalt">Basalt</option>
@@ -871,6 +954,7 @@ export default function SCEPTERConfig({ savedData }) {
                     className="w-full border rounded-xl p-2 mb-4"
                     value={particleSize}
                     onChange={(e) => setParticleSize(e.target.value)}
+                    disabled={!(selectedPoint || location)}
                   >
                     <option value="" disabled>Select Particle Size</option>
                     <option value="psdrain_100um.in">100um</option>
@@ -886,6 +970,7 @@ export default function SCEPTERConfig({ savedData }) {
                     placeholder="Enter rate"
                     value={applicationRate}
                     onChange={(e) => setApplicationRate(e.target.value)}
+                    disabled={!(selectedPoint || location)}
                   />
 
                   <Label className="block mb-2">Target Soil pH (optional)</Label>
@@ -896,6 +981,7 @@ export default function SCEPTERConfig({ savedData }) {
                     placeholder="Enter target pH"
                     value={targetPH}
                     onChange={(e) => setTargetPH(e.target.value)}
+                    disabled={!(selectedPoint || location)}
                   />
                 </div>
 
@@ -918,9 +1004,7 @@ export default function SCEPTERConfig({ savedData }) {
                   
                   {saveMessage && (
                     <div className={`text-center p-3 rounded-lg text-sm ${
-                      saveMessage.includes('successfully') 
-                        ? 'bg-green-100 text-green-700' 
-                        : 'bg-red-100 text-red-700'
+                      saveMessageIsError ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
                     }`}>
                       {saveMessage}
                     </div>
