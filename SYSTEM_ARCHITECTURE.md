@@ -17,7 +17,7 @@
 
 ## Overview
 
-The GOAL-A Models system is a web-based platform for running and managing environmental simulation models (DRN, SCEPTER, ATS) that execute on Yale's Grace HPC cluster. The system consists of a React frontend, a Flask proxy API backend, and integration with Firebase for authentication and data persistence.
+The GOAL-A Models system is a web-based platform for running and managing environmental simulation models (DRN, SCEPTER, ATS) that execute on Yale HPC. The system consists of a React frontend, a Flask proxy API backend, and integration with Firebase for authentication and data persistence.
 
 ### Key Characteristics
 
@@ -59,7 +59,7 @@ The GOAL-A Models system is a web-based platform for running and managing enviro
 **Responsibilities**:
 
 - Proxy requests between frontend and HPC cluster
-- SSH connection management to Grace HPC
+- SSH connection management to Yale HPC
 - SLURM job submission and monitoring
 - CORS handling for cross-origin requests
 - Job status caching and management
@@ -87,9 +87,9 @@ The GOAL-A Models system is a web-based platform for running and managing enviro
 - `savedModels` - User's saved model configurations and results metadata
 - User profiles stored in localStorage (legacy) with Firestore migration
 
-### 4. Grace HPC Cluster (Yale)
+### 4. Yale HPC Cluster
 
-**Location**: `grace.ycrc.yale.edu`
+**Location**: `bouchet.ycrc.yale.edu` 
 **Technology**: SLURM, Python, Scientific computing stack
 
 **Responsibilities**:
@@ -131,7 +131,7 @@ The GOAL-A Models system is a web-based platform for running and managing enviro
                        │
 ┌──────────────────────▼──────────────────────────────────────┐
 │                    Compute Layer                             │
-│  Grace HPC (SLURM) - Model Execution & Processing           │
+│  Yale HPC (SLURM) - Model Execution & Processing            │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -164,7 +164,7 @@ The GOAL-A Models system is a web-based platform for running and managing enviro
    ├─ Creates job folder structure on HPC
    └─ Prepares SLURM batch script
 
-4. Backend → Grace HPC (SSH)
+4. Backend → Yale HPC (SSH)
    ├─ Establishes SSH connection (with DUO 2FA)
    ├─ Creates job directory
    ├─ Writes parameters.json
@@ -175,13 +175,13 @@ The GOAL-A Models system is a web-based platform for running and managing enviro
    {
      job_id: "drn_full_1234567890_1234",
      status: "submitting",
-     grace_job_id: null  // Will be set after submission
+     hpc_job_id: null  // Will be set after submission
    }
 
 6. Background Thread (Backend)
    ├─ Monitors SLURM submission
    ├─ Updates job status in cache
-   └─ Sets grace_job_id when available
+   └─ Sets hpc_job_id when available
 
 7. Frontend Polling
    GET /api/drn/full-pipeline/{job_id}/status
@@ -206,8 +206,8 @@ Frontend (Every 2-5 seconds)
     │
 Backend
     │
-    ├─→ SSH to Grace HPC
-    │   ├─→ squeue -j {grace_job_id}  (Check SLURM queue)
+    ├─→ SSH to Yale HPC
+    │   ├─→ squeue -j {hpc_job_id}  (Check SLURM queue)
     │   ├─→ Check job logs for step progress
     │   └─→ Check completion marker (.completed file)
     │
@@ -251,7 +251,7 @@ Backend
 
 - **Authentication**: Firebase Authentication
 - **Database**: Firebase Firestore
-- **HPC**: Yale Grace Cluster (SLURM)
+- **HPC**: Yale HPC Cluster (SLURM)
 - **Tunneling**: ngrok (for local development)
 
 ### Development Tools
@@ -288,8 +288,8 @@ Backend
 │  - Runs on local machine with VPN access                     │
 │  - Exposed via ngrok tunnel                                  │
 │  - Environment variables:                                    │
-│    * GRACE_HOST                                              │
-│    * GRACE_USER                                              │
+│    * HPC_HOST (or GRACE_HOST for legacy)                     │
+│    * HPC_USER (or GRACE_USER for legacy)                     │
 │    * SSH_PRIVATE_KEY                                         │
 │    * CORS_ORIGINS                                            │
 └──────────────────────┬──────────────────────────────────────┘
@@ -303,8 +303,8 @@ Backend
                        │ SSH/Paramiko
                        │
 ┌──────────────────────▼──────────────────────────────────────┐
-│              Grace HPC Cluster                               │
-│  grace.ycrc.yale.edu                                         │
+│              Yale HPC Cluster                                │
+│  (bouchet.ycrc.yale.edu)                              │
 │  - SLURM job scheduler                                       │
 │  - Model execution environment                               │
 │  - Result file storage                                       │
@@ -330,8 +330,8 @@ Backend
                                        │ (via VPN)
                                        │
 ┌──────────────────────────────────────▼───────────────────────┐
-│              Grace HPC Cluster                                │
-│              grace.ycrc.yale.edu                              │
+│              Yale HPC Cluster                                 │
+│              (bouchet.ycrc.yale.edu)                   │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -443,7 +443,7 @@ python3 05_after_DRN_compile.py --output-dir {output_dir}
 **POST** `/api/drn/full-pipeline`
 
 - Submit complete DRN pipeline (Steps 1-5)
-- Returns: `{job_id, status: "submitting", grace_job_id: null}`
+- Returns: `{job_id, status: "submitting", bouchet_job_id: null}`
 
 **GET** `/api/drn/full-pipeline/{job_id}/status`
 

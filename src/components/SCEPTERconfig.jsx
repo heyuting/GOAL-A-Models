@@ -25,6 +25,22 @@ const particleSizeToNumber = (value) => {
   return match ? parseInt(match[1], 10) : null;
 };
 
+// Find state abbreviation from coordinates (nearest state center)
+const getStateCodeFromCoords = (lat, lng) => {
+  if (lat == null || lng == null || !Number.isFinite(lat) || !Number.isFinite(lng)) return '';
+  let nearest = null;
+  let minDist = Infinity;
+  for (const state of usStates) {
+    const [cy, cx] = state.center;
+    const d = (lat - cy) ** 2 + (lng - cx) ** 2;
+    if (d < minDist) {
+      minDist = d;
+      nearest = state;
+    }
+  }
+  return nearest?.code ?? '';
+};
+
 // Add a new component for handling map zoom
 function MapZoomHandler({ center, zoom }) {
   const map = useMap();
@@ -446,6 +462,11 @@ export default function SCEPTERConfig({ savedData }) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
   const [saveMessageIsError, setSaveMessageIsError] = useState(false);
+  const [baselineJobId, setBaselineJobId] = useState(null);
+  const [baselineStatus, setBaselineStatus] = useState(null);
+  const [isSubmittingBaseline, setIsSubmittingBaseline] = useState(false);
+  const [baselineError, setBaselineError] = useState(null);
+  const [locationName, setLocationName] = useState('');
 
   // Load saved data when component mounts or savedData changes
   useEffect(() => {
@@ -480,6 +501,9 @@ export default function SCEPTERConfig({ savedData }) {
             setMapZoom(8);
           }
         }
+      }
+      if (savedData.locationName) {
+        setLocationName(savedData.locationName);
       }
     }
   }, [savedData]);
@@ -525,6 +549,7 @@ export default function SCEPTERConfig({ savedData }) {
       particle_size: particleSizeNum,
       application_rate: applicationRateNum,
     };
+    if (locationName && locationName.trim()) body.location_name = locationName.trim();
     if (targetPH && targetPH.trim() !== '') {
       const ph = parseFloat(targetPH);
       if (Number.isFinite(ph)) body.target_soil_ph = ph;
@@ -558,6 +583,116 @@ export default function SCEPTERConfig({ savedData }) {
     }
   };
 
+  const pollBaselineStatus = useCallback((jobId) => {
+    const checkStatus = async () => {
+      try {
+        const response = await fetch(getApiUrl(`api/baseline-simulation/${jobId}/status`), {
+          headers: { 'ngrok-skip-browser-warning': 'true' },
+        });
+        const text = await response.text();
+        let result = null;
+        if (text?.trim()) {
+          try {
+            result = JSON.parse(text);
+          } catch {
+            result = {};
+          }
+        }
+        if (!response.ok) {
+          setBaselineError(result?.error || result?.message || text || `Status check failed (${response.status})`);
+          setBaselineStatus('failed');
+          return;
+        }
+        const status = result?.status;
+        setBaselineStatus(status);
+        if (status === 'completed') {
+          setBaselineError(null);
+          setSaveMessage('Baseline simulation completed successfully.');
+          setSaveMessageIsError(false);
+          return;
+        }
+        if (status === 'failed') {
+          setBaselineError(result?.error || result?.message || 'Baseline simulation failed');
+          setSaveMessage(result?.error || result?.message || 'Baseline simulation failed');
+          setSaveMessageIsError(true);
+          return;
+        }
+        if (status === 'pending' || status === 'running') {
+          setTimeout(checkStatus, 5000);
+        }
+      } catch (err) {
+        console.error('Error polling baseline status:', err);
+        setTimeout(checkStatus, 10000);
+      }
+    };
+    checkStatus();
+  }, []);
+
+  const handleBaselineSimulation = async () => {
+    let coordinate = null;
+    if (selectedPoint && typeof selectedPoint.lat === 'number' && typeof selectedPoint.lng === 'number') {
+      coordinate = [selectedPoint.lat, selectedPoint.lng];
+    } else if (location && location.includes(',')) {
+      const [lat, lng] = location.split(',').map((c) => parseFloat(c.trim()));
+      if (!isNaN(lat) && !isNaN(lng)) coordinate = [lat, lng];
+    }
+    if (!coordinate || coordinate.length !== 2) {
+      setSaveMessage('Please select a location on the map or enter valid coordinates.');
+      setSaveMessageIsError(true);
+      return;
+    }
+    setIsSubmittingBaseline(true);
+    setBaselineError(null);
+    setBaselineStatus('submitting');
+    try {
+      const body = { coordinate };
+      if (locationName && locationName.trim()) body.location_name = locationName.trim();
+      const response = await fetch(getApiUrl('api/baseline-simulation'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+        body: JSON.stringify(body),
+      });
+      const text = await response.text();
+      let result = null;
+      if (text?.trim()) {
+        try {
+          result = JSON.parse(text);
+        } catch {
+          result = {};
+        }
+      }
+      if (!response.ok) {
+        const msg = result?.error || result?.message || text || `Request failed (${response.status})`;
+        setBaselineError(msg);
+        setBaselineStatus('failed');
+        setSaveMessage(msg);
+        setSaveMessageIsError(true);
+        return;
+      }
+      const jobId = result?.job_id;
+      if (!jobId) {
+        setBaselineError('No job_id in response');
+        setBaselineStatus('failed');
+        setSaveMessage('Invalid response: no job_id returned');
+        setSaveMessageIsError(true);
+        return;
+      }
+      setBaselineJobId(jobId);
+      setBaselineStatus(result?.status || 'submitted');
+      setSaveMessage(`Baseline simulation submitted. Job ID: ${jobId}`);
+      setSaveMessageIsError(false);
+      pollBaselineStatus(jobId);
+    } catch (err) {
+      console.error('Baseline simulation error:', err);
+      setBaselineError(err.message);
+      setBaselineStatus('failed');
+      setSaveMessage(err.message || 'Failed to submit baseline simulation.');
+      setSaveMessageIsError(true);
+    } finally {
+      setIsSubmittingBaseline(false);
+    }
+  };
+
   const handleSaveModel = async () => {
     if (!user) {
       setSaveMessage('Please log in to save models');
@@ -576,9 +711,10 @@ export default function SCEPTERConfig({ savedData }) {
 
     try {
       const modelData = {
-        name: `SCEPTER - ${location || 'Custom Location'}`,
+        name: `SCEPTER - ${locationName || location || 'Custom Location'}`,
         model: 'SCEPTER',
         location: location || `${selectedPoint?.lat.toFixed(4)}, ${selectedPoint?.lng.toFixed(4)}`,
+        locationName: locationName || undefined,
         status: 'saved',
         parameters: {
           feedstock,
@@ -786,6 +922,13 @@ export default function SCEPTERConfig({ savedData }) {
     setSelectedSite(site);
     setLocation(siteId);
     setSelectedPoint(site ? { lat: site.latitude, lng: site.longitude } : null);
+    if (site) {
+      const stateCode = getStateCodeFromCoords(site.latitude, site.longitude);
+      const baseName = site.name || `USGS-${siteId}`;
+      setLocationName(stateCode ? `${stateCode} - ${baseName}` : baseName);
+    } else {
+      setLocationName('');
+    }
     
     // Zoom to the selected site
     if (site) {
@@ -839,6 +982,7 @@ export default function SCEPTERConfig({ savedData }) {
     setSelectedSite(null);
     setSelectedPoint(null);
     setLocation('');
+    setLocationName('');
   }, []);
 
   useEffect(() => {
@@ -862,6 +1006,8 @@ export default function SCEPTERConfig({ savedData }) {
                 onMapClick={(clickedPoint) => {
                   setSelectedPoint(clickedPoint);
                   setLocation(`${clickedPoint.lat.toFixed(4)}, ${clickedPoint.lng.toFixed(4)}`);
+                  const stateCode = getStateCodeFromCoords(clickedPoint.lat, clickedPoint.lng);
+                  setLocationName(stateCode ? `${stateCode} - Location` : 'Location');
                 }}
               />
               <MapZoomHandler center={mapCenter} zoom={mapZoom} />
@@ -920,17 +1066,46 @@ export default function SCEPTERConfig({ savedData }) {
                   </div>
                 ) : (
                   <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
-                    <h3 className="text-sm font-semibold text-blue-800 mb-2">Selected Location</h3>
-                    {selectedPoint ? (
-                      <div className="text-sm text-blue-700">
-                        <div><strong>Latitude:</strong> {selectedPoint.lat.toFixed(6)}</div>
-                        <div><strong>Longitude:</strong> {selectedPoint.lng.toFixed(6)}</div>
+                    <h3 className="text-sm font-semibold mb-2">Selected Location</h3>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-sm font-semibold shrink-0">Location Name:</Label>
+                        <Input
+                          type="text"
+                          value={locationName}
+                          onChange={(e) => setLocationName(e.target.value)}
+                          placeholder="Enter location name"
+                          className="flex-1 border-blue-200 bg-white text-sm"
+                        />
                       </div>
-                    ) : (
-                      <div className="text-sm text-blue-700">
-                        <div><strong>Location:</strong> {location}</div>
-                      </div>
-                    )}
+                      {selectedPoint ? (
+                        <div className="text-sm">
+                          <div><strong>Latitude:</strong> {selectedPoint.lat.toFixed(6)}</div>
+                          <div><strong>Longitude:</strong> {selectedPoint.lng.toFixed(6)}</div>
+                        </div>
+                      ) : (
+                        <div className="text-sm text-blue-700">
+                          <div><strong>Location:</strong> {location}</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <Button
+                  type="button"
+                  onClick={handleBaselineSimulation}
+                  title="Baseline weathering simulations without rock application"
+                  disabled={!(location || selectedPoint) || isSubmittingBaseline}
+                  className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-md font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSubmittingBaseline ? 'Submitting...' : 'Baseline simulation (spin-up)'}
+                </Button>
+                {baselineJobId && baselineStatus && (
+                  <div className={`p-3 rounded-lg text-sm ${baselineStatus === 'completed' ? 'bg-green-100 text-green-700' : baselineStatus === 'failed' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                    <div><strong>Baseline Job:</strong> {baselineJobId}</div>
+                    <div><strong>Status:</strong> {baselineStatus}</div>
+                    {baselineError && <div>{baselineError}</div>}
                   </div>
                 )}
 
@@ -990,14 +1165,14 @@ export default function SCEPTERConfig({ savedData }) {
                       type="button"
                       onClick={handleSaveModel}
                       disabled={isSaving || (!location && !selectedPoint)}
-                      className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-md font-semibold"
+                      className="w-full bg-purple-500 hover:bg-purple-600 text-white py-2 rounded-md font-semibold"
                     >
                       {isSaving ? 'Saving...' : savedData ? 'Update Model Configuration' : 'Save Model Configuration'}
                     </Button>
                     
                     <Button
                       type="submit"
-                      className="w-full bg-blue-500 text-white hover:bg-blue-600 rounded-md p-2"
+                      className="w-full bg-green-500 text-white hover:bg-green-600 rounded-md p-2"
                     >
                       Run SCEPTER Model
                     </Button>

@@ -486,7 +486,7 @@ export default function DRNConfig({ savedData }) {
         // Save job to localStorage
         const jobInfo = {
           jobId: result.job_id,
-          graceJobId: result.grace_job_id || null, // May be null initially
+          bouchetJobId: result.bouchet_job_id || null, // May be null initially
           status: result.status || 'submitting',
           submittedAt: new Date().toISOString(),
           locations: selectedLocations,
@@ -591,7 +591,7 @@ export default function DRNConfig({ savedData }) {
       // Update saved job status
       updateSavedJob(jobId, {
         status: result.status,
-        graceJobId: result.grace_job_id || undefined // Update grace_job_id when available
+        bouchetJobId: result.bouchet_job_id || undefined // Update when available
       });
 
       // If status changed from "submitting" to "submitted", update localStorage
@@ -601,7 +601,7 @@ export default function DRNConfig({ savedData }) {
           try {
             const jobInfo = JSON.parse(savedJob);
             jobInfo.status = 'submitted';
-            jobInfo.graceJobId = result.grace_job_id || jobInfo.graceJobId;
+            jobInfo.bouchetJobId = result.bouchet_job_id || jobInfo.bouchetJobId;
             localStorage.setItem(`drn_job_${jobId}`, JSON.stringify(jobInfo));
           } catch (error) {
             console.error('Error updating localStorage job:', error);
@@ -937,7 +937,7 @@ export default function DRNConfig({ savedData }) {
 
     // Update status messages to show progress
     const statusUpdates = [
-      { time: 2000, message: 'Creating ZIP file on Grace HPC...' },
+      { time: 2000, message: 'Creating ZIP file...' },
       { time: 5000, message: 'Compressing results...' },
       { time: 10000, message: 'Transferring files...' },
       { time: 15000, message: 'Almost ready...' },

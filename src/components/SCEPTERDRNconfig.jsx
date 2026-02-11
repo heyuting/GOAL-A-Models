@@ -271,7 +271,7 @@ export default function SCEPTERDRNConfig({ savedData }) {
   }, [jobId, jobStatus, checkJobStatus]);
 
   // Job submission functions
-  const submitJobToGrace = async () => {
+  const submitJobToYaleHPC = async () => {
     if (!selectedLocation) {
       setJobSubmissionMessage('Please select a location first');
       return;
@@ -284,7 +284,7 @@ export default function SCEPTERDRNConfig({ savedData }) {
 
     setIsSubmittingJob(true);
     setJobError(null);
-    setJobSubmissionMessage('Submitting SCEPTER+DRN job to Yale Grace server...');
+    setJobSubmissionMessage('Submitting SCEPTER+DRN job to Yale HPC server...');
 
     try {
       const jobData = {
@@ -598,7 +598,7 @@ export default function SCEPTERDRNConfig({ savedData }) {
             <div className="space-y-4">
               <div className="flex gap-4">
                 <Button 
-                  onClick={submitJobToGrace}
+                  onClick={submitJobToYaleHPC}
                   disabled={isSubmittingJob || !selectedLocation}
                   className="flex-1 bg-blue-500 text-white hover:bg-blue-600"
                 >
