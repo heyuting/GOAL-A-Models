@@ -462,10 +462,16 @@ export default function SCEPTERConfig({ savedData }) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
   const [saveMessageIsError, setSaveMessageIsError] = useState(false);
-  const [baselineJobId, setBaselineJobId] = useState(null);
+  const [baselineJobId, setBaselineJobId] = useState(() => localStorage.getItem('scepter_baseline_job_id'));
   const [baselineStatus, setBaselineStatus] = useState(null);
   const [isSubmittingBaseline, setIsSubmittingBaseline] = useState(false);
   const [baselineError, setBaselineError] = useState(null);
+  const [isCheckingBaselineStatus, setIsCheckingBaselineStatus] = useState(false);
+  const [spinupJobId, setSpinupJobId] = useState(() => localStorage.getItem('scepter_spinup_job_id'));
+  const [spinupStatus, setSpinupStatus] = useState(null);
+  const [spinupError, setSpinupError] = useState(null);
+  const [isCheckingSpinupStatus, setIsCheckingSpinupStatus] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1); // 1 = Location & Spin-up, 2 = Practice Variables
   const [locationName, setLocationName] = useState('');
 
   // Load saved data when component mounts or savedData changes
@@ -505,6 +511,7 @@ export default function SCEPTERConfig({ savedData }) {
       if (savedData.locationName) {
         setLocationName(savedData.locationName);
       }
+      setCurrentPage(2);
     }
   }, [savedData]);
 
@@ -549,7 +556,7 @@ export default function SCEPTERConfig({ savedData }) {
       particle_size: particleSizeNum,
       application_rate: applicationRateNum,
     };
-    if (locationName && locationName.trim()) body.location_name = locationName.trim();
+    if (locationName && locationName.trim()) body.location_name = locationName.trim().replace(/\s+/g, '_');
     if (targetPH && targetPH.trim() !== '') {
       const ph = parseFloat(targetPH);
       if (Number.isFinite(ph)) body.target_soil_ph = ph;
@@ -576,6 +583,12 @@ export default function SCEPTERConfig({ savedData }) {
       }
       setSaveMessage(result?.message || 'SCEPTER model run submitted successfully.');
       setSaveMessageIsError(false);
+      if (result?.job_id) {
+        setSpinupJobId(result.job_id);
+        setSpinupStatus(result.status || 'submitted');
+        setSpinupError(null);
+        localStorage.setItem('scepter_spinup_job_id', result.job_id);
+      }
     } catch (err) {
       console.error('SCEPTER run error:', err);
       setSaveMessage(err.message || 'Failed to run SCEPTER model. Please try again.');
@@ -646,7 +659,7 @@ export default function SCEPTERConfig({ savedData }) {
     setBaselineStatus('submitting');
     try {
       const body = { coordinate };
-      if (locationName && locationName.trim()) body.location_name = locationName.trim();
+      if (locationName && locationName.trim()) body.location_name = locationName.trim().replace(/\s+/g, '_');
       const response = await fetch(getApiUrl('api/baseline-simulation'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
@@ -679,6 +692,7 @@ export default function SCEPTERConfig({ savedData }) {
       }
       setBaselineJobId(jobId);
       setBaselineStatus(result?.status || 'submitted');
+      localStorage.setItem('scepter_baseline_job_id', jobId);
       setSaveMessage(`Baseline simulation submitted. Job ID: ${jobId}`);
       setSaveMessageIsError(false);
       pollBaselineStatus(jobId);
@@ -690,6 +704,99 @@ export default function SCEPTERConfig({ savedData }) {
       setSaveMessageIsError(true);
     } finally {
       setIsSubmittingBaseline(false);
+    }
+  };
+
+  const handleCheckBaselineStatus = async () => {
+    const jobId = baselineJobId?.trim();
+    if (!jobId) {
+      setSaveMessage('No spin-up job ID. Run spin-up job first.');
+      setSaveMessageIsError(true);
+      return;
+    }
+    setIsCheckingBaselineStatus(true);
+    setBaselineError(null);
+    try {
+      const response = await fetch(getApiUrl(`api/baseline-simulation/${jobId}/status`), {
+        headers: { 'ngrok-skip-browser-warning': 'true' },
+      });
+      const text = await response.text();
+      let result = null;
+      if (text?.trim()) {
+        try {
+          result = JSON.parse(text);
+        } catch {
+          result = {};
+        }
+      }
+      if (!response.ok) {
+        const msg = result?.error || result?.message || text || `Status check failed (${response.status})`;
+        setBaselineError(msg);
+        setBaselineStatus('failed');
+        setSaveMessage(msg);
+        setSaveMessageIsError(true);
+        return;
+      }
+      const status = result?.status;
+      setBaselineStatus(status ?? 'unknown');
+      setBaselineError(result?.error || null);
+      setSaveMessage(status ? `Spin-up status: ${status}` : 'Status checked.');
+      setSaveMessageIsError(false);
+      if (status === 'pending' || status === 'running') {
+        pollBaselineStatus(jobId);
+      }
+    } catch (err) {
+      console.error('Spin-up status check error:', err);
+      setBaselineError(err.message);
+      setSaveMessage(err.message || 'Failed to check spin-up status.');
+      setSaveMessageIsError(true);
+    } finally {
+      setIsCheckingBaselineStatus(false);
+    }
+  };
+
+  const handleCheckSpinupStatus = async () => {
+    const jobId = spinupJobId?.trim();
+    if (!jobId) {
+      setSaveMessage('No spinup job ID. Run the SCEPTER model first.');
+      setSaveMessageIsError(true);
+      return;
+    }
+    setIsCheckingSpinupStatus(true);
+    setSpinupError(null);
+    try {
+      const response = await fetch(getApiUrl(`api/run-scepter/${jobId}/status`), {
+        headers: { 'ngrok-skip-browser-warning': 'true' },
+      });
+      const text = await response.text();
+      let result = null;
+      if (text?.trim()) {
+        try {
+          result = JSON.parse(text);
+        } catch {
+          result = {};
+        }
+      }
+      if (!response.ok) {
+        const msg = result?.error || result?.message || text || `Status check failed (${response.status})`;
+        setSpinupError(msg);
+        setSpinupStatus('error');
+        setSaveMessage(msg);
+        setSaveMessageIsError(true);
+        return;
+      }
+      const status = result?.status;
+      setSpinupStatus(status ?? 'unknown');
+      setSpinupError(result?.error || null);
+      setSaveMessage(status ? `Spinup status: ${status}` : 'Status checked.');
+      setSaveMessageIsError(false);
+    } catch (err) {
+      console.error('Spinup status check error:', err);
+      setSpinupError(err.message);
+      setSaveMessage(err.message || 'Failed to check spinup status.');
+      setSaveMessageIsError(true);
+    } finally {
+      setIsCheckingSpinupStatus(false);
     }
   };
 
@@ -711,7 +818,7 @@ export default function SCEPTERConfig({ savedData }) {
 
     try {
       const modelData = {
-        name: `SCEPTER - ${locationName || location || 'Custom Location'}`,
+        name: `SCEPTER_${(locationName || location || 'Custom_Location').replace(/\s+/g, '_')}`,
         model: 'SCEPTER',
         location: location || `${selectedPoint?.lat.toFixed(4)}, ${selectedPoint?.lng.toFixed(4)}`,
         locationName: locationName || undefined,
@@ -925,7 +1032,7 @@ export default function SCEPTERConfig({ savedData }) {
     if (site) {
       const stateCode = getStateCodeFromCoords(site.latitude, site.longitude);
       const baseName = site.name || `USGS-${siteId}`;
-      setLocationName(stateCode ? `${stateCode} - ${baseName}` : baseName);
+      setLocationName(stateCode ? `${stateCode}-${baseName}` : baseName);
     } else {
       setLocationName('');
     }
@@ -991,6 +1098,9 @@ export default function SCEPTERConfig({ savedData }) {
     }
   }, [selectedStatistic, statisticPeriod]);
 
+  const spinUpSuccess = baselineStatus === 'completed';
+  const canContinueToStep2 = savedData || ((selectedPoint || location) && spinUpSuccess);
+
   return (
     <div className="space-y-6">
       <div className="flex gap-6">
@@ -1007,7 +1117,7 @@ export default function SCEPTERConfig({ savedData }) {
                   setSelectedPoint(clickedPoint);
                   setLocation(`${clickedPoint.lat.toFixed(4)}, ${clickedPoint.lng.toFixed(4)}`);
                   const stateCode = getStateCodeFromCoords(clickedPoint.lat, clickedPoint.lng);
-                  setLocationName(stateCode ? `${stateCode} - Location` : 'Location');
+                  setLocationName(stateCode ? `${stateCode}-Location` : 'Location');
                 }}
               />
               <MapZoomHandler center={mapCenter} zoom={mapZoom} />
@@ -1052,115 +1162,195 @@ export default function SCEPTERConfig({ savedData }) {
         </div>
 
         <div className="w-2/5">
-          <h2 className="text-xl font-bold text-center  text-gray-800">SCEPTER Model Configuration</h2>
+          <h2 className="text-xl font-bold text-center text-gray-800">SCEPTER Model Configuration</h2>
           <Card className="mt-5 rounded-2xl shadow-lg p-6">
             <CardContent className="space-y-6">
-              <form onSubmit={handleRunModel} className="space-y-6">
-                {/* Location Selection Prompt or Display */}
-                {!(selectedPoint || location) ? (
-                  <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-300">
-                    <h3 className="text-sm font-semibold text-yellow-800 mb-2">Select Location First</h3>
-                    <p className="text-sm text-yellow-700">
-                      Please click on the map to select a location before configuring model parameters.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
-                    <h3 className="text-sm font-semibold mb-2">Selected Location</h3>
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Label className="text-sm font-semibold shrink-0">Location Name:</Label>
-                        <Input
-                          type="text"
-                          value={locationName}
-                          onChange={(e) => setLocationName(e.target.value)}
-                          placeholder="Enter location name"
-                          className="flex-1 border-blue-200 bg-white text-sm"
-                        />
-                      </div>
-                      {selectedPoint ? (
-                        <div className="text-sm">
-                          <div><strong>Latitude:</strong> {selectedPoint.lat.toFixed(6)}</div>
-                          <div><strong>Longitude:</strong> {selectedPoint.lng.toFixed(6)}</div>
-                        </div>
-                      ) : (
-                        <div className="text-sm text-blue-700">
-                          <div><strong>Location:</strong> {location}</div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                <Button
+              {/* Step 1 / Step 2 navigation (like DRN) */}
+              <div className="flex items-stretch mb-6 pb-4 border-b">
+                <button
                   type="button"
-                  onClick={handleBaselineSimulation}
-                  title="Baseline weathering simulations without rock application"
-                  disabled={!(location || selectedPoint) || isSubmittingBaseline}
-                  className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-md font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={!!savedData}
+                  className={`flex-1 px-3 py-1 h-12 text-sm font-medium transition-colors rounded-l-sm border-r h-9 ${savedData
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200'
+                    : currentPage === 1
+                      ? 'bg-blue-500 text-white border-blue-600'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300 border-gray-300'
+                  }`}
                 >
-                  {isSubmittingBaseline ? 'Submitting...' : 'Baseline simulation (spin-up)'}
-                </Button>
-                {baselineJobId && baselineStatus && (
-                  <div className={`p-3 rounded-lg text-sm ${baselineStatus === 'completed' ? 'bg-green-100 text-green-700' : baselineStatus === 'failed' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
-                    <div><strong>Baseline Job:</strong> {baselineJobId}</div>
-                    <div><strong>Status:</strong> {baselineStatus}</div>
-                    {baselineError && <div>{baselineError}</div>}
+                  1. Select Location & Spin-up
+                </button>
+                <button
+                  type="button"
+                  onClick={() => canContinueToStep2 && setCurrentPage(2)}
+                  disabled={!canContinueToStep2}
+                  className={`flex-1 px-3 py-1 h-12 text-sm font-medium transition-colors rounded-r-sm h-9 ${canContinueToStep2
+                    ? currentPage === 2
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  }`}
+                >
+                  2. Set Practice Variables
+                </button>
+              </div>
+
+              {/* Page 1: Step 1 - Location Selection & Run spin-up */}
+              {currentPage === 1 && (
+                <>
+                  <h4 className="text-md font-semibold mb-4">Select location on the map, then run spin-up job</h4>
+                  {!(selectedPoint || location) ? (
+                    <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-300">
+                      <h3 className="text-sm font-semibold text-yellow-800 mb-2">Select Location First</h3>
+                      <p className="text-sm text-yellow-700">
+                        Please click on the map or choose a USGS site to select a location.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                      <h3 className="text-sm font-semibold mb-2">Selected Location</h3>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Label className="text-sm font-semibold shrink-0">Location Name:</Label>
+                          <Input
+                            type="text"
+                            value={locationName}
+                            onChange={(e) => setLocationName(e.target.value)}
+                            placeholder="Enter location name"
+                            className="flex-1 border-blue-200 bg-white text-sm"
+                          />
+                        </div>
+                        {selectedPoint ? (
+                          <div className="text-sm">
+                            <div><strong>Latitude:</strong> {selectedPoint.lat.toFixed(6)}</div>
+                            <div><strong>Longitude:</strong> {selectedPoint.lng.toFixed(6)}</div>
+                          </div>
+                        ) : (
+                          <div className="text-sm text-blue-700">
+                            <div><strong>Location:</strong> {location}</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <Button
+                    type="button"
+                    onClick={handleBaselineSimulation}
+                    title="Baseline weathering simulations without rock application"
+                    disabled={!(location || selectedPoint) || isSubmittingBaseline || !!baselineJobId}
+                    className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-md font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSubmittingBaseline ? 'Submitting...' : 'Run spin-up job'}
+                  </Button>
+                  {baselineJobId && (
+                    <div className={`flex items-center justify-between gap-3 p-3 rounded-lg text-sm ${baselineStatus === 'completed' ? 'bg-green-100 text-green-700' : baselineStatus === 'running' ? 'bg-blue-100 text-blue-700' : baselineStatus === 'failed' ? 'bg-red-100 text-red-700' : baselineStatus === 'pending' || baselineStatus === 'submitted' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
+                      <div className="min-w-0">
+                        <div><strong>Spin-up Job:</strong> {baselineJobId}</div>
+                        {baselineStatus && <div><strong>Status:</strong> {baselineStatus}</div>}
+                        {baselineError && <div>{baselineError}</div>}
+                      </div>
+                      <div className="flex flex-col gap-2 shrink-0">
+                        <Button
+                          type="button"
+                          onClick={handleCheckBaselineStatus}
+                          disabled={isCheckingBaselineStatus}
+                          className="bg-yellow-500 text-white hover:bg-yellow-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
+                        >
+                          {isCheckingBaselineStatus ? 'Checking...' : 'Check status'}
+                        </Button>
+                        <Button
+                          type="button"
+                          onClick={() => {
+                            setBaselineJobId(null);
+                            setBaselineStatus(null);
+                            setBaselineError(null);
+                            localStorage.removeItem('scepter_baseline_job_id');
+                          }}
+                          className="bg-red-500 text-white hover:bg-red-600 rounded-md py-1.5 px-3 text-sm"
+                        >
+                          Reset
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  {(spinupJobId || spinupStatus) && (
+                    <div className={`p-3 rounded-lg text-sm ${spinupStatus === 'completed' ? 'bg-green-100 text-green-700' : spinupStatus === 'running' ? 'bg-blue-100 text-blue-700' : spinupStatus === 'failed' || spinupStatus === 'error' ? 'bg-red-100 text-red-700' : spinupStatus === 'pending' || spinupStatus === 'submitted' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
+                      {spinupJobId && <div><strong>Spinup Job:</strong> {spinupJobId}</div>}
+                      {spinupStatus && <div><strong>Status:</strong> {spinupStatus}</div>}
+                      {spinupError && <div>{spinupError}</div>}
+                      <Button
+                        type="button"
+                        onClick={handleCheckSpinupStatus}
+                        disabled={!spinupJobId || isCheckingSpinupStatus}
+                        className="mt-2 bg-slate-600 hover:bg-slate-700 text-white py-1.5 px-3 rounded text-sm disabled:opacity-50"
+                      >
+                        {isCheckingSpinupStatus ? 'Checking...' : 'Check spinup status'}
+                      </Button>
+                    </div>
+                  )}
+
+                  <Button
+                    type="button"
+                    onClick={() => setCurrentPage(2)}
+                    disabled={!canContinueToStep2}
+                    className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-md font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Continue to Step 2
+                  </Button>
+                </>
+              )}
+
+              {/* Page 2: Step 2 - Set Practice Variables */}
+              {currentPage === 2 && (
+                <form onSubmit={handleRunModel} className="space-y-6">
+                  <h4 className="text-md font-semibold mb-4">Set Practice Variables</h4>
+                  <div className="bg-white p-4 rounded-2xl shadow-md">
+                    <Label className="block mb-2">Feedstock Type</Label>
+                    <select
+                      className="w-full border rounded-xl p-2 mb-4"
+                      value={feedstock}
+                      onChange={(e) => setFeedstock(e.target.value)}
+                    >
+                      <option value="" disabled>Choose Feedstock</option>
+                      <option value="Basalt">Basalt</option>
+                      <option value="Olivine">Olivine</option>
+                    </select>
+
+                    <Label className="block mb-2">Particle Size</Label>
+                    <select
+                      className="w-full border rounded-xl p-2 mb-4"
+                      value={particleSize}
+                      onChange={(e) => setParticleSize(e.target.value)}
+                    >
+                      <option value="" disabled>Select Particle Size</option>
+                      <option value="psdrain_100um.in">100um</option>
+                      <option value="psdrain_320um.in">320um</option>
+                      <option value="psdrain_1220um.in">1220um</option>
+                      <option value="psdrain_3000um.in">3000um</option>
+                    </select>
+
+                    <Label className="block mb-2">Application Rate (t/ha/year)</Label>
+                    <Input
+                      type="number"
+                      className="w-full border rounded-xl p-2 mb-4"
+                      placeholder="Enter rate"
+                      value={applicationRate}
+                      onChange={(e) => setApplicationRate(e.target.value)}
+                    />
+
+                    <Label className="block mb-2">Target Soil pH (optional)</Label>
+                    <Input
+                      type="number"
+                      step="0.1"
+                      className="w-full border rounded-xl p-2"
+                      placeholder="Enter target pH"
+                      value={targetPH}
+                      onChange={(e) => setTargetPH(e.target.value)}
+                    />
                   </div>
-                )}
 
-                <div className={`bg-white p-4 rounded-2xl shadow-md transition-opacity ${!(selectedPoint || location) ? 'opacity-50 pointer-events-none' : ''}`}>
-                  <h2 className="text-xl font-bold mb-2">Set Practice Variables</h2>
-                  <Label className="block mb-2">Feedstock Type</Label>
-                  <select
-                    className="w-full border rounded-xl p-2 mb-4"
-                    value={feedstock}
-                    onChange={(e) => setFeedstock(e.target.value)}
-                    disabled={!(selectedPoint || location)}
-                  >
-                    <option value="" disabled>Choose Feedstock</option>
-                    <option value="Basalt">Basalt</option>
-                    <option value="Olivine">Olivine</option>
-                    <option value="Custom">Custom...</option>
-                  </select>
-
-                  <Label className="block mb-2">Particle Size</Label>
-                  <select
-                    className="w-full border rounded-xl p-2 mb-4"
-                    value={particleSize}
-                    onChange={(e) => setParticleSize(e.target.value)}
-                    disabled={!(selectedPoint || location)}
-                  >
-                    <option value="" disabled>Select Particle Size</option>
-                    <option value="psdrain_100um.in">100um</option>
-                    <option value="psdrain_320um.in">320um</option>
-                    <option value="psdrain_1220um.in">1220um</option>
-                    <option value="psdrain_3000um.in">3000um</option>
-                  </select>
-
-                  <Label className="block mb-2">Application Rate (t/ha/year)</Label>
-                  <Input
-                    type="number"
-                    className="w-full border rounded-xl p-2 mb-4"
-                    placeholder="Enter rate"
-                    value={applicationRate}
-                    onChange={(e) => setApplicationRate(e.target.value)}
-                    disabled={!(selectedPoint || location)}
-                  />
-
-                  <Label className="block mb-2">Target Soil pH (optional)</Label>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    className="w-full border rounded-xl p-2"
-                    placeholder="Enter target pH"
-                    value={targetPH}
-                    onChange={(e) => setTargetPH(e.target.value)}
-                    disabled={!(selectedPoint || location)}
-                  />
-                </div>
-
-                <div className="mt-4 space-y-2">
+                  <div className="space-y-2">
                     <Button
                       type="button"
                       onClick={handleSaveModel}
@@ -1169,14 +1359,14 @@ export default function SCEPTERConfig({ savedData }) {
                     >
                       {isSaving ? 'Saving...' : savedData ? 'Update Model Configuration' : 'Save Model Configuration'}
                     </Button>
-                    
                     <Button
                       type="submit"
                       className="w-full bg-green-500 text-white hover:bg-green-600 rounded-md p-2"
                     >
                       Run SCEPTER Model
                     </Button>
-                  
+                  </div>
+
                   {saveMessage && (
                     <div className={`text-center p-3 rounded-lg text-sm ${
                       saveMessageIsError ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
@@ -1184,8 +1374,8 @@ export default function SCEPTERConfig({ savedData }) {
                       {saveMessage}
                     </div>
                   )}
-                </div>
-              </form>
+                </form>
+              )}
             </CardContent>
           </Card>
         </div>
