@@ -515,6 +515,27 @@ export default function SCEPTERConfig({ savedData }) {
     }
   }, [savedData]);
 
+  // Restore map location from persisted baseline job coordinate (e.g. after refresh) so user can see where the spin-up was run
+  useEffect(() => {
+    if (savedData) return;
+    const jobId = localStorage.getItem('scepter_baseline_job_id');
+    const raw = localStorage.getItem('scepter_baseline_coordinate');
+    if (!jobId || !raw) return;
+    try {
+      const { coordinate, locationName: savedName } = JSON.parse(raw);
+      if (coordinate && Array.isArray(coordinate) && coordinate.length >= 2) {
+        const [lat, lng] = coordinate;
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          setSelectedPoint({ lat, lng });
+          setLocation(`${lat}, ${lng}`);
+          if (savedName != null && savedName !== '') setLocationName(savedName);
+          setMapCenter([lat, lng]);
+          setMapZoom(8);
+        }
+      }
+    } catch (_) {}
+  }, [savedData]);
+
   const handleRunModel = async (e) => {
     e.preventDefault();
 
@@ -693,6 +714,12 @@ export default function SCEPTERConfig({ savedData }) {
       setBaselineJobId(jobId);
       setBaselineStatus(result?.status || 'submitted');
       localStorage.setItem('scepter_baseline_job_id', jobId);
+      try {
+        localStorage.setItem('scepter_baseline_coordinate', JSON.stringify({
+          coordinate: [coordinate[0], coordinate[1]],
+          locationName: locationName?.trim() || null,
+        }));
+      } catch (_) {}
       setSaveMessage(`Baseline simulation submitted. Job ID: ${jobId}`);
       setSaveMessageIsError(false);
       pollBaselineStatus(jobId);
@@ -1265,28 +1292,23 @@ export default function SCEPTERConfig({ savedData }) {
                             setBaselineJobId(null);
                             setBaselineStatus(null);
                             setBaselineError(null);
+                            setSpinupJobId(null);
+                            setSpinupStatus(null);
+                            setSpinupError(null);
+                            setSelectedPoint(null);
+                            setLocation('');
+                            setLocationName('');
+                            setMapCenter([39.8283, -98.5795]);
+                            setMapZoom(4);
                             localStorage.removeItem('scepter_baseline_job_id');
+                            localStorage.removeItem('scepter_baseline_coordinate');
+                            localStorage.removeItem('scepter_spinup_job_id');
                           }}
                           className="bg-red-500 text-white hover:bg-red-600 rounded-md py-1.5 px-3 text-sm"
                         >
                           Reset
                         </Button>
                       </div>
-                    </div>
-                  )}
-                  {(spinupJobId || spinupStatus) && (
-                    <div className={`p-3 rounded-lg text-sm ${spinupStatus === 'completed' ? 'bg-green-100 text-green-700' : spinupStatus === 'running' ? 'bg-blue-100 text-blue-700' : spinupStatus === 'failed' || spinupStatus === 'error' ? 'bg-red-100 text-red-700' : spinupStatus === 'pending' || spinupStatus === 'submitted' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
-                      {spinupJobId && <div><strong>Spinup Job:</strong> {spinupJobId}</div>}
-                      {spinupStatus && <div><strong>Status:</strong> {spinupStatus}</div>}
-                      {spinupError && <div>{spinupError}</div>}
-                      <Button
-                        type="button"
-                        onClick={handleCheckSpinupStatus}
-                        disabled={!spinupJobId || isCheckingSpinupStatus}
-                        className="mt-2 bg-slate-600 hover:bg-slate-700 text-white py-1.5 px-3 rounded text-sm disabled:opacity-50"
-                      >
-                        {isCheckingSpinupStatus ? 'Checking...' : 'Check spinup status'}
-                      </Button>
                     </div>
                   )}
 
@@ -1365,6 +1387,24 @@ export default function SCEPTERConfig({ savedData }) {
                     >
                       Run SCEPTER Model
                     </Button>
+
+                    {(spinupJobId || spinupStatus) && (
+                      <div className={`flex items-center justify-between gap-3 p-3 rounded-lg text-sm ${spinupStatus === 'completed' ? 'bg-green-100 text-green-700' : spinupStatus === 'running' ? 'bg-blue-100 text-blue-700' : spinupStatus === 'failed' || spinupStatus === 'error' ? 'bg-red-100 text-red-700' : spinupStatus === 'pending' || spinupStatus === 'submitted' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
+                        <div className="min-w-0">
+                          {spinupJobId && <div><strong>SCEPTER Job:</strong> {spinupJobId}</div>}
+                          {spinupStatus && <div><strong>Status:</strong> {spinupStatus}</div>}
+                          {spinupError && <div>{spinupError}</div>}
+                        </div>
+                        <Button
+                          type="button"
+                          onClick={handleCheckSpinupStatus}
+                          disabled={!spinupJobId || isCheckingSpinupStatus}
+                          className="shrink-0 bg-yellow-500 text-white hover:bg-yellow-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
+                        >
+                          {isCheckingSpinupStatus ? 'Checking...' : 'Check status'}
+                        </Button>
+                      </div>
+                    )}
                   </div>
 
                   {saveMessage && (
