@@ -539,27 +539,14 @@ export default function SCEPTERConfig({ savedData }) {
   const handleRunModel = async (e) => {
     e.preventDefault();
 
-    // Resolve coordinate from selected point or location string
-    let coordinate = null;
-    if (selectedPoint && typeof selectedPoint.lat === 'number' && typeof selectedPoint.lng === 'number') {
-      coordinate = [selectedPoint.lat, selectedPoint.lng];
-    } else if (location && location.includes(',')) {
-      const [lat, lng] = location.split(',').map((c) => parseFloat(c.trim()));
-      if (!isNaN(lat) && !isNaN(lng)) coordinate = [lat, lng];
-    }
-    if (!coordinate || coordinate.length !== 2) {
-      setSaveMessage('Please select a location on the map or enter valid coordinates.');
+    if (!baselineJobId || baselineStatus !== 'completed') {
+      setSaveMessage('Please complete the spin-up run first.');
       setSaveMessageIsError(true);
       return;
     }
 
     const particleSizeNum = particleSizeToNumber(particleSize);
     const applicationRateNum = applicationRate ? parseFloat(applicationRate) : null;
-    if (!feedstock || !feedstock.trim()) {
-      setSaveMessage('Please select a feedstock type.');
-      setSaveMessageIsError(true);
-      return;
-    }
     if (particleSizeNum == null) {
       setSaveMessage('Please select a particle size.');
       setSaveMessageIsError(true);
@@ -571,20 +558,22 @@ export default function SCEPTERConfig({ savedData }) {
       return;
     }
 
+    const baseName = (locationName || 'run').trim().replace(/\s+/g, '_') || 'run';
+    const restartName = `restart_${baseName}_${Date.now()}`;
+
     const body = {
-      coordinate,
-      feedstock: feedstock.trim().toLowerCase(),
+      spinup_name: baselineJobId,
+      restart_name: restartName,
       particle_size: particleSizeNum,
       application_rate: applicationRateNum,
     };
-    if (locationName && locationName.trim()) body.location_name = locationName.trim().replace(/\s+/g, '_');
     if (targetPH && targetPH.trim() !== '') {
       const ph = parseFloat(targetPH);
-      if (Number.isFinite(ph)) body.target_soil_ph = ph;
+      if (Number.isFinite(ph)) body.target_pH = ph;
     }
 
     try {
-      const response = await fetch(getApiUrl('api/run-scepter'), {
+      const response = await fetch(getApiUrl('api/run-scepter-model'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
         body: JSON.stringify(body),
@@ -792,7 +781,7 @@ export default function SCEPTERConfig({ savedData }) {
     setIsCheckingSpinupStatus(true);
     setSpinupError(null);
     try {
-      const response = await fetch(getApiUrl(`api/run-scepter/${jobId}/status`), {
+      const response = await fetch(getApiUrl(`api/run-scepter-model/${jobId}/status`), {
         headers: { 'ngrok-skip-browser-warning': 'true' },
       });
       const text = await response.text();
