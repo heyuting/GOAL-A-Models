@@ -55,7 +55,7 @@ function MapZoomHandler({ center, zoom }) {
 }
 
 // Create custom markers for different alkalinity data recency and sample count
-const createCustomIcon = (color, sampleCount = 0) => {
+/* const createCustomIcon = (color, sampleCount = 0) => {
   // Calculate size based on sample count (minimum 8px, maximum 20px)
   const minSize = 8;
   const maxSize = 20;
@@ -81,7 +81,7 @@ const createCustomIcon = (color, sampleCount = 0) => {
     iconAnchor: [center, center],
     popupAnchor: [0, -center],
   });
-};
+}; */
 // Time series plots are in TimeSeriesPlot.jsx
 // Alkalinity scatter plot is in AlkalinityScatterPlot.jsx
 
@@ -453,15 +453,13 @@ export default function SCEPTERConfig({ savedData }) {
   const [selectedSite, setSelectedSite] = useState(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
   //const [editedAlkalinity, setEditedAlkalinity] = useState(0);
-  const [usgsSites, setUsgsSites] = useState([]);
-  const [isLoadingSiteData, setIsLoadingSiteData] = useState(false);
+  //const [usgsSites, setUsgsSites] = useState([]);
+  //const [isLoadingSiteData, setIsLoadingSiteData] = useState(false);
   const [mapCenter, setMapCenter] = useState([39.8283, -98.5795]); // Default US center
   const [mapZoom, setMapZoom] = useState(4); // Default zoom level
-  const [selectedStatistic, setSelectedStatistic] = useState('most_recent');
-  const [statisticPeriod, setStatisticPeriod] = useState('7d'); // Default to 7 days
+  //const [selectedStatistic, setSelectedStatistic] = useState('most_recent');
+  //const [statisticPeriod, setStatisticPeriod] = useState('7d'); // Default to 7 days
   const [isSaving, setIsSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState('');
-  const [saveMessageIsError, setSaveMessageIsError] = useState(false);
   const [baselineJobId, setBaselineJobId] = useState(() => localStorage.getItem('scepter_baseline_job_id'));
   const [baselineStatus, setBaselineStatus] = useState(null);
   const [isSubmittingBaseline, setIsSubmittingBaseline] = useState(false);
@@ -471,6 +469,8 @@ export default function SCEPTERConfig({ savedData }) {
   const [spinupStatus, setSpinupStatus] = useState(null);
   const [spinupError, setSpinupError] = useState(null);
   const [isCheckingSpinupStatus, setIsCheckingSpinupStatus] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadStatus, setDownloadStatus] = useState('');
   const [currentPage, setCurrentPage] = useState(1); // 1 = Location & Spin-up, 2 = Practice Variables
   const [locationName, setLocationName] = useState('');
 
@@ -483,8 +483,8 @@ export default function SCEPTERConfig({ savedData }) {
       setParticleSize(params.particleSize || '');
       setApplicationRate(params.applicationRate || '');
       setTargetPH(params.targetPH || '');
-      setSelectedStatistic(params.selectedStatistic || 'most_recent');
-      setStatisticPeriod(params.statisticPeriod || '7d');
+      //setSelectedStatistic(params.selectedStatistic || 'most_recent');
+      //setStatisticPeriod(params.statisticPeriod || '7d');
       //setEditedAlkalinity(params.alkalinity || 0);
 
       // Load saved measurements
@@ -533,28 +533,24 @@ export default function SCEPTERConfig({ savedData }) {
           setMapZoom(8);
         }
       }
-    } catch (_) {}
+    } catch {
+      // Ignore invalid cached baseline coordinate payloads
+    }
   }, [savedData]);
 
   const handleRunModel = async (e) => {
     e.preventDefault();
 
     if (!baselineJobId || baselineStatus !== 'completed') {
-      setSaveMessage('Please complete the spin-up run first.');
-      setSaveMessageIsError(true);
       return;
     }
 
     const particleSizeNum = particleSizeToNumber(particleSize);
     const applicationRateNum = applicationRate ? parseFloat(applicationRate) : null;
     if (particleSizeNum == null) {
-      setSaveMessage('Please select a particle size.');
-      setSaveMessageIsError(true);
       return;
     }
     if (applicationRateNum == null || !Number.isFinite(applicationRateNum) || applicationRateNum <= 0) {
-      setSaveMessage('Please enter a valid application rate (positive number).');
-      setSaveMessageIsError(true);
       return;
     }
 
@@ -583,16 +579,15 @@ export default function SCEPTERConfig({ savedData }) {
       if (text && text.trim()) {
         try {
           result = JSON.parse(text);
-        } catch (_) {}
+        } catch {
+          // Ignore invalid JSON payloads
+        }
       }
       if (!response.ok) {
         const msg = result?.error || result?.message || text || `Request failed (${response.status})`;
-        setSaveMessage(msg);
-        setSaveMessageIsError(true);
+        setSpinupError(msg);
         return;
       }
-      setSaveMessage(result?.message || 'SCEPTER model run submitted successfully.');
-      setSaveMessageIsError(false);
       if (result?.job_id) {
         setSpinupJobId(result.job_id);
         setSpinupStatus(result.status || 'submitted');
@@ -601,8 +596,7 @@ export default function SCEPTERConfig({ savedData }) {
       }
     } catch (err) {
       console.error('SCEPTER run error:', err);
-      setSaveMessage(err.message || 'Failed to run SCEPTER model. Please try again.');
-      setSaveMessageIsError(true);
+      setSpinupError(err.message || 'Failed to run SCEPTER model. Please try again.');
     }
   };
 
@@ -630,14 +624,10 @@ export default function SCEPTERConfig({ savedData }) {
         setBaselineStatus(status);
         if (status === 'completed') {
           setBaselineError(null);
-          setSaveMessage('Baseline simulation completed successfully.');
-          setSaveMessageIsError(false);
           return;
         }
         if (status === 'failed') {
           setBaselineError(result?.error || result?.message || 'Baseline simulation failed');
-          setSaveMessage(result?.error || result?.message || 'Baseline simulation failed');
-          setSaveMessageIsError(true);
           return;
         }
         if (status === 'pending' || status === 'running') {
@@ -660,8 +650,7 @@ export default function SCEPTERConfig({ savedData }) {
       if (!isNaN(lat) && !isNaN(lng)) coordinate = [lat, lng];
     }
     if (!coordinate || coordinate.length !== 2) {
-      setSaveMessage('Please select a location on the map or enter valid coordinates.');
-      setSaveMessageIsError(true);
+      setBaselineError('Please select a location on the map or enter valid coordinates.');
       return;
     }
     setIsSubmittingBaseline(true);
@@ -688,16 +677,12 @@ export default function SCEPTERConfig({ savedData }) {
         const msg = result?.error || result?.message || text || `Request failed (${response.status})`;
         setBaselineError(msg);
         setBaselineStatus('failed');
-        setSaveMessage(msg);
-        setSaveMessageIsError(true);
         return;
       }
       const jobId = result?.job_id;
       if (!jobId) {
         setBaselineError('No job_id in response');
         setBaselineStatus('failed');
-        setSaveMessage('Invalid response: no job_id returned');
-        setSaveMessageIsError(true);
         return;
       }
       setBaselineJobId(jobId);
@@ -708,16 +693,14 @@ export default function SCEPTERConfig({ savedData }) {
           coordinate: [coordinate[0], coordinate[1]],
           locationName: locationName?.trim() || null,
         }));
-      } catch (_) {}
-      setSaveMessage(`Baseline simulation submitted. Job ID: ${jobId}`);
-      setSaveMessageIsError(false);
+      } catch {
+        // Ignore localStorage write errors
+      }
       pollBaselineStatus(jobId);
     } catch (err) {
       console.error('Baseline simulation error:', err);
       setBaselineError(err.message);
       setBaselineStatus('failed');
-      setSaveMessage(err.message || 'Failed to submit baseline simulation.');
-      setSaveMessageIsError(true);
     } finally {
       setIsSubmittingBaseline(false);
     }
@@ -726,8 +709,7 @@ export default function SCEPTERConfig({ savedData }) {
   const handleCheckBaselineStatus = async () => {
     const jobId = baselineJobId?.trim();
     if (!jobId) {
-      setSaveMessage('No spin-up job ID. Run spin-up job first.');
-      setSaveMessageIsError(true);
+      setBaselineError('No spin-up job ID. Run spin-up job first.');
       return;
     }
     setIsCheckingBaselineStatus(true);
@@ -749,23 +731,17 @@ export default function SCEPTERConfig({ savedData }) {
         const msg = result?.error || result?.message || text || `Status check failed (${response.status})`;
         setBaselineError(msg);
         setBaselineStatus('failed');
-        setSaveMessage(msg);
-        setSaveMessageIsError(true);
         return;
       }
       const status = result?.status;
       setBaselineStatus(status ?? 'unknown');
       setBaselineError(result?.error || null);
-      setSaveMessage(status ? `Spin-up status: ${status}` : 'Status checked.');
-      setSaveMessageIsError(false);
       if (status === 'pending' || status === 'running') {
         pollBaselineStatus(jobId);
       }
     } catch (err) {
       console.error('Spin-up status check error:', err);
       setBaselineError(err.message);
-      setSaveMessage(err.message || 'Failed to check spin-up status.');
-      setSaveMessageIsError(true);
     } finally {
       setIsCheckingBaselineStatus(false);
     }
@@ -774,8 +750,7 @@ export default function SCEPTERConfig({ savedData }) {
   const handleCheckSpinupStatus = async () => {
     const jobId = spinupJobId?.trim();
     if (!jobId) {
-      setSaveMessage('No spinup job ID. Run the SCEPTER model first.');
-      setSaveMessageIsError(true);
+      setSpinupError('No SCEPTER job ID. Run the SCEPTER model first.');
       return;
     }
     setIsCheckingSpinupStatus(true);
@@ -797,40 +772,133 @@ export default function SCEPTERConfig({ savedData }) {
         const msg = result?.error || result?.message || text || `Status check failed (${response.status})`;
         setSpinupError(msg);
         setSpinupStatus('error');
-        setSaveMessage(msg);
-        setSaveMessageIsError(true);
         return;
       }
       const status = result?.status;
       setSpinupStatus(status ?? 'unknown');
       setSpinupError(result?.error || null);
-      setSaveMessage(status ? `Spinup status: ${status}` : 'Status checked.');
-      setSaveMessageIsError(false);
     } catch (err) {
-      console.error('Spinup status check error:', err);
+      console.error('Model status check error:', err);
       setSpinupError(err.message);
-      setSaveMessage(err.message || 'Failed to check spinup status.');
-      setSaveMessageIsError(true);
     } finally {
       setIsCheckingSpinupStatus(false);
     }
   };
 
+  const handleDownloadResults = async () => {
+    const jobId = spinupJobId?.trim();
+    if (!jobId || spinupStatus !== 'completed') return;
+    if (isDownloading) return;
+
+    setIsDownloading(true);
+    setDownloadStatus('Connecting...');
+    setSpinupError(null);
+
+    try {
+      setDownloadStatus('Requesting download...');
+      const response = await fetch(getApiUrl(`api/run-scepter-model/${jobId}/download`), {
+        headers: { 'ngrok-skip-browser-warning': 'true' },
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        let errMsg = text;
+        try {
+          const parsed = JSON.parse(text);
+          errMsg = parsed?.error || parsed?.message || text;
+        } catch {
+          // Ignore invalid JSON payloads
+        }
+        throw new Error(errMsg || `Download failed (${response.status})`);
+      }
+
+      setDownloadStatus('Receiving data...');
+      const blob = await response.blob();
+      setDownloadStatus('Starting download...');
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `scepter_results_${jobId}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setDownloadStatus('Download complete!');
+      setTimeout(() => {
+        setDownloadStatus('');
+      }, 2000);
+    } catch (err) {
+      console.error('Download error:', err);
+      setSpinupError(err.message || 'Failed to download results.');
+      setDownloadStatus('Download failed');
+      setTimeout(() => setDownloadStatus(''), 3000);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const handleDownloadSpinupResults = async () => {
+    const jobId = baselineJobId?.trim();
+    if (!jobId || baselineStatus !== 'completed') return;
+    if (isDownloading) return;
+
+    setIsDownloading(true);
+    setDownloadStatus('Connecting...');
+    setBaselineError(null);
+
+    try {
+      setDownloadStatus('Requesting download...');
+      const response = await fetch(getApiUrl(`api/baseline-simulation/${jobId}/download`), {
+        headers: { 'ngrok-skip-browser-warning': 'true' },
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        let errMsg = text;
+        try {
+          const parsed = JSON.parse(text);
+          errMsg = parsed?.error || parsed?.message || text;
+        } catch {
+          // Ignore invalid JSON payloads
+        }
+        throw new Error(errMsg || `Download failed (${response.status})`);
+      }
+
+      setDownloadStatus('Receiving data...');
+      const blob = await response.blob();
+      setDownloadStatus('Starting download...');
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `scepter_spinup_${jobId}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      setDownloadStatus('Download complete!');
+      setTimeout(() => setDownloadStatus(''), 2000);
+    } catch (err) {
+      console.error('Spin-up download error:', err);
+      const msg = err.message || 'Failed to download spin-up results.';
+      setBaselineError(msg);
+      setDownloadStatus('Download failed');
+      setTimeout(() => setDownloadStatus(''), 3000);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   const handleSaveModel = async () => {
     if (!user) {
-      setSaveMessage('Please log in to save models');
-      setSaveMessageIsError(true);
       return;
     }
 
     if (!location && !selectedPoint) {
-      setSaveMessage('Please select a location first');
-      setSaveMessageIsError(true);
       return;
     }
 
     setIsSaving(true);
-    setSaveMessage('');
 
     try {
       const modelData = {
@@ -855,35 +923,15 @@ export default function SCEPTERConfig({ savedData }) {
         siteData: selectedSite
       };
 
-      let savedModel;
-      
       if (savedData) {
         // Update existing model
-        savedModel = await userService.updateUserModel(user.id, savedData.id, modelData);
-        if (savedModel) {
-          setSaveMessage('Model updated successfully!');
-          setSaveMessageIsError(false);
-        } else {
-          setSaveMessage('Failed to update model');
-          setSaveMessageIsError(true);
-        }
+        await userService.updateUserModel(user.id, savedData.id, modelData);
       } else {
         // Create new model
-        savedModel = await userService.saveUserModel(user.id, modelData);
-        if (savedModel) {
-          setSaveMessage('Model saved successfully!');
-          setSaveMessageIsError(false);
-        } else {
-          setSaveMessage('Failed to save model');
-          setSaveMessageIsError(true);
-        }
+        await userService.saveUserModel(user.id, modelData);
       }
-      
-      setTimeout(() => setSaveMessage(''), 3000);
     } catch (error) {
       console.error('Error saving model:', error);
-      setSaveMessage('Error saving model');
-      setSaveMessageIsError(true);
     } finally {
       setIsSaving(false);
     }
@@ -906,7 +954,7 @@ export default function SCEPTERConfig({ savedData }) {
       default:
         return null;
     }
-  }; */
+  }; 
 
   const fetchAlkalinityData = async (siteId) => {
     if (!siteId) return;
@@ -1060,7 +1108,7 @@ export default function SCEPTERConfig({ savedData }) {
       await fetchAlkalinityData(siteId);
     }
   };
-
+  */
   function MapClickHandler({ onMapClick }) {
     useMapEvents({
       click: (e) => {
@@ -1090,7 +1138,7 @@ export default function SCEPTERConfig({ savedData }) {
     }));
     setIsEditing(false);
   };
- */
+ 
   const handleSitesLoaded = useCallback((sites) => {
     setUsgsSites(sites);
   }, []);
@@ -1113,7 +1161,7 @@ export default function SCEPTERConfig({ savedData }) {
       fetchAlkalinityData(location);
     }
   }, [selectedStatistic, statisticPeriod]);
-
+*/
   const spinUpSuccess = baselineStatus === 'completed';
   const canContinueToStep2 = savedData || ((selectedPoint || location) && spinUpSuccess);
 
@@ -1139,7 +1187,7 @@ export default function SCEPTERConfig({ savedData }) {
               <MapZoomHandler center={mapCenter} zoom={mapZoom} />
               
               {/* Render all USGS sites with color-coded and size-coded markers */}
-              {usgsSites.map(site => (
+              {/* {usgsSites.map(site => (
                 <Marker 
                   key={site.id}
                   position={[site.latitude, site.longitude]}
@@ -1162,7 +1210,7 @@ export default function SCEPTERConfig({ savedData }) {
                     </div>
                   </Popup>
                 </Marker>
-              ))}
+              ))} */}
               
               {selectedPoint && (
                 <Marker position={selectedPoint}>
@@ -1186,10 +1234,8 @@ export default function SCEPTERConfig({ savedData }) {
                 <button
                   type="button"
                   onClick={() => setCurrentPage(1)}
-                  disabled={!!savedData}
-                  className={`flex-1 px-3 py-1 h-12 text-sm font-medium transition-colors rounded-l-sm border-r h-9 ${savedData
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200'
-                    : currentPage === 1
+                  className={`flex-1 px-3 py-1 h-12 text-sm font-medium transition-colors rounded-l-sm border-r h-9 ${
+                    currentPage === 1
                       ? 'bg-blue-500 text-white border-blue-600'
                       : 'bg-gray-200 text-gray-700 hover:bg-gray-300 border-gray-300'
                   }`}
@@ -1301,6 +1347,17 @@ export default function SCEPTERConfig({ savedData }) {
                     </div>
                   )}
 
+                  {baselineStatus === 'completed' && (
+                    <Button
+                      type="button"
+                      onClick={handleDownloadSpinupResults}
+                      disabled={isDownloading}
+                      className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-md font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isDownloading ? (downloadStatus || 'Preparing download...') : 'Download spin-up results'}
+                    </Button>
+                  )}
+
                   <Button
                     type="button"
                     onClick={() => setCurrentPage(2)}
@@ -1378,31 +1435,36 @@ export default function SCEPTERConfig({ savedData }) {
                     </Button>
 
                     {(spinupJobId || spinupStatus) && (
-                      <div className={`flex items-center justify-between gap-3 p-3 rounded-lg text-sm ${spinupStatus === 'completed' ? 'bg-green-100 text-green-700' : spinupStatus === 'running' ? 'bg-blue-100 text-blue-700' : spinupStatus === 'failed' || spinupStatus === 'error' ? 'bg-red-100 text-red-700' : spinupStatus === 'pending' || spinupStatus === 'submitted' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
-                        <div className="min-w-0">
-                          {spinupJobId && <div><strong>SCEPTER Job:</strong> {spinupJobId}</div>}
-                          {spinupStatus && <div><strong>Status:</strong> {spinupStatus}</div>}
-                          {spinupError && <div>{spinupError}</div>}
+                      <div className="space-y-3">
+                        <div className={`flex items-center justify-between gap-3 p-3 rounded-lg text-sm ${spinupStatus === 'completed' ? 'bg-green-100 text-green-700' : spinupStatus === 'running' ? 'bg-blue-100 text-blue-700' : spinupStatus === 'failed' || spinupStatus === 'error' ? 'bg-red-100 text-red-700' : spinupStatus === 'pending' || spinupStatus === 'submitted' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
+                          <div className="min-w-0">
+                            {spinupJobId && <div><strong>SCEPTER Job:</strong> {spinupJobId}</div>}
+                            {spinupStatus && <div><strong>Status:</strong> {spinupStatus}</div>}
+                            {spinupError && <div>{spinupError}</div>}
+                          </div>
+                          <Button
+                            type="button"
+                            onClick={handleCheckSpinupStatus}
+                            disabled={!spinupJobId || isCheckingSpinupStatus}
+                            className="shrink-0 bg-yellow-500 text-white hover:bg-yellow-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
+                          >
+                            {isCheckingSpinupStatus ? 'Checking...' : 'Check status'}
+                          </Button>
                         </div>
-                        <Button
-                          type="button"
-                          onClick={handleCheckSpinupStatus}
-                          disabled={!spinupJobId || isCheckingSpinupStatus}
-                          className="shrink-0 bg-yellow-500 text-white hover:bg-yellow-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
-                        >
-                          {isCheckingSpinupStatus ? 'Checking...' : 'Check status'}
-                        </Button>
+                        {spinupStatus === 'completed' && (
+                          <Button
+                            type="button"
+                            onClick={handleDownloadResults}
+                            disabled={isDownloading}
+                            className={`w-full py-2 rounded-md font-semibold ${isDownloading ? 'bg-gray-400 text-white cursor-not-allowed' : 'bg-green-500 text-white hover:bg-green-600'}`}
+                          >
+                            {isDownloading ? (downloadStatus || 'Preparing download...') : 'Download Model Results'}
+                          </Button>
+                        )}
                       </div>
                     )}
                   </div>
 
-                  {saveMessage && (
-                    <div className={`text-center p-3 rounded-lg text-sm ${
-                      saveMessageIsError ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-                    }`}>
-                      {saveMessage}
-                    </div>
-                  )}
                 </form>
               )}
             </CardContent>
