@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,6 +23,473 @@ const particleSizeToNumber = (value) => {
   if (!value) return null;
   const match = value.match(/(\d+)um/);
   return match ? parseInt(match[1], 10) : null;
+};
+
+const MAX_SCEPTER_LOCATIONS = 5;
+
+const BASELINE_STATUS_FETCH_MS = 90_000;
+
+async function fetchWithTimeout(url, options = {}, ms = BASELINE_STATUS_FETCH_MS) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => {
+    ctrl.abort(new DOMException(`Request exceeded ${ms}ms`, 'AbortError'));
+  }, ms);
+  try {
+    // Status polls must not use a cached 200 body (stuck on "submitted" while server is "running").
+    return await fetch(url, {
+      cache: 'no-store',
+      ...options,
+      headers: {
+        'Cache-Control': 'no-cache',
+        Pragma: 'no-cache',
+        ...(options.headers || {}),
+      },
+      signal: ctrl.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Combine multiple child job states into one UI status.
+ * Preserves "queued" vs "running" (do not show running when server says queued only).
+ */
+const aggregateBaselineChildStatuses = (statusList) => {
+  const list = (statusList || []).filter(Boolean);
+  if (!list.length) return '';
+  if (list.every((s) => s === 'completed')) return 'completed';
+  if (list.some((s) => s === 'failed' || s === 'cancelled' || s === 'timeout')) return 'failed';
+  if (list.some((s) => s === 'running')) return 'running';
+  /** Batch `overall` / HPC: actively launching — must outrank stale per-job `submitted`. */
+  if (list.some((s) => s === 'submitting')) return 'submitting';
+  if (list.some((s) => s === 'queued')) return 'queued';
+  if (list.some((s) => s === 'pending')) return 'pending';
+  if (list.some((s) => s === 'submitted')) return 'submitted';
+  return list[0] || '';
+};
+
+/**
+ * Map SLURM / backend tokens to UI workflow status (short codes often not lowercase English).
+ */
+const normalizeBaselineStatusToken = (raw) => {
+  if (raw == null) return '';
+  const t = String(raw).trim();
+  if (!t) return '';
+  const lower = t.toLowerCase();
+  const canonical = [
+    'completed',
+    'complete',
+    'failed',
+    'running',
+    'queued',
+    'pending',
+    'submitting',
+    'submitted',
+    'cancelled',
+    'canceled',
+    'timeout',
+    'unknown',
+  ];
+  if (canonical.includes(lower)) {
+    if (lower === 'complete' || lower === 'completed') return 'completed';
+    if (lower === 'canceled') return 'cancelled';
+    return lower;
+  }
+  const u = t.toUpperCase();
+  const slurm = {
+    PD: 'pending',
+    PENDING: 'pending',
+    CF: 'pending',
+    CONFIGURING: 'pending',
+    STAGING: 'pending',
+    R: 'running',
+    RUNNING: 'running',
+    CG: 'running',
+    COMPLETING: 'running',
+    CD: 'completed',
+    COMPLETED: 'completed',
+    F: 'failed',
+    FAILED: 'failed',
+    NF: 'failed',
+    CA: 'cancelled',
+    CANCELLED: 'cancelled',
+    TO: 'timeout',
+    Q: 'queued',
+    QUEUED: 'queued',
+  };
+  if (slurm[u]) return slurm[u];
+  // Phrases some proxies return
+  if (/run|execut|progress/i.test(t) && !/fail/i.test(t)) return 'running';
+  if (/complet|finish|done/i.test(t) && !/fail/i.test(t)) return 'completed';
+  if (/fail|error/i.test(t)) return 'failed';
+  if (/pend|queue|wait|hold/i.test(t)) return 'pending';
+  return lower;
+};
+
+const STATUS_LIKE_KEY_RE =
+  /status|state|phase|slurm|job|queue|workflow|execution|progress|batch|run|step|activity|health/i;
+
+/**
+ * Last-resort scan for backends that nest state under arbitrary keys (e.g. FastAPI detail, custom trees).
+ */
+const scanObjectTreeForWorkflowStatus = (obj, depth = 0) => {
+  if (depth > 8 || obj == null) return '';
+  if (typeof obj === 'string') return normalizeBaselineStatusToken(obj);
+  if (Array.isArray(obj)) {
+    const parts = obj.map((x) => scanObjectTreeForWorkflowStatus(x, depth + 1)).filter(Boolean);
+    return aggregateBaselineChildStatuses(parts);
+  }
+  if (typeof obj !== 'object') return '';
+  const strongStatus = new Set([
+    'running',
+    'submitting',
+    'completed',
+    'failed',
+    'queued',
+    'pending',
+    'cancelled',
+    'timeout',
+  ]);
+  const parts = [];
+  for (const [k, v] of Object.entries(obj)) {
+    if (typeof v === 'string') {
+      const n = normalizeBaselineStatusToken(v);
+      if (n && (STATUS_LIKE_KEY_RE.test(k) || strongStatus.has(n))) parts.push(n);
+    } else if (v && typeof v === 'object') {
+      const n = scanObjectTreeForWorkflowStatus(v, depth + 1);
+      if (n) parts.push(n);
+    }
+  }
+  return aggregateBaselineChildStatuses(parts);
+};
+
+/** Prefer parsed JSON body; re-parse row.text if result is empty (some proxies strip body). */
+const baselineStatusRowPayload = (row) => {
+  let res = row?.result;
+  if (res && typeof res === 'object' && Object.keys(res).length > 0) return res;
+  const t = row?.text;
+  if (typeof t === 'string' && t.trim().startsWith('{')) {
+    try {
+      return JSON.parse(t);
+    } catch {
+      // Ignore
+    }
+  }
+  return res && typeof res === 'object' ? res : {};
+};
+
+/**
+ * Batch aggregate error body from wrong endpoint / server memory — not a per-job
+ * GET /api/baseline-simulation/{job_id}/status response. Ignore for merge and extraction.
+ */
+const isAggregateBatchStatusErrorPayload = (result) => {
+  if (!result || typeof result !== 'object') return false;
+  const err = result.error;
+  if (typeof err === 'string' && /batch not found/i.test(err)) return true;
+  if (typeof err === 'string' && /poll per-job status/i.test(err)) return true;
+  if (typeof err === 'string' && /batch_id returned by post/i.test(err)) return true;
+  return false;
+};
+
+/** One job row from GET .../baseline-simulation/{job_id}/status — use top-level `status` only. */
+const isCompactPerJobBaselineStatusPayload = (result) =>
+  result &&
+  typeof result === 'object' &&
+  !Array.isArray(result) &&
+  result.job_id != null &&
+  /^baseline_\d+_\d+$/i.test(String(result.job_id).trim()) &&
+  typeof result.status === 'string' &&
+  String(result.status).trim() !== '';
+
+/** SCEPTER batch payloads include `status_counts` with running/submitted/... tallies. */
+const inferStatusFromBatchStatusCounts = (sc) => {
+  if (!sc || typeof sc !== 'object') return '';
+  const lower = {};
+  for (const [k, v] of Object.entries(sc)) {
+    lower[String(k).toLowerCase()] = v;
+  }
+  const n = (k) => Number(lower[k]) || 0;
+  if (n('failed') > 0) return 'failed';
+  if (n('running') > 0) return 'running';
+  if (n('submitting') > 0) return 'submitting';
+  if (n('pending') > 0) return 'pending';
+  if (n('queued') > 0) return 'queued';
+  if (n('submitted') > 0) return 'submitted';
+  if (n('completed') > 0) return 'completed';
+  if (n('unknown') > 0) return 'unknown';
+  return '';
+};
+
+/** Fields on batch or job objects that can all be present; aggregate so `running` beats stale `overall: submitting`. */
+const BATCH_LEVEL_STATUS_FIELDS = [
+  'status',
+  'state',
+  'phase',
+  'stage',
+  'overall',
+  'batch_status',
+  'overall_status',
+  'slurm_state',
+  'slurm_status',
+  'slurm_job_state',
+  'job_state',
+  'job_status',
+  'scheduler_state',
+  'workflow_state',
+  'execution_state',
+  'run_state',
+];
+
+const collectBatchLevelStatuses = (obj) => {
+  if (obj == null || typeof obj !== 'object' || Array.isArray(obj)) return '';
+  const map = {};
+  for (const k of Object.keys(obj)) {
+    map[k.toLowerCase()] = obj[k];
+  }
+  const parts = [];
+  if (map['is_running'] === true || map['running'] === true) parts.push('running');
+  if (map['is_completed'] === true) parts.push('completed');
+  if (map['is_failed'] === true || map['failed'] === true) parts.push('failed');
+  for (const field of BATCH_LEVEL_STATUS_FIELDS) {
+    const v = map[field.toLowerCase()];
+    if (v != null && String(v).trim() !== '') {
+      parts.push(normalizeBaselineStatusToken(String(v).trim()));
+    }
+  }
+  return aggregateBaselineChildStatuses(parts.filter(Boolean));
+};
+
+/** Normalize status strings from various baseline/batch API shapes. */
+const extractStatusFromBaselinePayload = (result) => {
+  if (result == null) return '';
+  if (isAggregateBatchStatusErrorPayload(result)) return '';
+  if (Array.isArray(result)) {
+    const subs = result.map((j) => extractStatusFromBaselinePayload(j)).filter(Boolean);
+    return aggregateBaselineChildStatuses(subs);
+  }
+  if (typeof result !== 'object') return '';
+  if (isCompactPerJobBaselineStatusPayload(result)) {
+    return normalizeBaselineStatusToken(String(result.status).trim());
+  }
+
+  /**
+   * Merge root + nested + per-job signals. Batches often send e.g. top-level status "running" while
+   * jobs[] still has stale "submitted"; returning children first hid the real running state.
+   */
+  const childArrays = [
+    result.jobs,
+    result.children,
+    result.results,
+    result.data?.jobs,
+    result.data?.children,
+    result.data?.results,
+    result.detail?.jobs,
+    result.detail?.children,
+    result.detail?.results,
+  ].filter((arr) => Array.isArray(arr) && arr.length);
+  const childSubs = childArrays.flatMap((arr) =>
+    arr.map((j) => extractStatusFromBaselinePayload(j)).filter(Boolean)
+  );
+  const fromChildren = aggregateBaselineChildStatuses(childSubs);
+
+  const nestedContainers = [
+    result.detail,
+    result.data,
+    result.response,
+    result.result,
+    result.job,
+    result.payload,
+    result.body,
+  ].filter((x) => x && typeof x === 'object' && !Array.isArray(x));
+  const nestedStatuses = nestedContainers.map((nest) => collectBatchLevelStatuses(nest)).filter(Boolean);
+  const fromNested = aggregateBaselineChildStatuses(nestedStatuses);
+
+  const rawCounts =
+    result.status_counts ||
+    result.statusCounts ||
+    result.data?.status_counts ||
+    result.data?.statusCounts;
+  const fromCounts = normalizeBaselineStatusToken(inferStatusFromBatchStatusCounts(rawCounts));
+  const direct = collectBatchLevelStatuses(result);
+  const merged = aggregateBaselineChildStatuses(
+    [fromCounts, direct, fromNested, fromChildren].filter(Boolean)
+  );
+  const fromTree = scanObjectTreeForWorkflowStatus(result);
+  const final = aggregateBaselineChildStatuses([merged, fromTree].filter(Boolean));
+  return final || '';
+};
+
+/** String shown in coordinate inputs (fine-tuning on map picks). */
+const formatCoordInput = (n) => (Number.isFinite(n) ? String(n) : '');
+
+/**
+ * Parse latitude/longitude from user text. Returns a finite number in range, or null if still typing/invalid.
+ */
+/** Merge per-job baseline status responses into one UI status. */
+const mergeBaselineStatusRows = (rows) => {
+  if (!rows?.length) {
+    return { status: 'unknown', error: 'No status responses' };
+  }
+  const withPayload = rows.map((r) => ({ r, p: baselineStatusRowPayload(r) }));
+  const usable = withPayload.filter(({ p }) => !isAggregateBatchStatusErrorPayload(p));
+  if (!usable.length) {
+    const msg =
+      withPayload.find(({ p }) => typeof p?.error === 'string')?.p?.error ||
+      'No per-job status (ignored batch aggregate error body).';
+    return { status: 'unknown', error: msg };
+  }
+  const usableRows = usable.map(({ r }) => r);
+  const bad = usableRows.find((r) => !r.ok);
+  if (bad) {
+    return {
+      status: 'failed',
+      error: bad.result?.error || bad.result?.message || bad.text || `Status check failed for job ${bad.id}`,
+    };
+  }
+  const statuses = usableRows.map((r) => extractStatusFromBaselinePayload(baselineStatusRowPayload(r)));
+  if (statuses.some((s) => s === 'failed' || s === 'cancelled' || s === 'timeout')) {
+    const fr = usableRows.find((r) => {
+      const st = extractStatusFromBaselinePayload(baselineStatusRowPayload(r));
+      return st === 'failed' || st === 'cancelled' || st === 'timeout';
+    });
+    return {
+      status: 'failed',
+      error: fr?.result?.error || fr?.result?.message || 'One or more baseline jobs failed',
+    };
+  }
+  const meaningful = statuses.filter((s) => s !== '');
+  const aggregated = aggregateBaselineChildStatuses(meaningful);
+  if (aggregated) return { status: aggregated, error: null };
+  return { status: meaningful[0] || statuses[0] || 'unknown', error: null };
+};
+
+/**
+ * Batch id from POST (e.g. baseline_batch_887986) — kept for UI / spinup_name; spin-up *status* uses per-job ids only.
+ */
+const normalizeBaselineBatchIdForStatus = (raw) => {
+  if (raw == null) return '';
+  const t = String(raw).trim();
+  if (!t) return '';
+  if (/^baseline_batch_\d+$/i.test(t)) return t;
+  const m = t.match(/^baseline_(\d+)$/);
+  if (m) return m[1];
+  if (/^\d+$/.test(t)) return t;
+  return t;
+};
+
+/** GET /api/baseline-simulation/{jobId}/status (+ scepter alias). Batch status endpoint is not used for spin-up checks. */
+const baselineSpinupJobStatusUrls = (jobId) => {
+  const enc = encodeURIComponent(String(jobId).trim());
+  return [
+    `api/baseline-simulation/${enc}/status`,
+    `api/scepter/baseline-simulation/${enc}/status`,
+  ];
+};
+
+const fetchBaselineSpinupStatusRow = async (rawJobId) => {
+  const id = String(rawJobId ?? '').trim();
+  if (!id) {
+    return { id: '', ok: false, statusCode: 0, result: null, text: 'Empty id' };
+  }
+  let lastRow = null;
+  let sawAbort = false;
+  for (const path of baselineSpinupJobStatusUrls(id)) {
+    try {
+      const response = await fetchWithTimeout(getApiUrl(path), {
+        headers: { 'ngrok-skip-browser-warning': 'true' },
+      });
+      const text = await response.text();
+      let result = null;
+      if (text?.trim()) {
+        try {
+          result = JSON.parse(text);
+        } catch {
+          result = {};
+        }
+      }
+      const row = { id, ok: response.ok, statusCode: response.status, result, text };
+      if (response.ok) return row;
+      lastRow = row;
+      if (response.status !== 400 && response.status !== 404) return row;
+    } catch (e) {
+      if (e?.name === 'AbortError') {
+        sawAbort = true;
+        continue;
+      }
+      throw e;
+    }
+  }
+  if (sawAbort && !lastRow) {
+    throw new DOMException('Baseline status request timed out for all URL variants', 'AbortError');
+  }
+  return lastRow || { id, ok: false, statusCode: 0, result: null, text: 'No baseline status response' };
+};
+
+/** Run-model (restart) status: primary + /api/scepter/run-model/ alias. */
+const fetchRunScepterModelStatusPair = async (rawJobId) => {
+  const id = String(rawJobId ?? '').trim();
+  if (!id) {
+    return {
+      response: { ok: false, status: 0 },
+      result: null,
+      text: 'Empty job id',
+    };
+  }
+  const paths = [
+    `api/run-scepter-model/${encodeURIComponent(id)}/status`,
+    `api/scepter/run-model/${encodeURIComponent(id)}/status`,
+  ];
+  let last = null;
+  let sawAbort = false;
+  for (const path of paths) {
+    try {
+      const response = await fetchWithTimeout(getApiUrl(path), {
+        headers: { 'ngrok-skip-browser-warning': 'true' },
+      });
+      const text = await response.text();
+      let result = null;
+      if (text?.trim()) {
+        try {
+          result = JSON.parse(text);
+        } catch {
+          result = {};
+        }
+      }
+      last = { response, result, text };
+      if (response.ok) return last;
+      if (response.status !== 400 && response.status !== 404) return last;
+    } catch (e) {
+      if (e?.name === 'AbortError') {
+        sawAbort = true;
+        continue;
+      }
+      throw e;
+    }
+  }
+  if (sawAbort && !last) throw new DOMException('Run-model status timed out', 'AbortError');
+  return last || { response: { ok: false, status: 0 }, result: null, text: '' };
+};
+
+/** True when every row failed with an id-format/not-found style client error. */
+const areAllRowsClientIdErrors = (rows) => {
+  if (!Array.isArray(rows) || !rows.length) return false;
+  return rows.every((r) => !r?.ok && (r?.statusCode === 400 || r?.statusCode === 404));
+};
+
+const parseCoordField = (raw, kind) => {
+  const t = String(raw ?? '')
+    .trim()
+    .replace(/,/g, '.');
+  if (t === '' || t === '-' || t === '+' || t === '.' || t === '-.' || t === '+.') return null;
+  const n = Number(t);
+  if (!Number.isFinite(n)) return null;
+  if (kind === 'lat') {
+    if (n < -90 || n > 90) return null;
+  } else {
+    if (n < -180 || n > 180) return null;
+  }
+  return n;
 };
 
 // Find state abbreviation from coordinates (nearest state center)
@@ -445,13 +912,11 @@ const USGSSiteSelector = ({ handleSiteSelect, location, onSitesLoaded, onStateSe
 
 export default function SCEPTERConfig({ savedData }) {
   const { user } = useAuth();
-  const [location, setLocation] = useState('');
   const [feedstock, setFeedstock] = useState('');
   const [particleSize, setParticleSize] = useState('');
   const [applicationRate, setApplicationRate] = useState('');
   const [targetPH, setTargetPH] = useState('');
   const [selectedSite, setSelectedSite] = useState(null);
-  const [selectedPoint, setSelectedPoint] = useState(null);
   //const [editedAlkalinity, setEditedAlkalinity] = useState(0);
   //const [usgsSites, setUsgsSites] = useState([]);
   //const [isLoadingSiteData, setIsLoadingSiteData] = useState(false);
@@ -461,9 +926,37 @@ export default function SCEPTERConfig({ savedData }) {
   //const [statisticPeriod, setStatisticPeriod] = useState('7d'); // Default to 7 days
   const [isSaving, setIsSaving] = useState(false);
   const [baselineJobId, setBaselineJobId] = useState(() => localStorage.getItem('scepter_baseline_job_id'));
+  /** All SLURM job ids returned from batch spin-up (same length as locations when batch returns job_ids). */
+  const [baselineJobIds, setBaselineJobIds] = useState(() => {
+    try {
+      const raw = localStorage.getItem('scepter_baseline_job_ids');
+      if (raw) {
+        const p = JSON.parse(raw);
+        if (Array.isArray(p) && p.length) return p.map((id) => String(id));
+      }
+    } catch {
+      // Ignore invalid storage
+    }
+    const single = localStorage.getItem('scepter_baseline_job_id');
+    return single ? [single] : [];
+  });
+  /** From POST /api/baseline-simulation-batch, e.g. baseline_batch_887986 (display / run-model spinup_name; status uses job ids). */
+  const [baselineBatchId, setBaselineBatchId] = useState(() => {
+    try {
+      const s = localStorage.getItem('scepter_baseline_batch_id');
+      if (s) return normalizeBaselineBatchIdForStatus(s);
+    } catch {
+      // Ignore invalid storage
+    }
+    return '';
+  });
   const [baselineStatus, setBaselineStatus] = useState(null);
   const [isSubmittingBaseline, setIsSubmittingBaseline] = useState(false);
   const [baselineError, setBaselineError] = useState(null);
+  /** Non-error info (e.g. batch submit acknowledgement). */
+  const [baselineNotice, setBaselineNotice] = useState(null);
+  /** Shown after each Check status so users see the click did something. */
+  const [baselineCheckInfo, setBaselineCheckInfo] = useState(null);
   const [isCheckingBaselineStatus, setIsCheckingBaselineStatus] = useState(false);
   const [spinupJobId, setSpinupJobId] = useState(() => localStorage.getItem('scepter_spinup_job_id'));
   const [spinupStatus, setSpinupStatus] = useState(null);
@@ -472,7 +965,33 @@ export default function SCEPTERConfig({ savedData }) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadStatus, setDownloadStatus] = useState('');
   const [currentPage, setCurrentPage] = useState(1); // 1 = Location & Spin-up, 2 = Practice Variables
-  const [locationName, setLocationName] = useState('');
+  /** { id, lat, lng, label }[] — labels like CT_Location_1 */
+  const [selectedLocations, setSelectedLocations] = useState([]);
+  /** Per-location coordinate strings for inputs (keyed by loc.id) */
+  const [coordTextById, setCoordTextById] = useState({});
+  /** Invalidates prior baseline status poll loops so only one chain updates UI. */
+  const baselinePollGenerationRef = useRef(0);
+
+  const hasAnyLocation = selectedLocations.length > 0;
+
+  useEffect(() => {
+    setCoordTextById((prev) => {
+      const next = { ...prev };
+      const ids = new Set(selectedLocations.map((l) => l.id));
+      for (const id of Object.keys(next)) {
+        if (!ids.has(id)) delete next[id];
+      }
+      for (const loc of selectedLocations) {
+        if (next[loc.id] === undefined) {
+          next[loc.id] = {
+            lat: formatCoordInput(loc.lat),
+            lng: formatCoordInput(loc.lng),
+          };
+        }
+      }
+      return next;
+    });
+  }, [selectedLocations]);
 
   // Load saved data when component mounts or savedData changes
   useEffect(() => {
@@ -494,22 +1013,30 @@ export default function SCEPTERConfig({ savedData }) {
         setSelectedSite(savedData.siteData);
       }
       
-      // Load location
-      if (savedData.location) {
-        setLocation(savedData.location);
-        
-        // If it's a coordinate string, parse it
-        if (savedData.location.includes(',')) {
-          const [lat, lng] = savedData.location.split(',').map(coord => parseFloat(coord.trim()));
-          if (!isNaN(lat) && !isNaN(lng)) {
-            setSelectedPoint({ lat, lng });
-            setMapCenter([lat, lng]);
-            setMapZoom(8);
-          }
+      if (Array.isArray(savedData.selectedLocations) && savedData.selectedLocations.length > 0) {
+        setSelectedLocations(
+          savedData.selectedLocations.map((loc, i) => ({
+            id: loc.id || `saved-${i}`,
+            lat: loc.lat,
+            lng: loc.lng,
+            label: loc.label || `${getStateCodeFromCoords(loc.lat, loc.lng) || 'LOC'}_Location_${i + 1}`,
+          }))
+        );
+        const first = savedData.selectedLocations[0];
+        if (first && Number.isFinite(first.lat) && Number.isFinite(first.lng)) {
+          setMapCenter([first.lat, first.lng]);
+          setMapZoom(8);
         }
-      }
-      if (savedData.locationName) {
-        setLocationName(savedData.locationName);
+      } else if (savedData.location && savedData.location.includes(',')) {
+        const [lat, lng] = savedData.location.split(',').map((coord) => parseFloat(coord.trim()));
+        if (!isNaN(lat) && !isNaN(lng)) {
+          const stateCode = getStateCodeFromCoords(lat, lng) || 'LOC';
+          setSelectedLocations([{ id: 'saved-single', lat, lng, label: `${stateCode}_Location_1` }]);
+          setMapCenter([lat, lng]);
+          setMapZoom(8);
+        }
+      } else {
+        setSelectedLocations([]);
       }
       setCurrentPage(2);
     }
@@ -522,15 +1049,38 @@ export default function SCEPTERConfig({ savedData }) {
     const raw = localStorage.getItem('scepter_baseline_coordinate');
     if (!jobId || !raw) return;
     try {
-      const { coordinate, locationName: savedName } = JSON.parse(raw);
-      if (coordinate && Array.isArray(coordinate) && coordinate.length >= 2) {
-        const [lat, lng] = coordinate;
-        if (Number.isFinite(lat) && Number.isFinite(lng)) {
-          setSelectedPoint({ lat, lng });
-          setLocation(`${lat}, ${lng}`);
-          if (savedName != null && savedName !== '') setLocationName(savedName);
-          setMapCenter([lat, lng]);
+      const parsed = JSON.parse(raw);
+      if (parsed?.mode === 'multiple' && Array.isArray(parsed.locations) && parsed.locations.length > 0) {
+        setSelectedLocations(
+          parsed.locations.map((loc, i) => ({
+            id: loc.id || `ls-${i}`,
+            lat: loc.lat,
+            lng: loc.lng,
+            label: loc.label || `${getStateCodeFromCoords(loc.lat, loc.lng) || 'LOC'}_Location_${i + 1}`,
+          }))
+        );
+        const f = parsed.locations[0];
+        if (Number.isFinite(f.lat) && Number.isFinite(f.lng)) {
+          setMapCenter([f.lat, f.lng]);
           setMapZoom(8);
+        }
+      } else {
+        const { coordinate, locationName: savedName } = parsed;
+        if (coordinate && Array.isArray(coordinate) && coordinate.length >= 2) {
+          const [lat, lng] = coordinate;
+          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            const stateCode = getStateCodeFromCoords(lat, lng) || 'LOC';
+            setSelectedLocations([
+              {
+                id: 'persisted-single',
+                lat,
+                lng,
+                label: savedName && savedName !== '' ? savedName : `${stateCode}_Location_1`,
+              },
+            ]);
+            setMapCenter([lat, lng]);
+            setMapZoom(8);
+          }
         }
       }
     } catch {
@@ -545,6 +1095,17 @@ export default function SCEPTERConfig({ savedData }) {
       return;
     }
 
+    if (!selectedLocations.length) {
+      setSpinupError('No locations selected. Add locations in Step 1 and run spin-up first.');
+      return;
+    }
+    for (const l of selectedLocations) {
+      if (!Number.isFinite(l.lat) || !Number.isFinite(l.lng) || l.lat < -90 || l.lat > 90 || l.lng < -180 || l.lng > 180) {
+        setSpinupError('All locations must have valid latitude and longitude.');
+        return;
+      }
+    }
+
     const particleSizeNum = particleSizeToNumber(particleSize);
     const applicationRateNum = applicationRate ? parseFloat(applicationRate) : null;
     if (particleSizeNum == null) {
@@ -554,14 +1115,23 @@ export default function SCEPTERConfig({ savedData }) {
       return;
     }
 
-    const baseName = (locationName || 'run').trim().replace(/\s+/g, '_') || 'run';
+    const baseName =
+      selectedLocations
+        .map((l) => (l.label || '').trim().replace(/\s+/g, '_'))
+        .filter(Boolean)
+        .join('_') || 'run';
     const restartName = `restart_${baseName}_${Date.now()}`;
 
+    const coordinates = selectedLocations.map((l) => [l.lat, l.lng]);
+    const location_names = selectedLocations.map((l) => (l.label || '').trim().replace(/\s+/g, '_'));
+
     const body = {
-      spinup_name: baselineJobId,
+      spinup_name: baselineBatchId?.trim() || baselineJobId,
       restart_name: restartName,
       particle_size: particleSizeNum,
       application_rate: applicationRateNum,
+      coordinates,
+      location_names,
     };
     if (targetPH && targetPH.trim() !== '') {
       const ph = parseFloat(targetPH);
@@ -600,66 +1170,123 @@ export default function SCEPTERConfig({ savedData }) {
     }
   };
 
-  const pollBaselineStatus = useCallback((jobId) => {
-    const checkStatus = async () => {
+  /** Poll spin-up status using per-job ids only (no batch GET .../baseline-simulation-batch/{batchId}/status). */
+  const pollBaselineBatchStatus = useCallback((ids) => {
+    const generation = ++baselinePollGenerationRef.current;
+    const idArr = (ids || []).map((id) => String(id).trim()).filter(Boolean);
+    if (!idArr.length) return;
+
+    const fetchOneJob = (jid) => fetchBaselineSpinupStatusRow(jid);
+
+    const loop = async () => {
+      if (generation !== baselinePollGenerationRef.current) return;
       try {
-        const response = await fetch(getApiUrl(`api/baseline-simulation/${jobId}/status`), {
-          headers: { 'ngrok-skip-browser-warning': 'true' },
-        });
-        const text = await response.text();
-        let result = null;
-        if (text?.trim()) {
-          try {
-            result = JSON.parse(text);
-          } catch {
-            result = {};
-          }
-        }
-        if (!response.ok) {
-          setBaselineError(result?.error || result?.message || text || `Status check failed (${response.status})`);
-          setBaselineStatus('failed');
+        const rows = await Promise.all(idArr.map((id) => fetchOneJob(id)));
+        if (areAllRowsClientIdErrors(rows)) {
+          setBaselineError(
+            'Baseline spin-up status failed (400/404) on api/baseline-simulation/{jobId}/status (and scepter alias). Confirm job ids match the POST response.'
+          );
+          // Keep current status visible; do not retry indefinitely and flood logs.
           return;
         }
-        const status = result?.status;
+        if (generation !== baselinePollGenerationRef.current) return;
+        const { status, error } = mergeBaselineStatusRows(rows);
         setBaselineStatus(status);
-        if (status === 'completed') {
-          setBaselineError(null);
-          return;
-        }
         if (status === 'failed') {
-          setBaselineError(result?.error || result?.message || 'Baseline simulation failed');
+          setBaselineError(error);
           return;
         }
-        if (status === 'pending' || status === 'running') {
-          setTimeout(checkStatus, 5000);
+        setBaselineError(null);
+        if (status === 'completed') {
+          return;
         }
+        if (['running', 'submitting', 'queued', 'pending', 'submitted'].includes(status)) {
+          setTimeout(() => {
+            if (generation !== baselinePollGenerationRef.current) return;
+            loop();
+          }, 5000);
+          return;
+        }
+        setTimeout(() => {
+          if (generation !== baselinePollGenerationRef.current) return;
+          loop();
+        }, 5000);
       } catch (err) {
-        console.error('Error polling baseline status:', err);
-        setTimeout(checkStatus, 10000);
+        if (generation !== baselinePollGenerationRef.current) return;
+        if (err?.name === 'AbortError') {
+          setBaselineCheckInfo('Poll timed out; retrying again in 15s…');
+          setTimeout(() => {
+            if (generation !== baselinePollGenerationRef.current) return;
+            loop();
+          }, 15000);
+          return;
+        }
+        console.error('Error polling baseline batch status:', err);
+        setTimeout(() => {
+          if (generation !== baselinePollGenerationRef.current) return;
+          loop();
+        }, 10000);
       }
     };
-    checkStatus();
+    loop();
   }, []);
 
+  const pollBaselineStatus = useCallback(
+    (jobId) => {
+      const id = String(jobId || '').trim();
+      if (id) pollBaselineBatchStatus([id]);
+    },
+    [pollBaselineBatchStatus]
+  );
+
+  const hasActiveBaselineJobs = !!(baselineJobId?.trim() || baselineJobIds.length > 0);
+
   const handleBaselineSimulation = async () => {
-    let coordinate = null;
-    if (selectedPoint && typeof selectedPoint.lat === 'number' && typeof selectedPoint.lng === 'number') {
-      coordinate = [selectedPoint.lat, selectedPoint.lng];
-    } else if (location && location.includes(',')) {
-      const [lat, lng] = location.split(',').map((c) => parseFloat(c.trim()));
-      if (!isNaN(lat) && !isNaN(lng)) coordinate = [lat, lng];
-    }
-    if (!coordinate || coordinate.length !== 2) {
-      setBaselineError('Please select a location on the map or enter valid coordinates.');
+    // Prevent duplicate submissions for the same spin-up request.
+    if (isSubmittingBaseline || hasActiveBaselineJobs) {
       return;
     }
     setIsSubmittingBaseline(true);
     setBaselineError(null);
+    setBaselineNotice(null);
+    setBaselineCheckInfo(null);
     setBaselineStatus('submitting');
+
+    let body = null;
+    let persistPayload = null;
+
+    if (!selectedLocations.length) {
+      setBaselineError('Please select at least one location on the map.');
+      setIsSubmittingBaseline(false);
+      return;
+    }
+    for (const l of selectedLocations) {
+      if (!Number.isFinite(l.lat) || !Number.isFinite(l.lng)) {
+        setBaselineError('Enter valid latitude and longitude for every location (see coordinate fields).');
+        setIsSubmittingBaseline(false);
+        return;
+      }
+      if (l.lat < -90 || l.lat > 90 || l.lng < -180 || l.lng > 180) {
+        setBaselineError('Latitude must be between -90 and 90; longitude between -180 and 180.');
+        setIsSubmittingBaseline(false);
+        return;
+      }
+    }
+    const coordinates = selectedLocations.map((l) => [l.lat, l.lng]);
+    const location_names = selectedLocations.map((l) => (l.label || '').trim().replace(/\s+/g, '_'));
+    body = {
+      coordinates,
+      location_names,
+      coordinate: coordinates[0],
+      location_name: location_names[0] || undefined,
+    };
+    persistPayload = {
+      mode: 'multiple',
+      locations: selectedLocations.map((l) => ({ id: l.id, lat: l.lat, lng: l.lng, label: l.label })),
+    };
+
     try {
-      const body = { coordinate };
-      if (locationName && locationName.trim()) body.location_name = locationName.trim().replace(/\s+/g, '_');
-      const response = await fetch(getApiUrl('api/baseline-simulation'), {
+      const response = await fetch(getApiUrl('api/baseline-simulation-batch'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
         body: JSON.stringify(body),
@@ -679,20 +1306,100 @@ export default function SCEPTERConfig({ savedData }) {
         setBaselineStatus('failed');
         return;
       }
-      const jobId = result?.job_id;
+      const jobIds =
+        Array.isArray(result?.job_ids)
+          ? result.job_ids
+              .map((id) => (id == null ? '' : String(id).trim()))
+              .filter(Boolean)
+          : [];
+      const jobId =
+        result?.job_id ||
+        result?.batch_job_id ||
+        result?.baseline_job_id ||
+        result?.id ||
+        (jobIds.length === 1 ? jobIds[0] : null);
       if (!jobId) {
-        setBaselineError('No job_id in response');
+        // Batch submit may return multiple per-location ids without a single aggregate id.
+        if (jobIds.length > 1 || response.status === 202) {
+          const rawBatch =
+            result?.batch_id ??
+            result?.batchId ??
+            result?.data?.batch_id ??
+            null;
+          const statusBatchId = normalizeBaselineBatchIdForStatus(rawBatch) || '';
+          setBaselineJobIds(jobIds);
+          setBaselineJobId(jobIds[0] || null);
+          if (jobIds[0]) {
+            localStorage.setItem('scepter_baseline_job_id', jobIds[0]);
+          }
+          try {
+            localStorage.setItem('scepter_baseline_job_ids', JSON.stringify(jobIds));
+          } catch {
+            // Ignore localStorage write errors
+          }
+          if (statusBatchId) {
+            setBaselineBatchId(statusBatchId);
+            try {
+              localStorage.setItem('scepter_baseline_batch_id', statusBatchId);
+            } catch {
+              // Ignore localStorage write errors
+            }
+          } else {
+            setBaselineBatchId('');
+            localStorage.removeItem('scepter_baseline_batch_id');
+          }
+          setBaselineStatus(result?.status || 'submitted');
+          setBaselineError(null);
+          setBaselineNotice(
+            result?.message || `Submitted ${jobIds.length} baseline job(s). Use Check status for progress.`
+          );
+          try {
+            localStorage.setItem('scepter_baseline_coordinate', JSON.stringify(persistPayload));
+          } catch {
+            // Ignore localStorage write errors
+          }
+          if (jobIds.length) {
+            pollBaselineBatchStatus(jobIds);
+          }
+          return;
+        }
+        setBaselineError(
+          result?.error ||
+            result?.message ||
+            'No job id found in response (expected job_id, batch_job_id, baseline_job_id, id, or job_ids).'
+        );
         setBaselineStatus('failed');
         return;
       }
       setBaselineJobId(jobId);
+      setBaselineJobIds([jobId]);
+      setBaselineNotice(null);
+      const rawBatch =
+        result?.batch_id ??
+        result?.batchId ??
+        result?.data?.batch_id ??
+        null;
+      const statusBatchId = normalizeBaselineBatchIdForStatus(rawBatch) || '';
+      if (statusBatchId) {
+        setBaselineBatchId(statusBatchId);
+        try {
+          localStorage.setItem('scepter_baseline_batch_id', statusBatchId);
+        } catch {
+          // Ignore localStorage write errors
+        }
+      } else {
+        setBaselineBatchId('');
+        localStorage.removeItem('scepter_baseline_batch_id');
+      }
       setBaselineStatus(result?.status || 'submitted');
       localStorage.setItem('scepter_baseline_job_id', jobId);
       try {
-        localStorage.setItem('scepter_baseline_coordinate', JSON.stringify({
-          coordinate: [coordinate[0], coordinate[1]],
-          locationName: locationName?.trim() || null,
-        }));
+        localStorage.setItem('scepter_baseline_job_ids', JSON.stringify([jobId]));
+      } catch {
+        // Ignore localStorage write errors
+      }
+      try {
+        localStorage.setItem('scepter_baseline_coordinate', JSON.stringify(persistPayload));
       } catch {
         // Ignore localStorage write errors
       }
@@ -707,41 +1414,54 @@ export default function SCEPTERConfig({ savedData }) {
   };
 
   const handleCheckBaselineStatus = async () => {
-    const jobId = baselineJobId?.trim();
-    if (!jobId) {
-      setBaselineError('No spin-up job ID. Run spin-up job first.');
+    const ids =
+      baselineJobIds.length > 0
+        ? baselineJobIds.map((id) => String(id).trim()).filter(Boolean)
+        : baselineJobId?.trim()
+          ? [baselineJobId.trim()]
+          : [];
+    if (!ids.length) {
+      setBaselineError('No spin-up job IDs. Run spin-up job first (batch id is not used for status).');
       return;
     }
     setIsCheckingBaselineStatus(true);
     setBaselineError(null);
+    const checkedAt = new Date().toLocaleTimeString();
     try {
-      const response = await fetch(getApiUrl(`api/baseline-simulation/${jobId}/status`), {
-        headers: { 'ngrok-skip-browser-warning': 'true' },
-      });
-      const text = await response.text();
-      let result = null;
-      if (text?.trim()) {
-        try {
-          result = JSON.parse(text);
-        } catch {
-          result = {};
-        }
-      }
-      if (!response.ok) {
-        const msg = result?.error || result?.message || text || `Status check failed (${response.status})`;
-        setBaselineError(msg);
-        setBaselineStatus('failed');
+      const rows = await Promise.all(ids.map((id) => fetchBaselineSpinupStatusRow(id)));
+      if (areAllRowsClientIdErrors(rows)) {
+        setBaselineError(
+          'Baseline spin-up status failed (400/404) on api/baseline-simulation/{jobId}/status. Confirm each job id (e.g. baseline_…_0) from the POST response.'
+        );
+        setBaselineCheckInfo(
+          `Checked ${checkedAt}: no working per-job baseline status URL (/api/scepter/… alias also tried).`
+        );
         return;
       }
-      const status = result?.status;
-      setBaselineStatus(status ?? 'unknown');
-      setBaselineError(result?.error || null);
-      if (status === 'pending' || status === 'running') {
-        pollBaselineStatus(jobId);
+      const { status, error } = mergeBaselineStatusRows(rows);
+      setBaselineStatus(status);
+      setBaselineError(error);
+      if (status === 'unknown' && rows[0]?.result && typeof rows[0].result === 'object') {
+        const keys = Object.keys(rows[0].result).filter((k) => !k.startsWith('_')).slice(0, 12);
+        setBaselineCheckInfo(
+          `Checked ${checkedAt}: backend did not return a recognized status field. Keys: ${keys.length ? keys.join(', ') : '(none)'}.`
+        );
+      } else {
+        setBaselineCheckInfo(`Checked ${checkedAt}: ${status}${error ? ` — ${error}` : ''}.`);
+      }
+      if (['pending', 'running', 'submitting', 'submitted', 'queued'].includes(status)) {
+        pollBaselineBatchStatus(ids);
       }
     } catch (err) {
-      console.error('Spin-up status check error:', err);
-      setBaselineError(err.message);
+      if (err?.name !== 'AbortError') {
+        console.error('Spin-up status check error:', err);
+      }
+      if (err?.name === 'AbortError') {
+        setBaselineError('Status check timed out. Try again or confirm the API is reachable.');
+      } else {
+        setBaselineError(err.message || 'Status check failed.');
+      }
+      setBaselineCheckInfo(`Checked ${checkedAt}: request failed.`);
     } finally {
       setIsCheckingBaselineStatus(false);
     }
@@ -756,30 +1476,25 @@ export default function SCEPTERConfig({ savedData }) {
     setIsCheckingSpinupStatus(true);
     setSpinupError(null);
     try {
-      const response = await fetch(getApiUrl(`api/run-scepter-model/${jobId}/status`), {
-        headers: { 'ngrok-skip-browser-warning': 'true' },
-      });
-      const text = await response.text();
-      let result = null;
-      if (text?.trim()) {
-        try {
-          result = JSON.parse(text);
-        } catch {
-          result = {};
-        }
-      }
+      const { response, result, text } = await fetchRunScepterModelStatusPair(jobId);
       if (!response.ok) {
-        const msg = result?.error || result?.message || text || `Status check failed (${response.status})`;
+        const msg =
+          result?.error || result?.message || text || `Status check failed (${response.status})`;
         setSpinupError(msg);
         setSpinupStatus('error');
         return;
       }
-      const status = result?.status;
-      setSpinupStatus(status ?? 'unknown');
+      const parsed = extractStatusFromBaselinePayload(result);
+      const status = parsed || (result?.status != null ? String(result.status).toLowerCase() : '') || 'unknown';
+      setSpinupStatus(status);
       setSpinupError(result?.error || null);
     } catch (err) {
       console.error('Model status check error:', err);
-      setSpinupError(err.message);
+      if (err.name === 'AbortError') {
+        setSpinupError('Status check timed out. Try again.');
+      } else {
+        setSpinupError(err.message);
+      }
     } finally {
       setIsCheckingSpinupStatus(false);
     }
@@ -894,18 +1609,23 @@ export default function SCEPTERConfig({ savedData }) {
       return;
     }
 
-    if (!location && !selectedPoint) {
+    if (!hasAnyLocation) {
       return;
     }
 
     setIsSaving(true);
 
     try {
+      const defaultName =
+        selectedLocations.length > 0
+          ? `SCEPTER_${selectedLocations.map((l) => l.label).join('_').replace(/\s+/g, '_')}`
+          : 'SCEPTER_Custom_Location';
       const modelData = {
-        name: `SCEPTER_${(locationName || location || 'Custom_Location').replace(/\s+/g, '_')}`,
+        name: defaultName,
         model: 'SCEPTER',
-        location: location || `${selectedPoint?.lat.toFixed(4)}, ${selectedPoint?.lng.toFixed(4)}`,
-        locationName: locationName || undefined,
+        locationMode: 'multiple',
+        selectedLocations,
+        location: selectedLocations.map((l) => `${l.lat.toFixed(4)}, ${l.lng.toFixed(4)}`).join(' | '),
         status: 'saved',
         parameters: {
           feedstock,
@@ -1163,7 +1883,38 @@ export default function SCEPTERConfig({ savedData }) {
   }, [selectedStatistic, statisticPeriod]);
 */
   const spinUpSuccess = baselineStatus === 'completed';
-  const canContinueToStep2 = savedData || ((selectedPoint || location) && spinUpSuccess);
+  const canContinueToStep2 =
+    savedData ||
+    (spinUpSuccess && selectedLocations.length >= 1);
+
+  const removeLocationAt = (index) => {
+    setSelectedLocations((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      return next.map((loc, i) => {
+        const code = getStateCodeFromCoords(loc.lat, loc.lng) || 'LOC';
+        return { ...loc, label: `${code}_Location_${i + 1}` };
+      });
+    });
+  };
+
+  const clearAllMultipleLocations = () => {
+    setSelectedLocations([]);
+  };
+
+  const updateLocationCoordText = useCallback((locId, field, text) => {
+    const kind = field === 'lat' ? 'lat' : 'lng';
+    setCoordTextById((prev) => ({
+      ...prev,
+      [locId]: {
+        lat: prev[locId]?.lat ?? '',
+        lng: prev[locId]?.lng ?? '',
+        [field]: text,
+      },
+    }));
+    const n = parseCoordField(text, kind);
+    if (n === null) return;
+    setSelectedLocations((prev) => prev.map((p) => (p.id === locId ? { ...p, [field]: n } : p)));
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -1176,12 +1927,23 @@ export default function SCEPTERConfig({ savedData }) {
                 url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
                 attribution='© Esri, DeLorme, NAVTEQ, TomTom, Intermap, iPC, USGS, FAO, NPS, NRCAN, GeoBase, Kadaster NL, Ordnance Survey, Esri Japan, METI, Esri China (Hong Kong), and the GIS User Community'
               />
-              <MapClickHandler 
+              <MapClickHandler
                 onMapClick={(clickedPoint) => {
-                  setSelectedPoint(clickedPoint);
-                  setLocation(`${clickedPoint.lat.toFixed(4)}, ${clickedPoint.lng.toFixed(4)}`);
-                  const stateCode = getStateCodeFromCoords(clickedPoint.lat, clickedPoint.lng);
-                  setLocationName(stateCode ? `${stateCode}-Location` : 'Location');
+                  setSelectedLocations((prev) => {
+                    if (prev.length >= MAX_SCEPTER_LOCATIONS) return prev;
+                    const nextIndex = prev.length + 1;
+                    const stateCode = getStateCodeFromCoords(clickedPoint.lat, clickedPoint.lng) || 'LOC';
+                    const label = `${stateCode}_Location_${nextIndex}`;
+                    return [
+                      ...prev,
+                      {
+                        id: `loc-${Date.now()}-${nextIndex}`,
+                        lat: clickedPoint.lat,
+                        lng: clickedPoint.lng,
+                        label,
+                      },
+                    ];
+                  });
                 }}
               />
               <MapZoomHandler center={mapCenter} zoom={mapZoom} />
@@ -1212,15 +1974,17 @@ export default function SCEPTERConfig({ savedData }) {
                 </Marker>
               ))} */}
               
-              {selectedPoint && (
-                <Marker position={selectedPoint}>
+              {selectedLocations.map((loc) => (
+                <Marker key={loc.id} position={{ lat: loc.lat, lng: loc.lng }}>
                   <Popup>
-                    Selected Location<br />
-                    Lat: {selectedPoint.lat.toFixed(4)}<br />
-                    Lng: {selectedPoint.lng.toFixed(4)}
+                    <strong>{loc.label}</strong>
+                    <br />
+                    Lat: {loc.lat.toFixed(4)}
+                    <br />
+                    Lng: {loc.lng.toFixed(4)}
                   </Popup>
                 </Marker>
-              )}
+              ))}
             </MapContainer>
           </div>
         </div>
@@ -1260,63 +2024,133 @@ export default function SCEPTERConfig({ savedData }) {
               {/* Page 1: Step 1 - Location Selection & Run spin-up */}
               {currentPage === 1 && (
                 <>
-                  <h4 className="text-md font-semibold mb-4">Select location on the map, then run spin-up job</h4>
-                  {!(selectedPoint || location) ? (
+                  <h4 className="text-md font-semibold mb-4">Select locations on the map, then run spin-up job</h4>
+                  
+
+                  {selectedLocations.length === 0 ? (
                     <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-300">
-                      <h3 className="text-sm font-semibold text-yellow-800 mb-2">Select Location First</h3>
+                      <h3 className="text-sm font-semibold text-yellow-800 mb-2">Add locations</h3>
                       <p className="text-sm text-yellow-700">
-                        Please click on the map or choose a USGS site to select a location.
+                        Click the map to add one or more locations.
                       </p>
                     </div>
-                  ) : (
-                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
-                      <h3 className="text-sm font-semibold mb-2">Selected Location</h3>
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <Label className="text-sm font-semibold shrink-0">Location Name:</Label>
-                          <Input
-                            type="text"
-                            value={locationName}
-                            onChange={(e) => setLocationName(e.target.value)}
-                            placeholder="Enter location name"
-                            className="flex-1 border-blue-200 bg-white text-sm"
-                          />
-                        </div>
-                        {selectedPoint ? (
-                          <div className="text-sm">
-                            <div><strong>Latitude:</strong> {selectedPoint.lat.toFixed(6)}</div>
-                            <div><strong>Longitude:</strong> {selectedPoint.lng.toFixed(6)}</div>
-                          </div>
-                        ) : (
-                          <div className="text-sm text-blue-700">
-                            <div><strong>Location:</strong> {location}</div>
-                          </div>
-                        )}
+                  ) : null}
+
+                  {selectedLocations.length > 0 ? (
+                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-200 space-y-3">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <h3 className="text-sm font-semibold">Selected locations ({selectedLocations.length}/{MAX_SCEPTER_LOCATIONS})</h3>
+                        <Button type="button" variant="outline" size="sm" onClick={clearAllMultipleLocations}>
+                          Clear all
+                        </Button>
                       </div>
+                      <ul className="space-y-2 text-sm">
+                        {selectedLocations.map((loc, index) => {
+                          const coordText = coordTextById[loc.id] ?? {
+                            lat: formatCoordInput(loc.lat),
+                            lng: formatCoordInput(loc.lng),
+                          };
+                          return (
+                            <li
+                              key={loc.id}
+                              className="flex flex-col sm:flex-row sm:items-start gap-3 p-2 bg-white rounded border border-blue-100"
+                            >
+                              <div className="flex-1 min-w-0 space-y-2">
+                                <div className="font-semibold text-sm text-gray-900">{loc.label}</div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  <div className="space-y-0.5">
+                                    <span className="text-xs text-gray-600">Latitude</span>
+                                    <Input
+                                      type="text"
+                                      inputMode="decimal"
+                                      autoComplete="off"
+                                      placeholder="e.g. 41.3083"
+                                      value={coordText.lat}
+                                      onChange={(e) => updateLocationCoordText(loc.id, 'lat', e.target.value)}
+                                      className="text-sm font-mono"
+                                    />
+                                  </div>
+                                  <div className="space-y-0.5">
+                                    <span className="text-xs text-gray-600">Longitude</span>
+                                    <Input
+                                      type="text"
+                                      inputMode="decimal"
+                                      autoComplete="off"
+                                      placeholder="e.g. -72.9279"
+                                      value={coordText.lng}
+                                      onChange={(e) => updateLocationCoordText(loc.id, 'lng', e.target.value)}
+                                      className="text-sm font-mono"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                              <Button type="button" variant="destructive" size="sm" onClick={() => removeLocationAt(index)}>
+                                Remove
+                              </Button>
+                            </li>
+                          );
+                        })}
+                      </ul>
                     </div>
-                  )}
+                  ) : null}
 
                   <Button
                     type="button"
                     onClick={handleBaselineSimulation}
                     title="Baseline weathering simulations without rock application"
-                    disabled={!(location || selectedPoint) || isSubmittingBaseline || !!baselineJobId}
+                    disabled={
+                      isSubmittingBaseline || hasActiveBaselineJobs || selectedLocations.length < 1
+                    }
                     className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-md font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isSubmittingBaseline ? 'Submitting...' : 'Run spin-up job'}
+                    {isSubmittingBaseline
+                      ? 'Submitting...'
+                      : hasActiveBaselineJobs
+                        ? 'Spin-up already submitted'
+                        : 'Run spin-up job'}
                   </Button>
-                  {baselineJobId && (
-                    <div className={`flex items-center justify-between gap-3 p-3 rounded-lg text-sm ${baselineStatus === 'completed' ? 'bg-green-100 text-green-700' : baselineStatus === 'running' ? 'bg-blue-100 text-blue-700' : baselineStatus === 'failed' ? 'bg-red-100 text-red-700' : baselineStatus === 'pending' || baselineStatus === 'submitted' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
+
+                  {(isSubmittingBaseline ||
+                    hasActiveBaselineJobs ||
+                    baselineStatus ||
+                    baselineError ||
+                    baselineNotice ||
+                    baselineCheckInfo) && (
+                    <div className={`flex items-center justify-between gap-3 p-3 rounded-lg text-sm ${baselineStatus === 'completed' ? 'bg-green-100 text-green-700' : baselineStatus === 'running' || baselineStatus === 'submitting' ? 'bg-blue-100 text-blue-700' : baselineStatus === 'failed' ? 'bg-red-100 text-red-700' : baselineStatus === 'pending' || baselineStatus === 'submitted' || baselineStatus === 'queued' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
                       <div className="min-w-0">
-                        <div><strong>Spin-up Job:</strong> {baselineJobId}</div>
-                        {baselineStatus && <div><strong>Status:</strong> {baselineStatus}</div>}
+                        {baselineJobIds.length > 1 ? (
+                          <div>
+                            <strong>Spin-up jobs:</strong> {baselineJobIds.join(', ')}
+                          </div>
+                        ) : (
+                          baselineJobId && (
+                            <div>
+                              <strong>Spin-up Job:</strong> {baselineJobId}
+                            </div>
+                          )
+                        )}
+                        {baselineBatchId?.trim() ? (
+                          <div className="text-xs text-gray-600 mt-1">
+                            <strong>Batch id (status):</strong> {baselineBatchId}
+                          </div>
+                        ) : null}
+                        <div>
+                          <strong>Status:</strong>{' '}
+                          {isSubmittingBaseline && !hasActiveBaselineJobs
+                            ? 'submitting'
+                            : (baselineStatus || 'idle')}
+                        </div>
+                        {baselineNotice && <div className="text-xs text-gray-700 mt-1">{baselineNotice}</div>}
+                        {baselineCheckInfo && (
+                          <div className="text-xs text-gray-600 mt-1 border-t border-gray-200 pt-1">{baselineCheckInfo}</div>
+                        )}
                         {baselineError && <div>{baselineError}</div>}
                       </div>
                       <div className="flex flex-col gap-2 shrink-0">
                         <Button
                           type="button"
                           onClick={handleCheckBaselineStatus}
-                          disabled={isCheckingBaselineStatus}
+                          disabled={isCheckingBaselineStatus || !hasActiveBaselineJobs}
                           className="bg-yellow-500 text-white hover:bg-yellow-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
                         >
                           {isCheckingBaselineStatus ? 'Checking...' : 'Check status'}
@@ -1325,17 +2159,21 @@ export default function SCEPTERConfig({ savedData }) {
                           type="button"
                           onClick={() => {
                             setBaselineJobId(null);
+                            setBaselineJobIds([]);
+                            setBaselineBatchId('');
                             setBaselineStatus(null);
                             setBaselineError(null);
+                            setBaselineNotice(null);
+                            setBaselineCheckInfo(null);
                             setSpinupJobId(null);
                             setSpinupStatus(null);
                             setSpinupError(null);
-                            setSelectedPoint(null);
-                            setLocation('');
-                            setLocationName('');
+                            setSelectedLocations([]);
                             setMapCenter([39.8283, -98.5795]);
                             setMapZoom(4);
                             localStorage.removeItem('scepter_baseline_job_id');
+                            localStorage.removeItem('scepter_baseline_job_ids');
+                            localStorage.removeItem('scepter_baseline_batch_id');
                             localStorage.removeItem('scepter_baseline_coordinate');
                             localStorage.removeItem('scepter_spinup_job_id');
                           }}
@@ -1422,7 +2260,7 @@ export default function SCEPTERConfig({ savedData }) {
                     <Button
                       type="button"
                       onClick={handleSaveModel}
-                      disabled={isSaving || (!location && !selectedPoint)}
+                      disabled={isSaving || !hasAnyLocation}
                       className="w-full bg-purple-500 hover:bg-purple-600 text-white py-2 rounded-md font-semibold"
                     >
                       {isSaving ? 'Saving...' : savedData ? 'Update Model Configuration' : 'Save Model Configuration'}
