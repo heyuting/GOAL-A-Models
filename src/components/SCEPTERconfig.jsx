@@ -378,6 +378,45 @@ const normalizeBaselineBatchIdForStatus = (raw) => {
   return t;
 };
 
+/** GET batch ZIP (manifest + all per-location folders under jobs/baseline_batch_*). */
+const baselineBatchDownloadUrls = (batchId) => {
+  const enc = encodeURIComponent(String(batchId).trim());
+  return [
+    `api/baseline-simulation-batch/${enc}/download`,
+    `api/scepter/baseline-simulation-batch/${enc}/download`,
+  ];
+};
+
+const parseBaselineJsonErrorMessage = (text) => {
+  if (!text?.trim()) return '';
+  try {
+    const p = JSON.parse(text);
+    return String(p?.error || p?.message || '').trim();
+  } catch {
+    return '';
+  }
+};
+
+/** True when API returned JSON explaining the batch ZIP is gone (e.g. server restart). */
+const isBatchDownloadUnavailableMessage = (text, jsonErr) => {
+  const combined = `${jsonErr}\n${text || ''}`.toLowerCase();
+  return (
+    /not found in server memory|batch not found|batch not found in/i.test(combined) ||
+    /server memory/.test(combined)
+  );
+};
+
+const saveBlobAsFileDownload = (blob, filename) => {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+};
+
 /** GET /api/baseline-simulation/{jobId}/status (+ scepter alias). Batch status endpoint is not used for spin-up checks. */
 const baselineSpinupJobStatusUrls = (jobId) => {
   const enc = encodeURIComponent(String(jobId).trim());
@@ -1563,36 +1602,98 @@ export default function SCEPTERConfig({ savedData }) {
 
     try {
       setDownloadStatus('Requesting download...');
-      const response = await fetch(getApiUrl(`api/baseline-simulation/${jobId}/download`), {
-        headers: { 'ngrok-skip-browser-warning': 'true' },
-      });
+      const batchIdNorm =
+        normalizeBaselineBatchIdForStatus(baselineBatchId) || String(baselineBatchId ?? '').trim();
+      const canTryBatch = /^baseline_batch_\d+$/i.test(batchIdNorm);
 
-      if (!response.ok) {
-        const text = await response.text();
-        let errMsg = text;
-        try {
-          const parsed = JSON.parse(text);
-          errMsg = parsed?.error || parsed?.message || text;
-        } catch {
-          // Ignore invalid JSON payloads
+      let batchResponse = null;
+      let batchZipFilename = `scepter_spinup_${batchIdNorm}.zip`;
+
+      if (canTryBatch) {
+        for (const path of baselineBatchDownloadUrls(batchIdNorm)) {
+          const r = await fetch(getApiUrl(path), {
+            headers: { 'ngrok-skip-browser-warning': 'true' },
+            cache: 'no-store',
+          });
+          if (r.ok) {
+            const ct = (r.headers.get('content-type') || '').toLowerCase();
+            if (ct.includes('application/json') || ct.includes('text/json')) {
+              const t = await r.text();
+              const je = parseBaselineJsonErrorMessage(t);
+              if (isBatchDownloadUnavailableMessage(t, je)) continue;
+              throw new Error(je || t || 'Batch download returned an error.');
+            }
+            batchResponse = r;
+            break;
+          }
+          const errText = await r.text();
+          const jsonErr = parseBaselineJsonErrorMessage(errText);
+          if (r.status === 400 || r.status === 404) continue;
+          if (isBatchDownloadUnavailableMessage(errText, jsonErr)) continue;
+          throw new Error(jsonErr || errText || `Batch download failed (${r.status})`);
         }
-        throw new Error(errMsg || `Download failed (${response.status})`);
       }
 
-      setDownloadStatus('Receiving data...');
-      const blob = await response.blob();
-      setDownloadStatus('Starting download...');
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `scepter_spinup_${jobId}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      if (batchResponse?.ok) {
+        setDownloadStatus('Receiving data...');
+        const blob = await batchResponse.blob();
+        setDownloadStatus('Starting download...');
+        saveBlobAsFileDownload(blob, batchZipFilename);
+        setDownloadStatus('Download complete!');
+        setTimeout(() => setDownloadStatus(''), 2000);
+        return;
+      }
 
-      setDownloadStatus('Download complete!');
-      setTimeout(() => setDownloadStatus(''), 2000);
+      const ids = [];
+      const seen = new Set();
+      const source = baselineJobIds.length > 0 ? baselineJobIds : [jobId];
+      for (const raw of source) {
+        const id = String(raw ?? '').trim();
+        if (id && !seen.has(id)) {
+          seen.add(id);
+          ids.push(id);
+        }
+      }
+      if (!ids.length) {
+        throw new Error('No spin-up job IDs to download.');
+      }
+
+      const usedBatchZip = canTryBatch;
+      for (let i = 0; i < ids.length; i += 1) {
+        const jid = ids[i];
+        setDownloadStatus(
+          ids.length > 1 ? `Downloading location ${i + 1} of ${ids.length}...` : 'Receiving data...'
+        );
+        const response = await fetch(
+          getApiUrl(`api/baseline-simulation/${encodeURIComponent(jid)}/download`),
+          { headers: { 'ngrok-skip-browser-warning': 'true' }, cache: 'no-store' }
+        );
+        if (!response.ok) {
+          const text = await response.text();
+          let errMsg = text;
+          try {
+            const parsed = JSON.parse(text);
+            errMsg = parsed?.error || parsed?.message || text;
+          } catch {
+            // ignore
+          }
+          throw new Error(errMsg || `Download failed for ${jid} (${response.status})`);
+        }
+        const blob = await response.blob();
+        saveBlobAsFileDownload(blob, `scepter_spinup_${jid}.zip`);
+        if (i < ids.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 450));
+        }
+      }
+
+      setDownloadStatus(
+        usedBatchZip && ids.length > 1
+          ? `Downloaded ${ids.length} ZIP file(s) (batch ZIP unavailable on server).`
+          : ids.length > 1
+            ? `Downloaded ${ids.length} ZIP file(s).`
+            : 'Download complete!'
+      );
+      setTimeout(() => setDownloadStatus(''), 3000);
     } catch (err) {
       console.error('Spin-up download error:', err);
       const msg = err.message || 'Failed to download spin-up results.';
