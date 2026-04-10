@@ -247,16 +247,25 @@ const collectBatchLevelStatuses = (obj) => {
   for (const k of Object.keys(obj)) {
     map[k.toLowerCase()] = obj[k];
   }
-  const parts = [];
-  if (map['is_running'] === true || map['running'] === true) parts.push('running');
-  if (map['is_completed'] === true) parts.push('completed');
-  if (map['is_failed'] === true || map['failed'] === true) parts.push('failed');
+  const fromFields = [];
   for (const field of BATCH_LEVEL_STATUS_FIELDS) {
     const v = map[field.toLowerCase()];
     if (v != null && String(v).trim() !== '') {
-      parts.push(normalizeBaselineStatusToken(String(v).trim()));
+      fromFields.push(normalizeBaselineStatusToken(String(v).trim()));
     }
   }
+  const fieldAgg = aggregateBaselineChildStatuses(fromFields.filter(Boolean));
+  const terminalFromFields =
+    fieldAgg === 'completed' ||
+    fieldAgg === 'failed' ||
+    fieldAgg === 'cancelled' ||
+    fieldAgg === 'timeout';
+
+  const parts = [...fromFields];
+  if (map['is_completed'] === true) parts.push('completed');
+  if (map['is_failed'] === true || map['failed'] === true) parts.push('failed');
+  /** Stale `running: true` with authoritative `status` / SLURM completed — ignore boolean running. */
+  if (!terminalFromFields && (map['is_running'] === true || map['running'] === true)) parts.push('running');
   return aggregateBaselineChildStatuses(parts.filter(Boolean));
 };
 
@@ -318,6 +327,51 @@ const extractStatusFromBaselinePayload = (result) => {
   const fromTree = scanObjectTreeForWorkflowStatus(result);
   const final = aggregateBaselineChildStatuses([merged, fromTree].filter(Boolean));
   return final || '';
+};
+
+/** Root-level string fields on GET run-model status (ignore nested jobs[] and stale booleans first). */
+const RUN_MODEL_ROOT_STATUS_KEYS = [
+  'status',
+  'state',
+  'phase',
+  'job_status',
+  'slurm_state',
+  'slurm_job_state',
+  'scheduler_state',
+  'overall',
+  'overall_status',
+  'batch_status',
+  'workflow_state',
+  'execution_state',
+  'run_state',
+];
+
+/**
+ * SCEPTER run-model status: prefer explicit root `status` / SLURM fields so completed is not
+ * overridden by stale `running` flags or deep tree scans.
+ */
+const extractRunScepterModelStatusFromPayload = (result) => {
+  if (result == null || typeof result !== 'object' || Array.isArray(result)) return '';
+  if (isAggregateBatchStatusErrorPayload(result)) return '';
+
+  const terminal = [];
+  const nonTerminal = [];
+  for (const k of RUN_MODEL_ROOT_STATUS_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(result, k)) continue;
+    const v = result[k];
+    if (v == null || (typeof v === 'string' && !String(v).trim())) continue;
+    const n = normalizeBaselineStatusToken(String(v).trim());
+    if (!n) continue;
+    if (['completed', 'failed', 'cancelled', 'timeout'].includes(n)) terminal.push(n);
+    else nonTerminal.push(n);
+  }
+  if (terminal.includes('failed')) return 'failed';
+  if (terminal.includes('completed')) return 'completed';
+  if (terminal.includes('cancelled')) return 'cancelled';
+  if (terminal.includes('timeout')) return 'timeout';
+  if (nonTerminal.length) return aggregateBaselineChildStatuses(nonTerminal);
+
+  return extractStatusFromBaselinePayload(result);
 };
 
 /** String shown in coordinate inputs (fine-tuning on map picks). */
@@ -1164,26 +1218,76 @@ export default function SCEPTERConfig({ savedData }) {
     const coordinates = selectedLocations.map((l) => [l.lat, l.lng]);
     const location_names = selectedLocations.map((l) => (l.label || '').trim().replace(/\s+/g, '_'));
 
-    const body = {
-      spinup_name: baselineBatchId?.trim() || baselineJobId,
-      restart_name: restartName,
-      particle_size: particleSizeNum,
-      application_rate: applicationRateNum,
-      coordinates,
-      location_names,
+    const batchIdForRun = normalizeBaselineBatchIdForStatus(baselineBatchId);
+    const hasBatchIdForRun = /^baseline_batch_\d+$/i.test(batchIdForRun);
+    const defaultSpinupName = (baselineJobId || batchIdForRun || '').trim();
+    const perJobIds = baselineJobIds
+      .map((id) => String(id ?? '').trim())
+      .filter(Boolean);
+    const spinupNameForRow = (i) => {
+      if (perJobIds.length === selectedLocations.length && perJobIds[i]) {
+        if (hasBatchIdForRun) {
+          return `${batchIdForRun}/${perJobIds[i]}`;
+        }
+        return perJobIds[i];
+      }
+      return defaultSpinupName;
     };
-    if (targetPH && targetPH.trim() !== '') {
-      const ph = parseFloat(targetPH);
-      if (Number.isFinite(ph)) body.target_pH = ph;
+
+    let body;
+    if (selectedLocations.length > 1) {
+      const ts = Date.now();
+      const locations = selectedLocations.map((l, i) => {
+        const locLabel = (l.label || '').trim().replace(/\s+/g, '_') || `loc_${i}`;
+        const row = {
+          spinup_name: spinupNameForRow(i),
+          restart_name: `restart_${locLabel}_${ts}_${i}`,
+          particle_size: particleSizeNum,
+          application_rate: applicationRateNum,
+        };
+        if (hasBatchIdForRun) row.spinup_batch_id = batchIdForRun;
+        if (targetPH && targetPH.trim() !== '') {
+          const ph = parseFloat(targetPH);
+          if (Number.isFinite(ph)) row.target_pH = ph;
+        }
+        return row;
+      });
+      body = { locations };
+    } else {
+      body = {
+        spinup_name: defaultSpinupName,
+        restart_name: restartName,
+        particle_size: particleSizeNum,
+        application_rate: applicationRateNum,
+        coordinates,
+        location_names,
+      };
+      if (hasBatchIdForRun) body.spinup_batch_id = batchIdForRun;
+      if (targetPH && targetPH.trim() !== '') {
+        const ph = parseFloat(targetPH);
+        if (Number.isFinite(ph)) body.target_pH = ph;
+      }
     }
 
     try {
-      const response = await fetch(getApiUrl('api/run-scepter-model'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
-        body: JSON.stringify(body),
-      });
-      const text = await response.text();
+      const runPaths =
+        selectedLocations.length > 1
+          ? ['api/run-scepter-model-batch', 'api/scepter/run-model-batch']
+          : ['api/run-scepter-model', 'api/scepter/run-model'];
+
+      let response = null;
+      let text = '';
+      for (const runPath of runPaths) {
+        response = await fetch(getApiUrl(runPath), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+          body: JSON.stringify(body),
+        });
+        text = await response.text();
+        if (response.ok) break;
+        if (response.status !== 400 && response.status !== 404) break;
+      }
+
       let result = null;
       if (text && text.trim()) {
         try {
@@ -1193,15 +1297,21 @@ export default function SCEPTERConfig({ savedData }) {
         }
       }
       if (!response.ok) {
-        const msg = result?.error || result?.message || text || `Request failed (${response.status})`;
+        let msg = result?.error || result?.message || text || `Request failed (${response.status})`;
+        if (Number.isFinite(result?.index)) {
+          msg = `${msg} (location index ${result.index})`;
+        }
         setSpinupError(msg);
         return;
       }
-      if (result?.job_id) {
-        setSpinupJobId(result.job_id);
+      const newJobId =
+        result?.job_id ||
+        (Array.isArray(result?.job_ids) && result.job_ids.length ? result.job_ids[0] : null);
+      if (newJobId) {
+        setSpinupJobId(String(newJobId));
         setSpinupStatus(result.status || 'submitted');
         setSpinupError(null);
-        localStorage.setItem('scepter_spinup_job_id', result.job_id);
+        localStorage.setItem('scepter_spinup_job_id', String(newJobId));
       }
     } catch (err) {
       console.error('SCEPTER run error:', err);
@@ -1523,8 +1633,11 @@ export default function SCEPTERConfig({ savedData }) {
         setSpinupStatus('error');
         return;
       }
-      const parsed = extractStatusFromBaselinePayload(result);
-      const status = parsed || (result?.status != null ? String(result.status).toLowerCase() : '') || 'unknown';
+      const parsed = extractRunScepterModelStatusFromPayload(result);
+      const status =
+        parsed ||
+        (result?.status != null ? normalizeBaselineStatusToken(String(result.status)) : '') ||
+        'unknown';
       setSpinupStatus(status);
       setSpinupError(result?.error || null);
     } catch (err) {
