@@ -1058,8 +1058,11 @@ export default function SCEPTERConfig({ savedData }) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadStatus, setDownloadStatus] = useState('');
   const [currentPage, setCurrentPage] = useState(1); // 1 = Location & Spin-up, 2 = Practice Variables
+  const [activePracticeIndex, setActivePracticeIndex] = useState(0);
   /** { id, lat, lng, label }[] — labels like CT_Location_1 */
   const [selectedLocations, setSelectedLocations] = useState([]);
+  /** Per-location practice vars keyed by location id. */
+  const [practiceVarsById, setPracticeVarsById] = useState({});
   /** Per-location coordinate strings for inputs (keyed by loc.id) */
   const [coordTextById, setCoordTextById] = useState({});
   /** Invalidates prior baseline status poll loops so only one chain updates UI. */
@@ -1086,6 +1089,39 @@ export default function SCEPTERConfig({ savedData }) {
     });
   }, [selectedLocations]);
 
+  useEffect(() => {
+    setPracticeVarsById((prev) => {
+      const next = { ...prev };
+      const ids = new Set(selectedLocations.map((l) => l.id));
+      for (const id of Object.keys(next)) {
+        if (!ids.has(id)) delete next[id];
+      }
+      for (const loc of selectedLocations) {
+        if (!next[loc.id]) {
+          next[loc.id] = {
+            feedstock: feedstock || '',
+            particleSize: particleSize || '',
+            applicationRate: applicationRate || '',
+            targetPH: targetPH || '',
+          };
+        }
+      }
+      return next;
+    });
+  }, [selectedLocations, feedstock, particleSize, applicationRate, targetPH]);
+
+  useEffect(() => {
+    if (!selectedLocations.length) {
+      setActivePracticeIndex(0);
+      return;
+    }
+    setActivePracticeIndex((prev) => {
+      if (prev < 0) return 0;
+      if (prev >= selectedLocations.length) return selectedLocations.length - 1;
+      return prev;
+    });
+  }, [selectedLocations]);
+
   // Load saved data when component mounts or savedData changes
   useEffect(() => {
     if (savedData) {
@@ -1095,6 +1131,9 @@ export default function SCEPTERConfig({ savedData }) {
       setParticleSize(params.particleSize || '');
       setApplicationRate(params.applicationRate || '');
       setTargetPH(params.targetPH || '');
+      if (params.practiceVarsByLocation && typeof params.practiceVarsByLocation === 'object') {
+        setPracticeVarsById(params.practiceVarsByLocation);
+      }
       //setSelectedStatistic(params.selectedStatistic || 'most_recent');
       //setStatisticPeriod(params.statisticPeriod || '7d');
       //setEditedAlkalinity(params.alkalinity || 0);
@@ -1181,6 +1220,32 @@ export default function SCEPTERConfig({ savedData }) {
     }
   }, [savedData]);
 
+  const getPracticeVarsForLocation = (locId) => {
+    const row = practiceVarsById?.[locId] || {};
+    return {
+      feedstock: row.feedstock ?? feedstock ?? '',
+      particleSize: row.particleSize ?? particleSize ?? '',
+      applicationRate: row.applicationRate ?? applicationRate ?? '',
+      targetPH: row.targetPH ?? targetPH ?? '',
+    };
+  };
+
+  const updatePracticeVarForLocation = (locId, key, value) => {
+    setPracticeVarsById((prev) => ({
+      ...prev,
+      [locId]: {
+        ...(prev[locId] || {}),
+        [key]: value,
+      },
+    }));
+  };
+
+  const focusPracticeLocationOnMap = (loc) => {
+    if (!loc || !Number.isFinite(loc.lat) || !Number.isFinite(loc.lng)) return;
+    setMapCenter([loc.lat, loc.lng]);
+    setMapZoom((z) => (z < 2 ? 2 : z));
+  };
+
   const handleRunModel = async (e) => {
     e.preventDefault();
 
@@ -1199,12 +1264,39 @@ export default function SCEPTERConfig({ savedData }) {
       }
     }
 
-    const particleSizeNum = particleSizeToNumber(particleSize);
-    const applicationRateNum = applicationRate ? parseFloat(applicationRate) : null;
-    if (particleSizeNum == null) {
+    const practiceRows = selectedLocations.map((loc, i) => {
+      const vars = getPracticeVarsForLocation(loc.id);
+      const particleSizeNum = particleSizeToNumber(vars.particleSize);
+      const applicationRateNum = vars.applicationRate ? parseFloat(vars.applicationRate) : null;
+      const phNum = vars.targetPH && String(vars.targetPH).trim() !== '' ? parseFloat(vars.targetPH) : null;
+      return {
+        index: i,
+        loc,
+        vars,
+        particleSizeNum,
+        applicationRateNum,
+        phNum,
+      };
+    });
+    const invalidRow = practiceRows.find(
+      (r) =>
+        !r.vars.feedstock ||
+        r.particleSizeNum == null ||
+        r.applicationRateNum == null ||
+        !Number.isFinite(r.applicationRateNum) ||
+        r.applicationRateNum <= 0
+    );
+    if (invalidRow) {
+      setSpinupError(
+        `Set feedstock, particle size, and a positive application rate for ${invalidRow.loc.label || `location ${invalidRow.index + 1}`}.`
+      );
       return;
     }
-    if (applicationRateNum == null || !Number.isFinite(applicationRateNum) || applicationRateNum <= 0) {
+    const invalidPhRow = practiceRows.find(
+      (r) => r.vars.targetPH && String(r.vars.targetPH).trim() !== '' && !Number.isFinite(r.phNum)
+    );
+    if (invalidPhRow) {
+      setSpinupError(`Target soil pH must be a number for ${invalidPhRow.loc.label || `location ${invalidPhRow.index + 1}`}.`);
       return;
     }
 
@@ -1237,36 +1329,36 @@ export default function SCEPTERConfig({ savedData }) {
     let body;
     if (selectedLocations.length > 1) {
       const ts = Date.now();
-      const locations = selectedLocations.map((l, i) => {
-        const locLabel = (l.label || '').trim().replace(/\s+/g, '_') || `loc_${i}`;
+      const locations = practiceRows.map((rowData, i) => {
+        const { loc, vars, particleSizeNum, applicationRateNum, phNum } = rowData;
+        const locLabel = (loc.label || '').trim().replace(/\s+/g, '_') || `loc_${i}`;
         const row = {
           spinup_name: spinupNameForRow(i),
           restart_name: `restart_${locLabel}_${ts}_${i}`,
+          feedstock: vars.feedstock,
+          feedstock_type: vars.feedstock,
           particle_size: particleSizeNum,
           application_rate: applicationRateNum,
         };
         if (hasBatchIdForRun) row.spinup_batch_id = batchIdForRun;
-        if (targetPH && targetPH.trim() !== '') {
-          const ph = parseFloat(targetPH);
-          if (Number.isFinite(ph)) row.target_pH = ph;
-        }
+        if (Number.isFinite(phNum)) row.target_pH = phNum;
         return row;
       });
       body = { locations };
     } else {
+      const first = practiceRows[0];
       body = {
         spinup_name: defaultSpinupName,
         restart_name: restartName,
-        particle_size: particleSizeNum,
-        application_rate: applicationRateNum,
+        feedstock: first.vars.feedstock,
+        feedstock_type: first.vars.feedstock,
+        particle_size: first.particleSizeNum,
+        application_rate: first.applicationRateNum,
         coordinates,
         location_names,
       };
       if (hasBatchIdForRun) body.spinup_batch_id = batchIdForRun;
-      if (targetPH && targetPH.trim() !== '') {
-        const ph = parseFloat(targetPH);
-        if (Number.isFinite(ph)) body.target_pH = ph;
-      }
+      if (Number.isFinite(first.phNum)) body.target_pH = first.phNum;
     }
 
     try {
@@ -1846,6 +1938,7 @@ export default function SCEPTERConfig({ savedData }) {
           particleSize,
           applicationRate,
           targetPH,
+          practiceVarsByLocation: practiceVarsById,
           // selectedStatistic,
           // statisticPeriod,
           // discharge: editedDischarge,
@@ -2424,50 +2517,101 @@ export default function SCEPTERConfig({ savedData }) {
               {/* Page 2: Step 2 - Set Practice Variables */}
               {currentPage === 2 && (
                 <form onSubmit={handleRunModel} className="space-y-6">
-                  <h4 className="text-md font-semibold mb-4">Set Practice Variables</h4>
-                  <div className="bg-white p-4 rounded-2xl shadow-md">
-                    <Label className="block mb-2">Feedstock Type</Label>
-                    <select
-                      className="w-full border rounded-xl p-2 mb-4"
-                      value={feedstock}
-                      onChange={(e) => setFeedstock(e.target.value)}
-                    >
-                      <option value="" disabled>Choose Feedstock</option>
-                      <option value="Basalt">Basalt</option>
-                      <option value="Olivine">Olivine</option>
-                    </select>
+                  <div className="bg-white p-3 rounded-2xl shadow-md space-y-4">
+                    {selectedLocations.length > 0 ? (
+                      <>
+                        {(() => {
+                          const loc = selectedLocations[activePracticeIndex];
+                          const vars = getPracticeVarsForLocation(loc.id);
+                          return (
+                            <div
+                              key={loc.id}
+                              className="border rounded-xl p-3 bg-gray-50"
+                              onClick={() => focusPracticeLocationOnMap(loc)}
+                            >
+                              <div className="font-semibold text-sm mb-3">
+                                Site {activePracticeIndex + 1}: {loc.label}
+                              </div>
+                              <Label className="block mb-2">Feedstock Type</Label>
+                              <select
+                                className="w-full border rounded-xl p-2 mb-4"
+                                value={vars.feedstock}
+                                onChange={(e) => updatePracticeVarForLocation(loc.id, 'feedstock', e.target.value)}
+                                onFocus={() => focusPracticeLocationOnMap(loc)}
+                              >
+                                <option value="" disabled>Choose Feedstock</option>
+                                <option value="Basalt">Basalt</option>
+                                <option value="Olivine">Olivine</option>
+                              </select>
 
-                    <Label className="block mb-2">Particle Size</Label>
-                    <select
-                      className="w-full border rounded-xl p-2 mb-4"
-                      value={particleSize}
-                      onChange={(e) => setParticleSize(e.target.value)}
-                    >
-                      <option value="" disabled>Select Particle Size</option>
-                      <option value="psdrain_100um.in">100um</option>
-                      <option value="psdrain_320um.in">320um</option>
-                      <option value="psdrain_1220um.in">1220um</option>
-                      <option value="psdrain_3000um.in">3000um</option>
-                    </select>
+                              <Label className="block mb-2">Particle Size</Label>
+                              <select
+                                className="w-full border rounded-xl p-2 mb-4"
+                                value={vars.particleSize}
+                                onChange={(e) => updatePracticeVarForLocation(loc.id, 'particleSize', e.target.value)}
+                                onFocus={() => focusPracticeLocationOnMap(loc)}
+                              >
+                                <option value="" disabled>Select Particle Size</option>
+                                <option value="psdrain_100um.in">100um</option>
+                                <option value="psdrain_320um.in">320um</option>
+                                <option value="psdrain_1220um.in">1220um</option>
+                                <option value="psdrain_3000um.in">3000um</option>
+                              </select>
 
-                    <Label className="block mb-2">Application Rate (t/ha/year)</Label>
-                    <Input
-                      type="number"
-                      className="w-full border rounded-xl p-2 mb-4"
-                      placeholder="Enter rate"
-                      value={applicationRate}
-                      onChange={(e) => setApplicationRate(e.target.value)}
-                    />
+                              <Label className="block mb-2">Application Rate (t/ha/year)</Label>
+                              <Input
+                                type="number"
+                                className="w-full border rounded-xl p-2 mb-4"
+                                placeholder="Enter rate"
+                                value={vars.applicationRate}
+                                onChange={(e) => updatePracticeVarForLocation(loc.id, 'applicationRate', e.target.value)}
+                                onFocus={() => focusPracticeLocationOnMap(loc)}
+                              />
 
-                    <Label className="block mb-2">Target Soil pH (optional)</Label>
-                    <Input
-                      type="number"
-                      step="0.1"
-                      className="w-full border rounded-xl p-2"
-                      placeholder="Enter target pH"
-                      value={targetPH}
-                      onChange={(e) => setTargetPH(e.target.value)}
-                    />
+                              <Label className="block mb-2">Target Soil pH (optional)</Label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                className="w-full border rounded-xl p-2"
+                                placeholder="Enter target pH"
+                                value={vars.targetPH}
+                                onChange={(e) => updatePracticeVarForLocation(loc.id, 'targetPH', e.target.value)}
+                                onFocus={() => focusPracticeLocationOnMap(loc)}
+                              />
+                            </div>
+                          );
+                        })()}
+                        <div className="flex items-center justify-between gap-3">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                              const next = Math.max(0, activePracticeIndex - 1);
+                              setActivePracticeIndex(next);
+                              focusPracticeLocationOnMap(selectedLocations[next]);
+                            }}
+                            disabled={activePracticeIndex <= 0}
+                          >
+                            ← Previous
+                          </Button>
+                          <div className="text-sm font-medium text-gray-700">
+                            Site {activePracticeIndex + 1} of {selectedLocations.length}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                              const next = Math.min(selectedLocations.length - 1, activePracticeIndex + 1);
+                              setActivePracticeIndex(next);
+                              focusPracticeLocationOnMap(selectedLocations[next]);
+                            }}
+                            disabled={activePracticeIndex >= selectedLocations.length - 1}
+                          >
+                            Next →
+                          </Button>
+                        </div>
+                      </>
+                    ) : null}
                   </div>
 
                   <div className="space-y-2">
