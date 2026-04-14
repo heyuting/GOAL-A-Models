@@ -441,6 +441,20 @@ const baselineBatchDownloadUrls = (batchId) => {
   ];
 };
 
+/** GET run-model batch ZIP (whole batch directory). */
+const runModelBatchDownloadUrls = (batchId) => {
+  const enc = encodeURIComponent(String(batchId).trim());
+  return [
+    `api/run-scepter-model-batch/${enc}/download`,
+    `api/scepter/run-model-batch/${enc}/download`,
+  ];
+};
+
+const runModelSingleDownloadUrls = (jobId) => {
+  const enc = encodeURIComponent(String(jobId).trim());
+  return [`api/run-scepter-model/${enc}/download`, `api/scepter/run-model/${enc}/download`];
+};
+
 const parseBaselineJsonErrorMessage = (text) => {
   if (!text?.trim()) return '';
   try {
@@ -564,6 +578,51 @@ const fetchRunScepterModelStatusPair = async (rawJobId) => {
   return last || { response: { ok: false, status: 0 }, result: null, text: '' };
 };
 
+/** Run-model batch status: primary + /api/scepter/run-model-batch/ alias. */
+const fetchRunScepterModelBatchStatusPair = async (rawBatchId) => {
+  const id = String(rawBatchId ?? '').trim();
+  if (!id) {
+    return {
+      response: { ok: false, status: 0 },
+      result: null,
+      text: 'Empty batch id',
+    };
+  }
+  const paths = [
+    `api/run-scepter-model-batch/${encodeURIComponent(id)}/status`,
+    `api/scepter/run-model-batch/${encodeURIComponent(id)}/status`,
+  ];
+  let last = null;
+  let sawAbort = false;
+  for (const path of paths) {
+    try {
+      const response = await fetchWithTimeout(getApiUrl(path), {
+        headers: { 'ngrok-skip-browser-warning': 'true' },
+      });
+      const text = await response.text();
+      let result = null;
+      if (text?.trim()) {
+        try {
+          result = JSON.parse(text);
+        } catch {
+          result = {};
+        }
+      }
+      last = { response, result, text };
+      if (response.ok) return last;
+      if (response.status !== 400 && response.status !== 404) return last;
+    } catch (e) {
+      if (e?.name === 'AbortError') {
+        sawAbort = true;
+        continue;
+      }
+      throw e;
+    }
+  }
+  if (sawAbort && !last) throw new DOMException('Run-model batch status timed out', 'AbortError');
+  return last || { response: { ok: false, status: 0 }, result: null, text: '' };
+};
+
 /** True when every row failed with an id-format/not-found style client error. */
 const areAllRowsClientIdErrors = (rows) => {
   if (!Array.isArray(rows) || !rows.length) return false;
@@ -599,6 +658,32 @@ const getStateCodeFromCoords = (lat, lng) => {
     }
   }
   return nearest?.code ?? '';
+};
+
+/** Prefer authoritative reverse geocode for state code; fallback to nearest-center heuristic. */
+const resolveStateCodeFromCoords = async (lat, lng) => {
+  if (lat == null || lng == null || !Number.isFinite(lat) || !Number.isFinite(lng)) return '';
+  const fallback = getStateCodeFromCoords(lat, lng);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 4000);
+  try {
+    const url = `https://geo.fcc.gov/api/census/area?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&format=json`;
+    const response = await fetch(url, {
+      method: 'GET',
+      signal: ctrl.signal,
+      cache: 'no-store',
+    });
+    if (!response.ok) return fallback;
+    const result = await response.json();
+    const code = result?.results?.[0]?.state_code;
+    const normalized = typeof code === 'string' ? code.trim().toUpperCase() : '';
+    if (/^[A-Z]{2}$/.test(normalized)) return normalized;
+    return fallback;
+  } catch {
+    return fallback;
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
 // Add a new component for handling map zoom
@@ -1052,8 +1137,17 @@ export default function SCEPTERConfig({ savedData }) {
   const [baselineCheckInfo, setBaselineCheckInfo] = useState(null);
   const [isCheckingBaselineStatus, setIsCheckingBaselineStatus] = useState(false);
   const [spinupJobId, setSpinupJobId] = useState(() => localStorage.getItem('scepter_spinup_job_id'));
+  /** From POST run-model batch response, for batch ZIP download. */
+  const [runModelBatchId, setRunModelBatchId] = useState(() => {
+    try {
+      return localStorage.getItem('scepter_run_model_batch_id') || '';
+    } catch {
+      return '';
+    }
+  });
   const [spinupStatus, setSpinupStatus] = useState(null);
   const [spinupError, setSpinupError] = useState(null);
+  const [isSubmittingRunModel, setIsSubmittingRunModel] = useState(false);
   const [isCheckingSpinupStatus, setIsCheckingSpinupStatus] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadStatus, setDownloadStatus] = useState('');
@@ -1248,6 +1342,7 @@ export default function SCEPTERConfig({ savedData }) {
 
   const handleRunModel = async (e) => {
     e.preventDefault();
+    if (isSubmittingRunModel) return;
 
     if (!baselineJobId || baselineStatus !== 'completed') {
       return;
@@ -1361,6 +1456,7 @@ export default function SCEPTERConfig({ savedData }) {
       if (Number.isFinite(first.phNum)) body.target_pH = first.phNum;
     }
 
+    setIsSubmittingRunModel(true);
     try {
       const runPaths =
         selectedLocations.length > 1
@@ -1405,9 +1501,29 @@ export default function SCEPTERConfig({ savedData }) {
         setSpinupError(null);
         localStorage.setItem('scepter_spinup_job_id', String(newJobId));
       }
+      const rawRunBatch =
+        result?.batch_id ?? result?.batchId ?? result?.data?.batch_id ?? null;
+      const runBatchNorm = rawRunBatch != null ? String(rawRunBatch).trim() : '';
+      if (runBatchNorm) {
+        setRunModelBatchId(runBatchNorm);
+        try {
+          localStorage.setItem('scepter_run_model_batch_id', runBatchNorm);
+        } catch {
+          // ignore
+        }
+      } else {
+        setRunModelBatchId('');
+        try {
+          localStorage.removeItem('scepter_run_model_batch_id');
+        } catch {
+          // ignore
+        }
+      }
     } catch (err) {
       console.error('SCEPTER run error:', err);
       setSpinupError(err.message || 'Failed to run SCEPTER model. Please try again.');
+    } finally {
+      setIsSubmittingRunModel(false);
     }
   };
 
@@ -1710,14 +1826,17 @@ export default function SCEPTERConfig({ savedData }) {
 
   const handleCheckSpinupStatus = async () => {
     const jobId = spinupJobId?.trim();
-    if (!jobId) {
-      setSpinupError('No SCEPTER job ID. Run the SCEPTER model first.');
+    const batchId = String(runModelBatchId ?? '').trim();
+    if (!jobId && !batchId) {
+      setSpinupError('No SCEPTER job/batch ID. Run the SCEPTER model first.');
       return;
     }
     setIsCheckingSpinupStatus(true);
     setSpinupError(null);
     try {
-      const { response, result, text } = await fetchRunScepterModelStatusPair(jobId);
+      const { response, result, text } = batchId
+        ? await fetchRunScepterModelBatchStatusPair(batchId)
+        : await fetchRunScepterModelStatusPair(jobId);
       if (!response.ok) {
         const msg =
           result?.error || result?.message || text || `Status check failed (${response.status})`;
@@ -1755,37 +1874,78 @@ export default function SCEPTERConfig({ savedData }) {
 
     try {
       setDownloadStatus('Requesting download...');
-      const response = await fetch(getApiUrl(`api/run-scepter-model/${jobId}/download`), {
-        headers: { 'ngrok-skip-browser-warning': 'true' },
-      });
+      const batchIdNorm = String(runModelBatchId ?? '').trim();
+      const canTryBatch = Boolean(batchIdNorm);
 
-      if (!response.ok) {
-        const text = await response.text();
-        let errMsg = text;
-        try {
-          const parsed = JSON.parse(text);
-          errMsg = parsed?.error || parsed?.message || text;
-        } catch {
-          // Ignore invalid JSON payloads
+      let batchResponse = null;
+      let batchZipFilename = `scepter_results_${batchIdNorm}.zip`;
+
+      if (canTryBatch) {
+        for (const path of runModelBatchDownloadUrls(batchIdNorm)) {
+          const r = await fetch(getApiUrl(path), {
+            headers: { 'ngrok-skip-browser-warning': 'true' },
+            cache: 'no-store',
+          });
+          if (r.ok) {
+            const ct = (r.headers.get('content-type') || '').toLowerCase();
+            if (ct.includes('application/json') || ct.includes('text/json')) {
+              const t = await r.text();
+              const je = parseBaselineJsonErrorMessage(t);
+              if (isBatchDownloadUnavailableMessage(t, je)) continue;
+              throw new Error(je || t || 'Batch download returned an error.');
+            }
+            batchResponse = r;
+            break;
+          }
+          const errText = await r.text();
+          const jsonErr = parseBaselineJsonErrorMessage(errText);
+          if (r.status === 400 || r.status === 404) continue;
+          if (isBatchDownloadUnavailableMessage(errText, jsonErr)) continue;
+          throw new Error(jsonErr || errText || `Batch download failed (${r.status})`);
         }
-        throw new Error(errMsg || `Download failed (${response.status})`);
+      }
+
+      if (batchResponse?.ok) {
+        setDownloadStatus('Receiving data...');
+        const blob = await batchResponse.blob();
+        setDownloadStatus('Starting download...');
+        saveBlobAsFileDownload(blob, batchZipFilename);
+        setDownloadStatus('Download complete!');
+        setTimeout(() => setDownloadStatus(''), 2000);
+        return;
+      }
+
+      setDownloadStatus('Requesting download...');
+      let response = null;
+      let lastErr = '';
+      for (const path of runModelSingleDownloadUrls(jobId)) {
+        const r = await fetch(getApiUrl(path), {
+          headers: { 'ngrok-skip-browser-warning': 'true' },
+          cache: 'no-store',
+        });
+        if (r.ok) {
+          response = r;
+          break;
+        }
+        const text = await r.text();
+        const jsonErr = parseBaselineJsonErrorMessage(text);
+        lastErr = jsonErr || text || `Download failed (${r.status})`;
+        if (r.status !== 400 && r.status !== 404) {
+          response = r;
+          break;
+        }
+      }
+
+      if (!response?.ok) {
+        throw new Error(lastErr || 'Download failed');
       }
 
       setDownloadStatus('Receiving data...');
       const blob = await response.blob();
       setDownloadStatus('Starting download...');
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `scepter_results_${jobId}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      setDownloadStatus('Download complete!');
-      setTimeout(() => {
-        setDownloadStatus('');
-      }, 2000);
+      saveBlobAsFileDownload(blob, `scepter_results_${jobId}.zip`);
+      setDownloadStatus(canTryBatch ? 'Download complete (single-job ZIP; batch ZIP unavailable).' : 'Download complete!');
+      setTimeout(() => setDownloadStatus(''), canTryBatch ? 3500 : 2000);
     } catch (err) {
       console.error('Download error:', err);
       setSpinupError(err.message || 'Failed to download results.');
@@ -2195,14 +2355,24 @@ export default function SCEPTERConfig({ savedData }) {
     (spinUpSuccess && selectedLocations.length >= 1);
 
   const removeLocationAt = (index) => {
-    setSelectedLocations((prev) => {
-      const next = prev.filter((_, i) => i !== index);
-      return next.map((loc, i) => {
-        const code = getStateCodeFromCoords(loc.lat, loc.lng) || 'LOC';
-        return { ...loc, label: `${code}_Location_${i + 1}` };
-      });
-    });
+    setSelectedLocations((prev) => prev.filter((_, i) => i !== index));
   };
+
+  const updateLocationLabel = useCallback((locId, value) => {
+    const raw = String(value ?? '');
+    const nextLabel = raw.replace(/\s+/g, ' ').trimStart();
+    setSelectedLocations((prev) =>
+      prev.map((loc) =>
+        loc.id === locId
+          ? {
+              ...loc,
+              // Keep non-empty label; preserve fallback default if user clears input.
+              label: nextLabel === '' ? loc.label : nextLabel,
+            }
+          : loc
+      )
+    );
+  }, []);
 
   const clearAllMultipleLocations = () => {
     setSelectedLocations([]);
@@ -2235,12 +2405,13 @@ export default function SCEPTERConfig({ savedData }) {
                 attribution='© Esri, DeLorme, NAVTEQ, TomTom, Intermap, iPC, USGS, FAO, NPS, NRCAN, GeoBase, Kadaster NL, Ordnance Survey, Esri Japan, METI, Esri China (Hong Kong), and the GIS User Community'
               />
               <MapClickHandler
-                onMapClick={(clickedPoint) => {
+                onMapClick={async (clickedPoint) => {
+                  const stateCodeResolved =
+                    (await resolveStateCodeFromCoords(clickedPoint.lat, clickedPoint.lng)) || 'LOC';
                   setSelectedLocations((prev) => {
                     if (prev.length >= MAX_SCEPTER_LOCATIONS) return prev;
                     const nextIndex = prev.length + 1;
-                    const stateCode = getStateCodeFromCoords(clickedPoint.lat, clickedPoint.lng) || 'LOC';
-                    const label = `${stateCode}_Location_${nextIndex}`;
+                    const label = `${stateCodeResolved}_Location_${nextIndex}`;
                     return [
                       ...prev,
                       {
@@ -2360,10 +2531,20 @@ export default function SCEPTERConfig({ savedData }) {
                           return (
                             <li
                               key={loc.id}
-                              className="flex flex-col sm:flex-row sm:items-start gap-3 p-2 bg-white rounded border border-blue-100"
+                              className="relative p-2 pr-12 pb-10 bg-white rounded border border-blue-100"
                             >
                               <div className="flex-1 min-w-0 space-y-2">
-                                <div className="font-semibold text-sm text-gray-900">{loc.label}</div>
+                                <div className="space-y-0.5">
+                                  <span className="text-xs text-gray-600">Location Name</span>
+                                  <Input
+                                    type="text"
+                                    autoComplete="off"
+                                    placeholder={`Location ${index + 1}`}
+                                    value={loc.label}
+                                    onChange={(e) => updateLocationLabel(loc.id, e.target.value)}
+                                    className="text-sm"
+                                  />
+                                </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                   <div className="space-y-0.5">
                                     <span className="text-xs text-gray-600">Latitude</span>
@@ -2391,8 +2572,31 @@ export default function SCEPTERConfig({ savedData }) {
                                   </div>
                                 </div>
                               </div>
-                              <Button type="button" variant="destructive" size="sm" onClick={() => removeLocationAt(index)}>
-                                Remove
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Remove ${loc.label}`}
+                                title="Remove location"
+                                onClick={() => removeLocationAt(index)}
+                                className="absolute top-1 right-2 h-8 w-8 rounded-full bg-transparent hover:bg-transparent text-red-600 hover:text-red-700"
+                              >
+                                <svg
+                                  aria-hidden="true"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  className="h-4 w-4"
+                                >
+                                  <path d="M3 6h18" />
+                                  <path d="M8 6V4h8v2" />
+                                  <path d="M19 6l-1 14H6L5 6" />
+                                  <path d="M10 11v6" />
+                                  <path d="M14 11v6" />
+                                </svg>
                               </Button>
                             </li>
                           );
@@ -2473,6 +2677,7 @@ export default function SCEPTERConfig({ savedData }) {
                             setBaselineNotice(null);
                             setBaselineCheckInfo(null);
                             setSpinupJobId(null);
+                            setRunModelBatchId('');
                             setSpinupStatus(null);
                             setSpinupError(null);
                             setSelectedLocations([]);
@@ -2483,6 +2688,7 @@ export default function SCEPTERConfig({ savedData }) {
                             localStorage.removeItem('scepter_baseline_batch_id');
                             localStorage.removeItem('scepter_baseline_coordinate');
                             localStorage.removeItem('scepter_spinup_job_id');
+                            localStorage.removeItem('scepter_run_model_batch_id');
                           }}
                           className="bg-red-500 text-white hover:bg-red-600 rounded-md py-1.5 px-3 text-sm"
                         >
@@ -2625,9 +2831,10 @@ export default function SCEPTERConfig({ savedData }) {
                     </Button>
                     <Button
                       type="submit"
+                      disabled={isSubmittingRunModel}
                       className="w-full bg-green-500 text-white hover:bg-green-600 rounded-md p-2"
                     >
-                      Run SCEPTER Model
+                      {isSubmittingRunModel ? 'Submitting SCEPTER model...' : 'Run SCEPTER Model'}
                     </Button>
 
                     {(spinupJobId || spinupStatus) && (
@@ -2635,13 +2842,18 @@ export default function SCEPTERConfig({ savedData }) {
                         <div className={`flex items-center justify-between gap-3 p-3 rounded-lg text-sm ${spinupStatus === 'completed' ? 'bg-green-100 text-green-700' : spinupStatus === 'running' ? 'bg-blue-100 text-blue-700' : spinupStatus === 'failed' || spinupStatus === 'error' ? 'bg-red-100 text-red-700' : spinupStatus === 'pending' || spinupStatus === 'submitted' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
                           <div className="min-w-0">
                             {spinupJobId && <div><strong>SCEPTER Job:</strong> {spinupJobId}</div>}
+                            {runModelBatchId?.trim() ? (
+                              <div className="text-xs text-gray-600 mt-1">
+                                <strong>Run batch id:</strong> {runModelBatchId}
+                              </div>
+                            ) : null}
                             {spinupStatus && <div><strong>Status:</strong> {spinupStatus}</div>}
                             {spinupError && <div>{spinupError}</div>}
                           </div>
                           <Button
                             type="button"
                             onClick={handleCheckSpinupStatus}
-                            disabled={!spinupJobId || isCheckingSpinupStatus}
+                            disabled={(!spinupJobId && !runModelBatchId?.trim()) || isCheckingSpinupStatus}
                             className="shrink-0 bg-yellow-500 text-white hover:bg-yellow-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
                           >
                             {isCheckingSpinupStatus ? 'Checking...' : 'Check status'}
