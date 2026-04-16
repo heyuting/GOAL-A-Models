@@ -124,7 +124,8 @@ const normalizeBaselineStatusToken = (raw) => {
   if (/complet|finish|done/i.test(t) && !/fail/i.test(t)) return 'completed';
   if (/fail|error/i.test(t)) return 'failed';
   if (/pend|queue|wait|hold/i.test(t)) return 'pending';
-  return lower;
+  // Unknown free-form text (especially log lines) should not become a synthetic status token.
+  return '';
 };
 
 const STATUS_LIKE_KEY_RE =
@@ -278,6 +279,11 @@ const extractStatusFromBaselinePayload = (result) => {
     return aggregateBaselineChildStatuses(subs);
   }
   if (typeof result !== 'object') return '';
+  // For per-job status endpoints, treat explicit root `status` as authoritative.
+  if (typeof result.status === 'string' && String(result.status).trim() !== '') {
+    const rootStatus = normalizeBaselineStatusToken(String(result.status).trim());
+    if (rootStatus) return rootStatus;
+  }
   if (isCompactPerJobBaselineStatusPayload(result)) {
     return normalizeBaselineStatusToken(String(result.status).trim());
   }
@@ -518,7 +524,8 @@ const fetchBaselineSpinupStatusRow = async (rawJobId) => {
       const row = { id, ok: response.ok, statusCode: response.status, result, text };
       if (response.ok) return row;
       lastRow = row;
-      if (response.status !== 400 && response.status !== 404) return row;
+      // Keep trying alias URLs; some deployments differ between primary and /api/scepter/* routes.
+      continue;
     } catch (e) {
       if (e?.name === 'AbortError') {
         sawAbort = true;
@@ -1340,11 +1347,38 @@ export default function SCEPTERConfig({ savedData }) {
     setMapZoom((z) => (z < 2 ? 2 : z));
   };
 
+  /** Clear SCEPTER model run job/status only (Step 2); does not remove locations or spin-up baseline state. */
+  const resetStep2ModelRun = () => {
+    setSpinupJobId(null);
+    setRunModelBatchId('');
+    setSpinupStatus(null);
+    setSpinupError(null);
+    setIsSubmittingRunModel(false);
+    setIsCheckingSpinupStatus(false);
+    setDownloadStatus('');
+    try {
+      localStorage.removeItem('scepter_spinup_job_id');
+      localStorage.removeItem('scepter_run_model_batch_id');
+    } catch {
+      // ignore
+    }
+  };
+
   const handleRunModel = async (e) => {
     e.preventDefault();
     if (isSubmittingRunModel) return;
 
     if (!baselineJobId || baselineStatus !== 'completed') {
+      setSpinupError('Spin-up must be completed before running the SCEPTER model.');
+      return;
+    }
+
+    const hasActiveRunAlready =
+      !!(spinupJobId && String(spinupJobId).trim()) ||
+      !!(runModelBatchId && String(runModelBatchId).trim()) ||
+      ['pending', 'queued', 'submitted', 'submitting', 'running'].includes(String(spinupStatus || '').toLowerCase());
+    if (hasActiveRunAlready) {
+      setSpinupError('SCEPTER model run already submitted. Use Reset model run to submit again.');
       return;
     }
 
@@ -1456,6 +1490,8 @@ export default function SCEPTERConfig({ savedData }) {
       if (Number.isFinite(first.phNum)) body.target_pH = first.phNum;
     }
 
+    setSpinupError(null);
+    setSpinupStatus('submitting');
     setIsSubmittingRunModel(true);
     try {
       const runPaths =
@@ -2830,14 +2866,33 @@ export default function SCEPTERConfig({ savedData }) {
                       {isSaving ? 'Saving...' : savedData ? 'Update Model Configuration' : 'Save Model Configuration'}
                     </Button>
                     <Button
-                      type="submit"
-                      disabled={isSubmittingRunModel}
-                      className="w-full bg-green-500 text-white hover:bg-green-600 rounded-md p-2"
+                      type="button"
+                      disabled={
+                        isSubmittingRunModel ||
+                        !!(spinupJobId && String(spinupJobId).trim()) ||
+                        !!(runModelBatchId && String(runModelBatchId).trim()) ||
+                        ['pending', 'queued', 'submitted', 'submitting', 'running'].includes(
+                          String(spinupStatus || '').toLowerCase()
+                        )
+                      }
+                      onClick={(e) => {
+                        e.preventDefault();
+                        handleRunModel(e);
+                      }}
+                      className="w-full bg-green-500 text-white hover:bg-green-600 rounded-md p-2 disabled:opacity-50"
                     >
-                      {isSubmittingRunModel ? 'Submitting SCEPTER model...' : 'Run SCEPTER Model'}
+                      {isSubmittingRunModel
+                        ? 'Submitting...'
+                        : !!(spinupJobId && String(spinupJobId).trim()) ||
+                            !!(runModelBatchId && String(runModelBatchId).trim()) ||
+                            ['pending', 'queued', 'submitted', 'submitting', 'running'].includes(
+                              String(spinupStatus || '').toLowerCase()
+                            )
+                          ? 'SCEPTER model already submitted'
+                          : 'Run SCEPTER Model'}
                     </Button>
 
-                    {(spinupJobId || spinupStatus) && (
+                    {(spinupJobId || spinupStatus || spinupError || runModelBatchId?.trim() || isSubmittingRunModel) && (
                       <div className="space-y-3">
                         <div className={`flex items-center justify-between gap-3 p-3 rounded-lg text-sm ${spinupStatus === 'completed' ? 'bg-green-100 text-green-700' : spinupStatus === 'running' ? 'bg-blue-100 text-blue-700' : spinupStatus === 'failed' || spinupStatus === 'error' ? 'bg-red-100 text-red-700' : spinupStatus === 'pending' || spinupStatus === 'submitted' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
                           <div className="min-w-0">
@@ -2850,14 +2905,23 @@ export default function SCEPTERConfig({ savedData }) {
                             {spinupStatus && <div><strong>Status:</strong> {spinupStatus}</div>}
                             {spinupError && <div>{spinupError}</div>}
                           </div>
-                          <Button
-                            type="button"
-                            onClick={handleCheckSpinupStatus}
-                            disabled={(!spinupJobId && !runModelBatchId?.trim()) || isCheckingSpinupStatus}
-                            className="shrink-0 bg-yellow-500 text-white hover:bg-yellow-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
-                          >
-                            {isCheckingSpinupStatus ? 'Checking...' : 'Check status'}
-                          </Button>
+                          <div className="flex flex-col gap-2 shrink-0">
+                            <Button
+                              type="button"
+                              onClick={handleCheckSpinupStatus}
+                              disabled={(!spinupJobId && !runModelBatchId?.trim()) || isCheckingSpinupStatus}
+                              className="bg-yellow-500 text-white hover:bg-yellow-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
+                            >
+                              {isCheckingSpinupStatus ? 'Checking...' : 'Check status'}
+                            </Button>
+                            <Button
+                              type="button"
+                              onClick={resetStep2ModelRun}
+                              className="bg-red-500 text-white hover:bg-red-600 rounded-md py-1.5 px-3 text-sm"
+                            >
+                              Reset
+                            </Button>
+                          </div>
                         </div>
                         {spinupStatus === 'completed' && (
                           <Button
