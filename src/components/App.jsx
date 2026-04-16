@@ -818,24 +818,27 @@ function ModelPage() {
   }
 
   return (
-    <div className="p-10 bg-gray-100 min-h-screen">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
-        <Card className="shadow-lg rounded-2xl border border-gray-200 overflow-hidden">
-          <CardContent className="p-6">
-            {modelNameUpperCase === "DRN" ? 
-              <DRNConfig savedData={savedModelData} />
-             : modelNameUpperCase === "ATS" ? 
-              <ATSConfig savedData={savedModelData} /> 
-             : modelNameUpperCase === "SCEPTER" ?
-              <SCEPTERConfig savedData={savedModelData} />
-             : modelNameUpperCase === "SCEPTER-DRN" ?
-              <SCEPTERDRNConfig savedData={savedModelData} />
-             :
-              <div className="text-center text-gray-500">Model not found</div>
-            }
-          </CardContent>
-        </Card>
-      </motion.div>
+    <div className="min-h-screen bg-white">
+      <div className="container mx-auto max-w-7xl px-4 py-10 lg:py-12">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5 }}
+          className="w-full min-w-0 p-4 sm:p-6"
+        >
+          {modelNameUpperCase === "DRN" ? (
+            <DRNConfig savedData={savedModelData} />
+          ) : modelNameUpperCase === "ATS" ? (
+            <ATSConfig savedData={savedModelData} />
+          ) : modelNameUpperCase === "SCEPTER" ? (
+            <SCEPTERConfig savedData={savedModelData} />
+          ) : modelNameUpperCase === "SCEPTER-DRN" ? (
+            <SCEPTERDRNConfig savedData={savedModelData} />
+          ) : (
+            <div className="text-center text-gray-500">Model not found</div>
+          )}
+        </motion.div>
+      </div>
     </div>
   );
 }

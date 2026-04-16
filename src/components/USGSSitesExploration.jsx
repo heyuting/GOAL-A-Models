@@ -51,7 +51,16 @@ const createCustomIcon = (color, sampleCount = 0) => {
   });
 };
 
-const USGSSiteSelector = ({ handleSiteSelect, location, onSitesLoaded, onStateSelect, onSiteTypeChange, onAddToScepter }) => {
+const USGSSiteSelector = ({
+  handleSiteSelect,
+  location,
+  onSitesLoaded,
+  onStateSelect,
+  onSiteTypeChange,
+  onAddToScepter,
+  onBackToScepter,
+  onMapLegendMetaChange,
+}) => {
   const [usgsSites, setUsgsSites] = useState([]);
   const [stateCd, setStateCd] = useState('');
   const [siteType, setSiteType] = useState('stream');
@@ -272,6 +281,10 @@ const USGSSiteSelector = ({ handleSiteSelect, location, onSitesLoaded, onStateSe
     onSitesLoaded(usgsSites);
   }, [usgsSites, onSitesLoaded]);
 
+  useEffect(() => {
+    onMapLegendMetaChange?.({ stateCd, isLoadingSites, siteType });
+  }, [stateCd, isLoadingSites, siteType, onMapLegendMetaChange]);
+
   const handleStateChange = (newStateCd) => {
     setStateCd(newStateCd);
     handleSiteSelect('');
@@ -341,64 +354,23 @@ const USGSSiteSelector = ({ handleSiteSelect, location, onSitesLoaded, onStateSe
           </option>
         ))}
       </select>
-      
+
       <Button
         type="button"
         onClick={() => onAddToScepter && onAddToScepter()}
         disabled={!location}
-        className="mt-3 w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-2 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
+        className="mt-12 w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-2 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
       >
         Add to SCEPTER model
       </Button>
-      
-      {/* Alkalinity Data Legend */}
-      <div className="mt-4 p-3 bg-gray-50 rounded-xl">
-        <h3 className="text-sm font-semibold mb-2">Alkalinity Data Legend ({siteType === 'stream' ? 'Stream' : 'Groundwater'} Sites)</h3>
-        
-        <div className="grid grid-cols-2 gap-4">
-          {/* Color Legend */}
-          <div>
-            <h4 className="text-xs font-semibold mb-1">Data Recency (Color)</h4>
-            <div className="space-y-1 text-xs">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                <span>Recent (≤2 years)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
-                <span>Moderate (2-5 years)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-                <span>Old (&gt;5 years)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-gray-500 rounded-full"></div>
-                <span>No data available</span>
-              </div>
-            </div>
-          </div>
-          
-          {/* Size Legend */}
-          <div>
-            <h4 className="text-xs font-semibold mb-1">Sample Count (Size)</h4>
-            <div className="space-y-1 text-xs">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-gray-500 rounded-full"></div>
-                <span>Few samples</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-gray-500 rounded-full"></div>
-                <span>Moderate samples</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-gray-500 rounded-full"></div>
-                <span>Many samples</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <Button
+        type="button"
+        onClick={() => onBackToScepter?.()}
+        className="mt-6 w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-xl"
+        aria-label="Back to SCEPTER"
+      >
+        Back to SCEPTER
+      </Button>
     </div>
   );
 };
@@ -412,6 +384,12 @@ export default function USGSSitesExploration() {
   const [isLoadingSiteData, setIsLoadingSiteData] = useState(false);
   const [mapCenter, setMapCenter] = useState([39.8283, -98.5795]);
   const [mapZoom, setMapZoom] = useState(4);
+  /** Synced from USGSSiteSelector for map-column legend placement */
+  const [mapLegendMeta, setMapLegendMeta] = useState({
+    stateCd: '',
+    siteType: 'stream',
+    isLoadingSites: false,
+  });
 
   const fetchAlkalinityData = async (siteId) => {
     if (!siteId) return;
@@ -605,25 +583,15 @@ export default function USGSSitesExploration() {
   }, [location, navigate, usgsSites]);
 
   return (
-    <div className="container mx-auto px-4 py-12 space-y-6">
-      <div className="flex justify-start">
-        <button
-          type="button"
-          onClick={() => navigate('/model/SCEPTER')}
-          className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-800"
-          aria-label="Back to SCEPTER"
-        >
-          <span aria-hidden="true" className="text-lg leading-none">←</span>
-          <span>Back to SCEPTER</span>
-        </button>
-      </div>
-
-      {/* Map and Selection Section - Side by Side */}
-      <div className="grid grid-cols-1 xl:grid-cols-[2fr_1fr] gap-6 items-start">
-        <div>
-          <h2 className="text-xl font-bold text-center mb-4 text-gray-800">USGS Sites Map</h2>
-          <div className="rounded-2xl overflow-hidden shadow-lg border border-gray-200">
-            <MapContainer center={mapCenter} zoom={mapZoom} style={{ height: '500px', width: '100%' }}>
+    <div className="container mx-auto max-w-7xl px-4 py-10 lg:py-12">
+      {/* Match ModelPage + SCEPTER: inner padding and 3/5 · 2/5 map | panel split */}
+      <div className="w-full min-w-0 space-y-6 p-4 sm:p-6">
+        <div className="flex gap-6">
+          <div className="w-3/5 min-w-0 space-y-6">
+            <div>
+              <h2 className="text-xl font-bold text-center mb-6 text-gray-800">USGS Sites Map</h2>
+              <div className="mt-6 relative rounded-lg overflow-hidden shadow-md border border-gray-200">
+                <MapContainer center={mapCenter} zoom={mapZoom} style={{ height: '500px', width: '100%' }}>
             <TileLayer
               url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
               attribution='© Esri, DeLorme, NAVTEQ, TomTom, Intermap, iPC, USGS, FAO, NPS, NRCAN, GeoBase, Kadaster NL, Ordnance Survey, Esri Japan, METI, Esri China (Hong Kong), and the GIS User Community'
@@ -663,40 +631,88 @@ export default function USGSSitesExploration() {
                 </Popup>
               </Marker>
             )}
-          </MapContainer>
-        </div>
-      </div>
-        <div className="space-y-6">
-          {/* USGS Site Selection */}
-          <h2 className="text-xl font-bold text-center mb-4 text-gray-800">USGS Site Selection</h2>
-          <Card className="rounded-2xl shadow-lg">
-            <CardContent className="p-6">
-              <USGSSiteSelector
-                handleSiteSelect={handleSiteSelect}
-                location={location}
-                onSitesLoaded={handleSitesLoaded}
-                onStateSelect={handleStateSelect}
-                onSiteTypeChange={handleSiteTypeChange}
-                onAddToScepter={handleAddToScepter}
-              />
-            </CardContent>
-          </Card>
-        </div>
+              </MapContainer>
+                {mapLegendMeta.stateCd && !mapLegendMeta.isLoadingSites && (
+                  <div
+                    className="absolute bottom-0 right-0 z-[1000] max-w-[min(calc(100%-1rem),15rem)] p-2 rounded-md border border-gray-300/70 bg-white/80 backdrop-blur-md shadow-md text-gray-900"
+                    role="region"
+                    aria-label="Alkalinity data legend"
+                  >
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <h4 className="text-[10px] font-semibold mb-0.5 leading-tight">Data Recency</h4>
+                        <div className="space-y-0.5 text-[10px] leading-tight">
+                          <div className="flex items-center gap-1">
+                            <div className="w-2 h-2 bg-green-500 rounded-full shrink-0"></div>
+                            <span>Recent (≤2 yrs)</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <div className="w-2 h-2 bg-yellow-500 rounded-full shrink-0"></div>
+                            <span>Moderate (2-5 yrs)</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <div className="w-2 h-2 bg-red-500 rounded-full shrink-0"></div>
+                            <span>Old (&gt;5 yrs)</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <div className="w-2 h-2 bg-gray-500 rounded-full shrink-0"></div>
+                            <span>No data available</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div>
+                        <h4 className="text-[10px] font-semibold mb-0.5 leading-tight">Sample Count</h4>
+                        <div className="space-y-0.5 text-[10px] leading-tight">
+                          <div className="flex items-center gap-1">
+                            <div className="w-1.5 h-1.5 bg-gray-500 rounded-full shrink-0"></div>
+                            <span>Few</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <div className="w-2 h-2 bg-gray-500 rounded-full shrink-0"></div>
+                            <span>Moderate</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <div className="w-2.5 h-2.5 bg-gray-500 rounded-full shrink-0"></div>
+                            <span>Many</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
 
-    
-          {/* Alkalinity Chart */}
-          <Card className="rounded-2xl shadow-lg">
-            <CardContent className="px-6 pt-6 pb-4">
-              <h2 className="text-xl font-bold text-center mb-4 text-gray-800">Alkalinity Data Chart</h2>
-              {location ? (
-                <AlkalinityScatterPlot siteId={location} />
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  Select a site to view alkalinity chart
-                </div>
-              )}
-            </CardContent>
-          </Card>
+            <Card className="rounded-2xl shadow-lg">
+              <CardContent className="px-6 pt-6 pb-4">
+                <h2 className="text-xl font-bold text-center mb-4 text-gray-800">Alkalinity Data Chart</h2>
+                {location ? (
+                  <AlkalinityScatterPlot siteId={location} />
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    Select a site to view alkalinity chart
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="w-2/5 min-w-0 space-y-6">
+            <h2 className="text-xl font-bold text-center mb-5 text-gray-800">USGS Site Selection</h2>
+            <Card className="rounded-2xl shadow-lg">
+              <CardContent className="p-6">
+                <USGSSiteSelector
+                  handleSiteSelect={handleSiteSelect}
+                  location={location}
+                  onSitesLoaded={handleSitesLoaded}
+                  onStateSelect={handleStateSelect}
+                  onSiteTypeChange={handleSiteTypeChange}
+                  onAddToScepter={handleAddToScepter}
+                  onBackToScepter={() => navigate('/model/SCEPTER')}
+                  onMapLegendMetaChange={setMapLegendMeta}
+                />
+              </CardContent>
+            </Card>
 
           {/* Data Summary */}
           <Card className="rounded-2xl shadow-lg">
@@ -756,6 +772,8 @@ export default function USGSSitesExploration() {
             </CardContent>
           </Card>
         </div>
+        </div>
+      </div>
     </div>
   );
 }

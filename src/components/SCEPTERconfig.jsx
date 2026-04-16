@@ -2543,7 +2543,7 @@ export default function SCEPTERConfig({ savedData }) {
   return (
     <div className="space-y-6">
       <div className="flex gap-6">
-        <div className="w-3/5">
+        <div className="w-3/5 min-w-0">
           <h2 className="text-xl font-bold text-center mb-6 text-gray-800">SCEPTER Area of Interest</h2>
           <div className="mt-6">
             <MapContainer center={mapCenter} zoom={mapZoom} style={{ height: '500px', width: '100%' }}>
@@ -2614,7 +2614,7 @@ export default function SCEPTERConfig({ savedData }) {
           </div>
         </div>
 
-        <div className="w-2/5">
+        <div className="w-2/5 min-w-0">
           <h2 className="text-xl font-bold text-center text-gray-800">SCEPTER Model Configuration</h2>
           <Card className="mt-5 rounded-2xl shadow-lg p-6">
             <CardContent className="space-y-6">
@@ -2897,7 +2897,7 @@ export default function SCEPTERConfig({ savedData }) {
                 </>
               )}
 
-              {/* Page 2: Step 2 and Step 3 - Practice Variables and Model Run */}
+              {/* Page 2: Step 2 - Practice Variables and Model Run */}
               {currentPage === 2 && (
                 <form onSubmit={handleRunModel} className="space-y-6">
                   <div className="space-y-2">
