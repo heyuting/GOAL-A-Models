@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import AlkalinityScatterPlot from './AlkalinityScatterPlot';
 import 'leaflet/dist/leaflet.css';
@@ -49,7 +51,7 @@ const createCustomIcon = (color, sampleCount = 0) => {
   });
 };
 
-const USGSSiteSelector = ({ handleSiteSelect, location, onSitesLoaded, onStateSelect, onSiteTypeChange }) => {
+const USGSSiteSelector = ({ handleSiteSelect, location, onSitesLoaded, onStateSelect, onSiteTypeChange, onAddToScepter }) => {
   const [usgsSites, setUsgsSites] = useState([]);
   const [stateCd, setStateCd] = useState('');
   const [siteType, setSiteType] = useState('stream');
@@ -340,6 +342,15 @@ const USGSSiteSelector = ({ handleSiteSelect, location, onSitesLoaded, onStateSe
         ))}
       </select>
       
+      <Button
+        type="button"
+        onClick={() => onAddToScepter && onAddToScepter()}
+        disabled={!location}
+        className="mt-3 w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-2 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        Add to SCEPTER model
+      </Button>
+      
       {/* Alkalinity Data Legend */}
       <div className="mt-4 p-3 bg-gray-50 rounded-xl">
         <h3 className="text-sm font-semibold mb-2">Alkalinity Data Legend ({siteType === 'stream' ? 'Stream' : 'Groundwater'} Sites)</h3>
@@ -393,6 +404,7 @@ const USGSSiteSelector = ({ handleSiteSelect, location, onSitesLoaded, onStateSe
 };
 
 export default function USGSSitesExploration() {
+  const navigate = useNavigate();
   const [location, setLocation] = useState('');
   const [selectedSite, setSelectedSite] = useState(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
@@ -558,8 +570,54 @@ export default function USGSSitesExploration() {
     setLocation('');
   }, []);
 
+  const handleAddToScepter = useCallback(() => {
+    if (!location) {
+      return;
+    }
+
+    const site = usgsSites.find((s) => s.id === location);
+    if (!site) {
+      return;
+    }
+
+    try {
+      const key = 'scepter_usgs_locations';
+      const existingRaw = localStorage.getItem(key);
+      const existing = existingRaw ? JSON.parse(existingRaw) : [];
+
+      const newEntry = {
+        id: site.id,
+        lat: site.latitude,
+        lng: site.longitude,
+        label: site.name || `USGS ${site.id}`,
+        source: 'usgs',
+      };
+
+      const next = Array.isArray(existing)
+        ? [...existing.filter((loc) => loc.id !== newEntry.id), newEntry]
+        : [newEntry];
+
+      localStorage.setItem(key, JSON.stringify(next));
+      navigate('/model/SCEPTER');
+    } catch (err) {
+      console.error('Failed to save USGS site for SCEPTER:', err);
+    }
+  }, [location, navigate, usgsSites]);
+
   return (
     <div className="container mx-auto px-4 py-12 space-y-6">
+      <div className="flex justify-start">
+        <button
+          type="button"
+          onClick={() => navigate('/model/SCEPTER')}
+          className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-800"
+          aria-label="Back to SCEPTER"
+        >
+          <span aria-hidden="true" className="text-lg leading-none">←</span>
+          <span>Back to SCEPTER</span>
+        </button>
+      </div>
+
       {/* Map and Selection Section - Side by Side */}
       <div className="grid grid-cols-1 xl:grid-cols-[2fr_1fr] gap-6 items-start">
         <div>
@@ -619,6 +677,7 @@ export default function USGSSitesExploration() {
                 onSitesLoaded={handleSitesLoaded}
                 onStateSelect={handleStateSelect}
                 onSiteTypeChange={handleSiteTypeChange}
+                onAddToScepter={handleAddToScepter}
               />
             </CardContent>
           </Card>

@@ -580,21 +580,11 @@ function HomePage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-      <div className="mb-6 flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+      <div className="mb-6">
         <div>
           <h2 className="text-3xl font-bold text-gray-800 mb-2">GOAL-A Models</h2>
           <p className="text-m text-gray-600">Select a model to get started with enhanced rock weathering research</p>
         </div>
-        <a
-          href="#/usgs-sites"
-          onClick={(e) => {
-            e.preventDefault();
-            navigate('/usgs-sites');
-          }}
-          className="mt-8 text-right text-xl text-blue-600 hover:text-blue-800 font-semibold underline"
-        >
-          Explore USGS Water Quality Sites
-        </a>
       </div>
  
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { Card, CardContent } from "@/components/ui/card";
@@ -1096,6 +1097,7 @@ const USGSSiteSelector = ({ handleSiteSelect, location, onSitesLoaded, onStateSe
 };
 
 export default function SCEPTERConfig({ savedData }) {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [feedstock, setFeedstock] = useState('');
   const [particleSize, setParticleSize] = useState('');
@@ -1158,7 +1160,7 @@ export default function SCEPTERConfig({ savedData }) {
   const [isCheckingSpinupStatus, setIsCheckingSpinupStatus] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadStatus, setDownloadStatus] = useState('');
-  const [currentPage, setCurrentPage] = useState(1); // 1 = Location & Spin-up, 2 = Practice Variables
+  const [currentPage, setCurrentPage] = useState(1); // 1 = Add Sites, 2 = Practice Variables & Run Model
   const [activePracticeIndex, setActivePracticeIndex] = useState(0);
   /** { id, lat, lng, label }[] — labels like CT_Location_1 */
   const [selectedLocations, setSelectedLocations] = useState([]);
@@ -1168,6 +1170,8 @@ export default function SCEPTERConfig({ savedData }) {
   const [coordTextById, setCoordTextById] = useState({});
   /** Invalidates prior baseline status poll loops so only one chain updates UI. */
   const baselinePollGenerationRef = useRef(0);
+  /** User chose "Select on map" — Option 1 stays light blue until they choose USGS. */
+  const [mapSelectMode, setMapSelectMode] = useState(false);
 
   const hasAnyLocation = selectedLocations.length > 0;
 
@@ -1222,6 +1226,113 @@ export default function SCEPTERConfig({ savedData }) {
       return prev;
     });
   }, [selectedLocations]);
+
+  useEffect(() => {
+    if (savedData) return;
+
+    try {
+      const raw = localStorage.getItem('scepter_selected_locations_ui');
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed) || !parsed.length) {
+        localStorage.removeItem('scepter_selected_locations_ui');
+        return;
+      }
+
+      setSelectedLocations((prev) => {
+        if (prev.length > 0) return prev;
+
+        return parsed
+          .map((loc, i) => {
+            const lat = Number(loc.lat);
+            const lng = Number(loc.lng);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+            return {
+              id: String(loc.id || `cached-${i}`),
+              lat,
+              lng,
+              label: String(loc.label || `${getStateCodeFromCoords(lat, lng) || 'LOC'}_Location_${i + 1}`),
+            };
+          })
+          .filter(Boolean)
+          .slice(0, MAX_SCEPTER_LOCATIONS);
+      });
+    } catch (error) {
+      console.error('Failed to restore cached SCEPTER locations:', error);
+      localStorage.removeItem('scepter_selected_locations_ui');
+    }
+  }, [savedData]);
+
+  useEffect(() => {
+    if (savedData) return;
+
+    try {
+      if (selectedLocations.length > 0) {
+        localStorage.setItem('scepter_selected_locations_ui', JSON.stringify(selectedLocations));
+      } else {
+        localStorage.removeItem('scepter_selected_locations_ui');
+      }
+    } catch {
+      // Ignore localStorage write errors
+    }
+  }, [savedData, selectedLocations]);
+
+  useEffect(() => {
+    if (savedData) return;
+
+    try {
+      const raw = localStorage.getItem('scepter_usgs_locations');
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed) || !parsed.length) {
+        localStorage.removeItem('scepter_usgs_locations');
+        return;
+      }
+
+      const incomingLocations = parsed
+        .map((loc, i) => {
+          const lat = Number(loc.lat);
+          const lng = Number(loc.lng);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+          return {
+            id: String(loc.id || `usgs-${i}`),
+            lat,
+            lng,
+            label: String(loc.label || `USGS_${loc.id || i + 1}`),
+          };
+        })
+        .filter(Boolean);
+
+      if (!incomingLocations.length) {
+        localStorage.removeItem('scepter_usgs_locations');
+        return;
+      }
+
+      setSelectedLocations((prev) => {
+        const merged = [...prev];
+        for (const loc of incomingLocations) {
+          const existingIndex = merged.findIndex((item) => item.id === loc.id);
+          if (existingIndex >= 0) {
+            merged[existingIndex] = { ...merged[existingIndex], ...loc };
+          } else if (merged.length < MAX_SCEPTER_LOCATIONS) {
+            merged.push(loc);
+          }
+        }
+        return merged;
+      });
+
+      const first = incomingLocations[0];
+      setMapCenter([first.lat, first.lng]);
+      setMapZoom(8);
+      setCurrentPage(1);
+      localStorage.removeItem('scepter_usgs_locations');
+    } catch (error) {
+      console.error('Failed to load USGS locations for SCEPTER:', error);
+      localStorage.removeItem('scepter_usgs_locations');
+    }
+  }, [savedData]);
 
   // Load saved data when component mounts or savedData changes
   useEffect(() => {
@@ -2507,7 +2618,7 @@ export default function SCEPTERConfig({ savedData }) {
           <h2 className="text-xl font-bold text-center text-gray-800">SCEPTER Model Configuration</h2>
           <Card className="mt-5 rounded-2xl shadow-lg p-6">
             <CardContent className="space-y-6">
-              {/* Step 1 / Step 2 navigation (like DRN) */}
+              {/* Two-page navigation presenting the 3-step SCEPTER flow */}
               <div className="flex items-stretch mb-6 pb-4 border-b">
                 <button
                   type="button"
@@ -2518,7 +2629,7 @@ export default function SCEPTERConfig({ savedData }) {
                       : 'bg-gray-200 text-gray-700 hover:bg-gray-300 border-gray-300'
                   }`}
                 >
-                  1. Select Location & Spin-up
+                  1. Add Sites & Spin Up
                 </button>
                 <button
                   type="button"
@@ -2531,21 +2642,51 @@ export default function SCEPTERConfig({ savedData }) {
                     : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                   }`}
                 >
-                  2. Set Practice Variables
+                  2. Set Practice Variables & Run Model
                 </button>
               </div>
 
-              {/* Page 1: Step 1 - Location Selection & Run spin-up */}
+              {/* Page 1: Step 1 - Add Sites */}
               {currentPage === 1 && (
                 <>
-                  <h4 className="text-md font-semibold mb-4">Select locations on the map, then run spin-up job</h4>
-                  
+                  <div className="space-y-3 mb-4">
+                    <div>
+                      <h4 className="text-md font-semibold">Step 1: Add sites</h4>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Add one or more locations by clicking the map or choosing sites from USGS Water Quality Sites.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setMapSelectMode(true)}
+                        className={`w-full rounded-xl border px-3 py-2 text-center text-sm font-semibold transition-colors ${
+                          mapSelectMode
+                            ? 'border-blue-300 bg-blue-50 text-blue-900'
+                            : 'border-gray-200 bg-gray-50 text-gray-900 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-900'
+                        }`}
+                      >
+                        Select on Map
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setMapSelectMode(false);
+                          navigate('/usgs-sites');
+                        }}
+                        className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-center text-sm font-semibold text-gray-900 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-900"
+                      >
+                        Use USGS sites
+                      </button>
+                    </div>
+                  </div>
 
                   {selectedLocations.length === 0 ? (
                     <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-300">
                       <h3 className="text-sm font-semibold text-yellow-800 mb-2">Add locations</h3>
                       <p className="text-sm text-yellow-700">
-                        Click the map to add one or more locations.
+                        Click the map to add one or more locations, or use USGS Water Quality Sites.
                       </p>
                     </div>
                   ) : null}
@@ -2751,14 +2892,23 @@ export default function SCEPTERConfig({ savedData }) {
                     disabled={!canContinueToStep2}
                     className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-md font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Continue to Step 2
+                    Continue to Next Step 
                   </Button>
                 </>
               )}
 
-              {/* Page 2: Step 2 - Set Practice Variables */}
+              {/* Page 2: Step 2 and Step 3 - Practice Variables and Model Run */}
               {currentPage === 2 && (
                 <form onSubmit={handleRunModel} className="space-y-6">
+                  <div className="space-y-2">
+                    <div>
+                      <h4 className="text-md font-semibold">Step 2: Set practice variables</h4>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Configure feedstock and application settings for each selected site.
+                      </p>
+                    </div>
+
+                  </div>
                   <div className="bg-white p-3 rounded-2xl shadow-md space-y-4">
                     {selectedLocations.length > 0 ? (
                       <>
