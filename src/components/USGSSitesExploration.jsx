@@ -359,7 +359,7 @@ const USGSSiteSelector = ({
         type="button"
         onClick={() => onAddToScepter && onAddToScepter()}
         disabled={!location}
-        className="mt-12 w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-2 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
+        className="mt-20 w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-2 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
       >
         Add to SCEPTER model
       </Button>
