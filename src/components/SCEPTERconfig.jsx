@@ -1173,7 +1173,7 @@ export default function SCEPTERConfig({ savedData }) {
   /** Invalidates prior baseline status poll loops so only one chain updates UI. */
   const baselinePollGenerationRef = useRef(0);
   /** User chose "Select on map" — Option 1 stays light blue until they choose USGS. */
-  const [mapSelectMode, setMapSelectMode] = useState(false);
+  const [mapSelectMode, setMapSelectMode] = useState(true);
 
   const hasAnyLocation = selectedLocations.length > 0;
 
@@ -1507,7 +1507,7 @@ export default function SCEPTERConfig({ savedData }) {
     setActivePracticeIndex(0);
     setMapCenter([39.8283, -98.5795]);
     setMapZoom(4);
-    setMapSelectMode(false);
+    setMapSelectMode(true);
     setCurrentPage(1);
 
     try {
