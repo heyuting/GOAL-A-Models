@@ -1158,8 +1158,10 @@ export default function SCEPTERConfig({ savedData }) {
   const [spinupError, setSpinupError] = useState(null);
   const [isSubmittingRunModel, setIsSubmittingRunModel] = useState(false);
   const [isCheckingSpinupStatus, setIsCheckingSpinupStatus] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [downloadStatus, setDownloadStatus] = useState('');
+  const [isDownloadingModel, setIsDownloadingModel] = useState(false);
+  const [isDownloadingSpinup, setIsDownloadingSpinup] = useState(false);
+  const [modelDownloadStatus, setModelDownloadStatus] = useState('');
+  const [spinupDownloadStatus, setSpinupDownloadStatus] = useState('');
   const [currentPage, setCurrentPage] = useState(1); // 1 = Add Sites, 2 = Practice Variables & Run Model
   const [activePracticeIndex, setActivePracticeIndex] = useState(0);
   /** { id, lat, lng, label }[] — labels like CT_Location_1 */
@@ -1458,7 +1460,7 @@ export default function SCEPTERConfig({ savedData }) {
     setMapZoom((z) => (z < 2 ? 2 : z));
   };
 
-  /** Clear SCEPTER model run job/status only (Step 2); does not remove locations or spin-up baseline state. */
+  /** Clear model-run job/status and persisted run IDs (localStorage). */
   const resetStep2ModelRun = () => {
     setSpinupJobId(null);
     setRunModelBatchId('');
@@ -1466,7 +1468,9 @@ export default function SCEPTERConfig({ savedData }) {
     setSpinupError(null);
     setIsSubmittingRunModel(false);
     setIsCheckingSpinupStatus(false);
-    setDownloadStatus('');
+    setIsDownloadingModel(false);
+    setModelDownloadStatus('');
+    setSpinupDownloadStatus('');
     try {
       localStorage.removeItem('scepter_spinup_job_id');
       localStorage.removeItem('scepter_run_model_batch_id');
@@ -1475,11 +1479,54 @@ export default function SCEPTERConfig({ savedData }) {
     }
   };
 
-  const handleRunModel = async (e) => {
+  /** Full reset: spin-up + model run state, locations, practice vars, map, and SCEPTER localStorage keys. */
+  const resetAllScepterSession = () => {
+    baselinePollGenerationRef.current += 1;
+
+    resetStep2ModelRun();
+    setIsDownloadingSpinup(false);
+
+    setBaselineJobId(null);
+    setBaselineJobIds([]);
+    setBaselineBatchId('');
+    setBaselineStatus(null);
+    setBaselineError(null);
+    setBaselineNotice(null);
+    setBaselineCheckInfo(null);
+    setIsSubmittingBaseline(false);
+    setIsCheckingBaselineStatus(false);
+
+    setFeedstock('');
+    setParticleSize('');
+    setApplicationRate('');
+    setTargetPH('');
+    setSelectedSite(null);
+    setPracticeVarsById({});
+    setCoordTextById({});
+    setSelectedLocations([]);
+    setActivePracticeIndex(0);
+    setMapCenter([39.8283, -98.5795]);
+    setMapZoom(4);
+    setMapSelectMode(false);
+    setCurrentPage(1);
+
+    try {
+      localStorage.removeItem('scepter_baseline_job_id');
+      localStorage.removeItem('scepter_baseline_job_ids');
+      localStorage.removeItem('scepter_baseline_batch_id');
+      localStorage.removeItem('scepter_baseline_coordinate');
+      localStorage.removeItem('scepter_selected_locations_ui');
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleRunModel = async (e, options = {}) => {
+    const { skipBaselineCheck = false } = options;
     e.preventDefault();
     if (isSubmittingRunModel) return;
 
-    if (!baselineJobId || baselineStatus !== 'completed') {
+    if (!skipBaselineCheck && (!baselineJobId || baselineStatus !== 'completed')) {
       setSpinupError('Spin-up must be completed before running the SCEPTER model.');
       return;
     }
@@ -1489,7 +1536,7 @@ export default function SCEPTERConfig({ savedData }) {
       !!(runModelBatchId && String(runModelBatchId).trim()) ||
       ['pending', 'queued', 'submitted', 'submitting', 'running'].includes(String(spinupStatus || '').toLowerCase());
     if (hasActiveRunAlready) {
-      setSpinupError('SCEPTER model run already submitted. Use Reset model run to submit again.');
+      setSpinupError('SCEPTER model run already submitted. Use Reset to clear and submit again.');
       return;
     }
 
@@ -1745,10 +1792,34 @@ export default function SCEPTERConfig({ savedData }) {
 
   const hasActiveBaselineJobs = !!(baselineJobId?.trim() || baselineJobIds.length > 0);
 
+  useEffect(() => {
+    if (!hasActiveBaselineJobs || baselineStatus) return;
+    const ids = baselineJobIds.length
+      ? baselineJobIds
+      : (baselineJobId ? [baselineJobId] : []);
+    if (!ids.length) return;
+    // Restore visible baseline status after refresh before the first manual check.
+    setBaselineStatus('submitted');
+    pollBaselineBatchStatus(ids);
+  }, [hasActiveBaselineJobs, baselineStatus, baselineJobIds, baselineJobId, pollBaselineBatchStatus]);
+
+  useEffect(() => {
+    const jobId = String(spinupJobId || '').trim();
+    const batchId = String(runModelBatchId || '').trim();
+    if (!jobId && !batchId) return;
+    if (spinupStatus) return;
+    // Restore visible model status after refresh before the first manual check.
+    setSpinupStatus('submitted');
+  }, [spinupJobId, runModelBatchId, spinupStatus]);
+
   const handleBaselineSimulation = async () => {
     // Prevent duplicate submissions for the same spin-up request.
     if (isSubmittingBaseline || hasActiveBaselineJobs) {
-      return;
+      return {
+        ok: false,
+        reason: 'already_submitted',
+        jobIds: baselineJobIds.length ? baselineJobIds : (baselineJobId ? [baselineJobId] : []),
+      };
     }
     setIsSubmittingBaseline(true);
     setBaselineError(null);
@@ -1762,18 +1833,18 @@ export default function SCEPTERConfig({ savedData }) {
     if (!selectedLocations.length) {
       setBaselineError('Please select at least one location on the map.');
       setIsSubmittingBaseline(false);
-      return;
+      return { ok: false, reason: 'no_locations', jobIds: [] };
     }
     for (const l of selectedLocations) {
       if (!Number.isFinite(l.lat) || !Number.isFinite(l.lng)) {
         setBaselineError('Enter valid latitude and longitude for every location (see coordinate fields).');
         setIsSubmittingBaseline(false);
-        return;
+        return { ok: false, reason: 'invalid_coordinates', jobIds: [] };
       }
       if (l.lat < -90 || l.lat > 90 || l.lng < -180 || l.lng > 180) {
         setBaselineError('Latitude must be between -90 and 90; longitude between -180 and 180.');
         setIsSubmittingBaseline(false);
-        return;
+        return { ok: false, reason: 'invalid_coordinates', jobIds: [] };
       }
     }
     const coordinates = selectedLocations.map((l) => [l.lat, l.lng]);
@@ -1808,7 +1879,7 @@ export default function SCEPTERConfig({ savedData }) {
         const msg = result?.error || result?.message || text || `Request failed (${response.status})`;
         setBaselineError(msg);
         setBaselineStatus('failed');
-        return;
+        return { ok: false, reason: 'request_failed', jobIds: [] };
       }
       const jobIds =
         Array.isArray(result?.job_ids)
@@ -1865,7 +1936,7 @@ export default function SCEPTERConfig({ savedData }) {
           if (jobIds.length) {
             pollBaselineBatchStatus(jobIds);
           }
-          return;
+          return { ok: true, reason: 'submitted', jobIds };
         }
         setBaselineError(
           result?.error ||
@@ -1873,7 +1944,7 @@ export default function SCEPTERConfig({ savedData }) {
             'No job id found in response (expected job_id, batch_job_id, baseline_job_id, id, or job_ids).'
         );
         setBaselineStatus('failed');
-        return;
+        return { ok: false, reason: 'missing_job_id', jobIds: [] };
       }
       setBaselineJobId(jobId);
       setBaselineJobIds([jobId]);
@@ -1908,10 +1979,12 @@ export default function SCEPTERConfig({ savedData }) {
         // Ignore localStorage write errors
       }
       pollBaselineStatus(jobId);
+      return { ok: true, reason: 'submitted', jobIds: [jobId] };
     } catch (err) {
       console.error('Baseline simulation error:', err);
       setBaselineError(err.message);
       setBaselineStatus('failed');
+      return { ok: false, reason: 'request_failed', jobIds: [] };
     } finally {
       setIsSubmittingBaseline(false);
     }
@@ -2011,16 +2084,19 @@ export default function SCEPTERConfig({ savedData }) {
   };
 
   const handleDownloadResults = async () => {
-    const jobId = spinupJobId?.trim();
-    if (!jobId || spinupStatus !== 'completed') return;
-    if (isDownloading) return;
+    if (isDownloadingModel) return;
 
-    setIsDownloading(true);
-    setDownloadStatus('Connecting...');
+    const jobId = spinupJobId?.trim();
+    const batchIdPreview = String(runModelBatchId ?? '').trim();
+    // Batch ZIP can use runModelBatchId alone; single-job path needs a job id and completed status.
+    const canDownload = Boolean(batchIdPreview) || (Boolean(jobId) && spinupStatus === 'completed');
+    if (!canDownload) return;
+
+    setIsDownloadingModel(true);
+    setModelDownloadStatus('Downloading...');
     setSpinupError(null);
 
     try {
-      setDownloadStatus('Requesting download...');
       const batchIdNorm = String(runModelBatchId ?? '').trim();
       const canTryBatch = Boolean(batchIdNorm);
 
@@ -2053,16 +2129,20 @@ export default function SCEPTERConfig({ savedData }) {
       }
 
       if (batchResponse?.ok) {
-        setDownloadStatus('Receiving data...');
+        setModelDownloadStatus('Receiving data...');
         const blob = await batchResponse.blob();
-        setDownloadStatus('Starting download...');
+        setModelDownloadStatus('Starting download...');
         saveBlobAsFileDownload(blob, batchZipFilename);
-        setDownloadStatus('Download complete!');
-        setTimeout(() => setDownloadStatus(''), 2000);
+        setModelDownloadStatus('Download complete!');
+        setTimeout(() => setModelDownloadStatus(''), 2000);
         return;
       }
 
-      setDownloadStatus('Requesting download...');
+      if (!jobId) {
+        throw new Error('Batch download was not available and no model job id was found for a single-file download.');
+      }
+
+      setModelDownloadStatus('Downloading...');
       let response = null;
       let lastErr = '';
       for (const path of runModelSingleDownloadUrls(jobId)) {
@@ -2087,33 +2167,33 @@ export default function SCEPTERConfig({ savedData }) {
         throw new Error(lastErr || 'Download failed');
       }
 
-      setDownloadStatus('Receiving data...');
+      setModelDownloadStatus('Receiving data...');
       const blob = await response.blob();
-      setDownloadStatus('Starting download...');
+      setModelDownloadStatus('Starting download...');
       saveBlobAsFileDownload(blob, `scepter_results_${jobId}.zip`);
-      setDownloadStatus(canTryBatch ? 'Download complete (single-job ZIP; batch ZIP unavailable).' : 'Download complete!');
-      setTimeout(() => setDownloadStatus(''), canTryBatch ? 3500 : 2000);
+      setModelDownloadStatus(canTryBatch ? 'Download complete (single-job ZIP; batch ZIP unavailable).' : 'Download complete!');
+      setTimeout(() => setModelDownloadStatus(''), canTryBatch ? 3500 : 2000);
     } catch (err) {
       console.error('Download error:', err);
       setSpinupError(err.message || 'Failed to download results.');
-      setDownloadStatus('Download failed');
-      setTimeout(() => setDownloadStatus(''), 3000);
+      setModelDownloadStatus('Download failed');
+      setTimeout(() => setModelDownloadStatus(''), 3000);
     } finally {
-      setIsDownloading(false);
+      setIsDownloadingModel(false);
     }
   };
 
   const handleDownloadSpinupResults = async () => {
     const jobId = baselineJobId?.trim();
     if (!jobId || baselineStatus !== 'completed') return;
-    if (isDownloading) return;
+    if (isDownloadingSpinup) return;
 
-    setIsDownloading(true);
-    setDownloadStatus('Connecting...');
+    setIsDownloadingSpinup(true);
+    setSpinupDownloadStatus('Connecting...');
     setBaselineError(null);
 
     try {
-      setDownloadStatus('Requesting download...');
+      setSpinupDownloadStatus('Downloading...');
       const batchIdNorm =
         normalizeBaselineBatchIdForStatus(baselineBatchId) || String(baselineBatchId ?? '').trim();
       const canTryBatch = /^baseline_batch_\d+$/i.test(batchIdNorm);
@@ -2147,12 +2227,12 @@ export default function SCEPTERConfig({ savedData }) {
       }
 
       if (batchResponse?.ok) {
-        setDownloadStatus('Receiving data...');
+        setSpinupDownloadStatus('Receiving data...');
         const blob = await batchResponse.blob();
-        setDownloadStatus('Starting download...');
+        setSpinupDownloadStatus('Starting download...');
         saveBlobAsFileDownload(blob, batchZipFilename);
-        setDownloadStatus('Download complete!');
-        setTimeout(() => setDownloadStatus(''), 2000);
+        setSpinupDownloadStatus('Download complete!');
+        setTimeout(() => setSpinupDownloadStatus(''), 2000);
         return;
       }
 
@@ -2173,7 +2253,7 @@ export default function SCEPTERConfig({ savedData }) {
       const usedBatchZip = canTryBatch;
       for (let i = 0; i < ids.length; i += 1) {
         const jid = ids[i];
-        setDownloadStatus(
+        setSpinupDownloadStatus(
           ids.length > 1 ? `Downloading location ${i + 1} of ${ids.length}...` : 'Receiving data...'
         );
         const response = await fetch(
@@ -2198,22 +2278,22 @@ export default function SCEPTERConfig({ savedData }) {
         }
       }
 
-      setDownloadStatus(
+      setSpinupDownloadStatus(
         usedBatchZip && ids.length > 1
           ? `Downloaded ${ids.length} ZIP file(s) (batch ZIP unavailable on server).`
           : ids.length > 1
             ? `Downloaded ${ids.length} ZIP file(s).`
             : 'Download complete!'
       );
-      setTimeout(() => setDownloadStatus(''), 3000);
+      setTimeout(() => setSpinupDownloadStatus(''), 3000);
     } catch (err) {
       console.error('Spin-up download error:', err);
       const msg = err.message || 'Failed to download spin-up results.';
       setBaselineError(msg);
-      setDownloadStatus('Download failed');
-      setTimeout(() => setDownloadStatus(''), 3000);
+      setSpinupDownloadStatus('Download failed');
+      setTimeout(() => setSpinupDownloadStatus(''), 3000);
     } finally {
-      setIsDownloading(false);
+      setIsDownloadingSpinup(false);
     }
   };
 
@@ -2496,10 +2576,7 @@ export default function SCEPTERConfig({ savedData }) {
     }
   }, [selectedStatistic, statisticPeriod]);
 */
-  const spinUpSuccess = baselineStatus === 'completed';
-  const canContinueToStep2 =
-    savedData ||
-    (spinUpSuccess && selectedLocations.length >= 1);
+  const canContinueToStep2 = savedData || selectedLocations.length >= 1;
 
   const removeLocationAt = (index) => {
     setSelectedLocations((prev) => prev.filter((_, i) => i !== index));
@@ -2629,7 +2706,7 @@ export default function SCEPTERConfig({ savedData }) {
                       : 'bg-gray-200 text-gray-700 hover:bg-gray-300 border-gray-300'
                   }`}
                 >
-                  1. Add Sites & Spin Up
+                  1. Add Sites
                 </button>
                 <button
                   type="button"
@@ -2642,7 +2719,7 @@ export default function SCEPTERConfig({ savedData }) {
                     : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                   }`}
                 >
-                  2. Set Practice Variables & Run Model
+                  2. Set Variables & Run
                 </button>
               </div>
 
@@ -2784,110 +2861,6 @@ export default function SCEPTERConfig({ savedData }) {
 
                   <Button
                     type="button"
-                    onClick={handleBaselineSimulation}
-                    title="Baseline weathering simulations without rock application"
-                    disabled={
-                      isSubmittingBaseline || hasActiveBaselineJobs || selectedLocations.length < 1
-                    }
-                    className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-md font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isSubmittingBaseline
-                      ? 'Submitting...'
-                      : hasActiveBaselineJobs
-                        ? 'Spin-up already submitted'
-                        : 'Run spin-up job'}
-                  </Button>
-
-                  {(isSubmittingBaseline ||
-                    hasActiveBaselineJobs ||
-                    baselineStatus ||
-                    baselineError ||
-                    baselineNotice ||
-                    baselineCheckInfo) && (
-                    <div className={`flex items-center justify-between gap-3 p-3 rounded-lg text-sm ${baselineStatus === 'completed' ? 'bg-green-100 text-green-700' : baselineStatus === 'running' || baselineStatus === 'submitting' ? 'bg-blue-100 text-blue-700' : baselineStatus === 'failed' ? 'bg-red-100 text-red-700' : baselineStatus === 'pending' || baselineStatus === 'submitted' || baselineStatus === 'queued' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
-                      <div className="min-w-0">
-                        {baselineJobIds.length > 1 ? (
-                          <div>
-                            <strong>Spin-up jobs:</strong> {baselineJobIds.join(', ')}
-                          </div>
-                        ) : (
-                          baselineJobId && (
-                            <div>
-                              <strong>Spin-up Job:</strong> {baselineJobId}
-                            </div>
-                          )
-                        )}
-                        {baselineBatchId?.trim() ? (
-                          <div className="text-xs text-gray-600 mt-1">
-                            <strong>Batch id (status):</strong> {baselineBatchId}
-                          </div>
-                        ) : null}
-                        <div>
-                          <strong>Status:</strong>{' '}
-                          {isSubmittingBaseline && !hasActiveBaselineJobs
-                            ? 'submitting'
-                            : (baselineStatus || 'idle')}
-                        </div>
-                        {baselineNotice && <div className="text-xs text-gray-700 mt-1">{baselineNotice}</div>}
-                        {baselineCheckInfo && (
-                          <div className="text-xs text-gray-600 mt-1 border-t border-gray-200 pt-1">{baselineCheckInfo}</div>
-                        )}
-                        {baselineError && <div>{baselineError}</div>}
-                      </div>
-                      <div className="flex flex-col gap-2 shrink-0">
-                        <Button
-                          type="button"
-                          onClick={handleCheckBaselineStatus}
-                          disabled={isCheckingBaselineStatus || !hasActiveBaselineJobs}
-                          className="bg-yellow-500 text-white hover:bg-yellow-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
-                        >
-                          {isCheckingBaselineStatus ? 'Checking...' : 'Check status'}
-                        </Button>
-                        <Button
-                          type="button"
-                          onClick={() => {
-                            setBaselineJobId(null);
-                            setBaselineJobIds([]);
-                            setBaselineBatchId('');
-                            setBaselineStatus(null);
-                            setBaselineError(null);
-                            setBaselineNotice(null);
-                            setBaselineCheckInfo(null);
-                            setSpinupJobId(null);
-                            setRunModelBatchId('');
-                            setSpinupStatus(null);
-                            setSpinupError(null);
-                            setSelectedLocations([]);
-                            setMapCenter([39.8283, -98.5795]);
-                            setMapZoom(4);
-                            localStorage.removeItem('scepter_baseline_job_id');
-                            localStorage.removeItem('scepter_baseline_job_ids');
-                            localStorage.removeItem('scepter_baseline_batch_id');
-                            localStorage.removeItem('scepter_baseline_coordinate');
-                            localStorage.removeItem('scepter_spinup_job_id');
-                            localStorage.removeItem('scepter_run_model_batch_id');
-                          }}
-                          className="bg-red-500 text-white hover:bg-red-600 rounded-md py-1.5 px-3 text-sm"
-                        >
-                          Reset
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {baselineStatus === 'completed' && (
-                    <Button
-                      type="button"
-                      onClick={handleDownloadSpinupResults}
-                      disabled={isDownloading}
-                      className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-md font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isDownloading ? (downloadStatus || 'Preparing download...') : 'Download spin-up results'}
-                    </Button>
-                  )}
-
-                  <Button
-                    type="button"
                     onClick={() => setCurrentPage(2)}
                     disabled={!canContinueToStep2}
                     className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-md font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
@@ -2897,14 +2870,14 @@ export default function SCEPTERConfig({ savedData }) {
                 </>
               )}
 
-              {/* Page 2: Step 2 - Practice Variables and Model Run */}
+              {/* Page 2: Step 2 - Practice Variables and Step 3 - Combined Run */}
               {currentPage === 2 && (
-                <form onSubmit={handleRunModel} className="space-y-6">
+                <form onSubmit={(e) => e.preventDefault()} className="space-y-6">
                   <div className="space-y-2">
                     <div>
                       <h4 className="text-md font-semibold">Step 2: Set practice variables</h4>
                       <p className="text-sm text-gray-600 mt-1">
-                        Configure feedstock and application settings for each selected site.
+                        Configure feedstock and application settings for each selected site, then run Spin-Up and Model Run as one flow.
                       </p>
                     </div>
 
@@ -3009,53 +2982,123 @@ export default function SCEPTERConfig({ savedData }) {
                   <div className="space-y-2">
                     <Button
                       type="button"
-                      onClick={handleSaveModel}
+                      onClick={() => {
+                        const confirmed = window.confirm(
+                          savedData
+                            ? 'Update this model configuration with the current settings?'
+                            : 'Save this model configuration with the current settings?'
+                        );
+                        if (!confirmed) return;
+                        handleSaveModel();
+                      }}
                       disabled={isSaving || !hasAnyLocation}
                       className="w-full bg-purple-500 hover:bg-purple-600 text-white py-2 rounded-md font-semibold"
                     >
                       {isSaving ? 'Saving...' : savedData ? 'Update Model Configuration' : 'Save Model Configuration'}
                     </Button>
-                    <Button
-                      type="button"
-                      disabled={
-                        isSubmittingRunModel ||
-                        !!(spinupJobId && String(spinupJobId).trim()) ||
-                        !!(runModelBatchId && String(runModelBatchId).trim()) ||
-                        ['pending', 'queued', 'submitted', 'submitting', 'running'].includes(
-                          String(spinupStatus || '').toLowerCase()
-                        )
-                      }
-                      onClick={(e) => {
-                        e.preventDefault();
-                        handleRunModel(e);
-                      }}
-                      className="w-full bg-green-500 text-white hover:bg-green-600 rounded-md p-2 disabled:opacity-50"
-                    >
-                      {isSubmittingRunModel
-                        ? 'Submitting...'
-                        : !!(spinupJobId && String(spinupJobId).trim()) ||
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="space-y-3">
+                        <Button
+                          type="button"
+                          disabled={
+                            isSubmittingBaseline ||
+                            hasActiveBaselineJobs ||
+                            selectedLocations.length < 1
+                          }
+                          onClick={handleBaselineSimulation}
+                          className="w-full bg-green-500 text-white hover:bg-green-600 rounded-md p-2 disabled:opacity-50"
+                        >
+                          {isSubmittingBaseline
+                            ? 'Submitting Spin-Up...'
+                            : hasActiveBaselineJobs
+                              ? 'Spin-Up submitted'
+                              : 'Run Spin-Up'}
+                        </Button>
+                        <div className={`p-3 rounded-lg text-sm ${baselineStatus === 'completed' ? 'bg-green-100 text-green-700' : baselineStatus === 'running' || baselineStatus === 'submitting' ? 'bg-blue-100 text-blue-700' : baselineStatus === 'failed' ? 'bg-red-100 text-red-700' : baselineStatus === 'pending' || baselineStatus === 'submitted' || baselineStatus === 'queued' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
+                          <div className="min-w-0">
+                            {baselineBatchId?.trim() ? (
+                              <div className="text-sm mt-1">
+                                <span className="font-semibold">Spin-Up batch id:</span>{' '}
+                                <span className="text-sm">{baselineBatchId}</span>
+                              </div>
+                            ) : null}
+                            <div className="text-sm">
+                              <span className="font-semibold">Spin-Up Status:</span>{' '}
+                              <span className="text-sm">{isSubmittingBaseline ? 'submitting' : (baselineStatus || 'idle')}</span>
+                            </div>
+                            {baselineCheckInfo && <div className="sr-only">{baselineCheckInfo}</div>}
+                            {baselineNotice && <div className="text-xs mt-1">{baselineNotice}</div>}
+                            {baselineError && <div className="mt-1">{baselineError}</div>}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              onClick={handleCheckBaselineStatus}
+                              disabled={isCheckingBaselineStatus || !hasActiveBaselineJobs}
+                              className="bg-yellow-500 text-white hover:bg-yellow-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
+                            >
+                              {isCheckingBaselineStatus ? 'Checking...' : 'Check status'}
+                            </Button>
+                            {baselineStatus === 'completed' && (
+                              <Button
+                                type="button"
+                                onClick={handleDownloadSpinupResults}
+                                disabled={isDownloadingSpinup}
+                                className="bg-green-500 text-white hover:bg-green-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {isDownloadingSpinup ? (spinupDownloadStatus || 'Preparing download...') : 'Download'}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <Button
+                          type="button"
+                          disabled={
+                            isSubmittingRunModel ||
+                            !baselineJobId ||
+                            baselineStatus !== 'completed' ||
+                            !!(spinupJobId && String(spinupJobId).trim()) ||
                             !!(runModelBatchId && String(runModelBatchId).trim()) ||
                             ['pending', 'queued', 'submitted', 'submitting', 'running'].includes(
                               String(spinupStatus || '').toLowerCase()
                             )
-                          ? 'SCEPTER model already submitted'
-                          : 'Run SCEPTER Model'}
-                    </Button>
+                          }
+                          onClick={(e) => handleRunModel(e)}
+                          className="w-full bg-blue-600 text-white hover:bg-blue-700 rounded-md p-2 disabled:opacity-50"
+                        >
+                          {isSubmittingRunModel
+                            ? 'Submitting Model Run...'
+                            : !!(spinupJobId && String(spinupJobId).trim()) ||
+                                !!(runModelBatchId && String(runModelBatchId).trim()) ||
+                                ['pending', 'queued', 'submitted', 'submitting', 'running'].includes(
+                                  String(spinupStatus || '').toLowerCase()
+                                )
+                              ? 'Model run submitted'
+                              : 'Run Model'}
+                        </Button>
 
-                    {(spinupJobId || spinupStatus || spinupError || runModelBatchId?.trim() || isSubmittingRunModel) && (
-                      <div className="space-y-3">
-                        <div className={`flex items-center justify-between gap-3 p-3 rounded-lg text-sm ${spinupStatus === 'completed' ? 'bg-green-100 text-green-700' : spinupStatus === 'running' ? 'bg-blue-100 text-blue-700' : spinupStatus === 'failed' || spinupStatus === 'error' ? 'bg-red-100 text-red-700' : spinupStatus === 'pending' || spinupStatus === 'submitted' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
+                        <div className={`p-3 rounded-lg text-sm ${spinupStatus === 'completed' ? 'bg-green-100 text-green-700' : spinupStatus === 'running' ? 'bg-blue-100 text-blue-700' : spinupStatus === 'failed' || spinupStatus === 'error' ? 'bg-red-100 text-red-700' : spinupStatus === 'pending' || spinupStatus === 'submitted' || spinupStatus === 'waiting_for_spinup' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
                           <div className="min-w-0">
-                            {spinupJobId && <div><strong>SCEPTER Job:</strong> {spinupJobId}</div>}
                             {runModelBatchId?.trim() ? (
-                              <div className="text-xs text-gray-600 mt-1">
-                                <strong>Run batch id:</strong> {runModelBatchId}
+                              <div className="text-sm mt-1">
+                                <span className="font-semibold">Model batch id:</span>{' '}
+                                <span className="text-sm">{runModelBatchId}</span>
                               </div>
                             ) : null}
-                            {spinupStatus && <div><strong>Status:</strong> {spinupStatus}</div>}
+                            <div className="text-sm">
+                              <span className="font-semibold">Model Status:</span>{' '}
+                              <span className="text-sm">
+                                {spinupStatus
+                                  ? (spinupStatus === 'waiting_for_spinup' ? 'waiting for spin-up to complete' : spinupStatus)
+                                  : (baselineStatus && baselineStatus !== 'completed' ? 'waiting for spin-up to complete' : 'idle')}
+                              </span>
+                            </div>
                             {spinupError && <div>{spinupError}</div>}
                           </div>
-                          <div className="flex flex-col gap-2 shrink-0">
+                          <div className="mt-2 flex flex-wrap gap-2">
                             <Button
                               type="button"
                               onClick={handleCheckSpinupStatus}
@@ -3064,27 +3107,33 @@ export default function SCEPTERConfig({ savedData }) {
                             >
                               {isCheckingSpinupStatus ? 'Checking...' : 'Check status'}
                             </Button>
-                            <Button
-                              type="button"
-                              onClick={resetStep2ModelRun}
-                              className="bg-red-500 text-white hover:bg-red-600 rounded-md py-1.5 px-3 text-sm"
-                            >
-                              Reset
-                            </Button>
+                            {(spinupStatus === 'completed' || !!runModelBatchId?.trim()) && (
+                              <Button
+                                type="button"
+                                onClick={handleDownloadResults}
+                                disabled={isDownloadingModel}
+                                className={`rounded-md py-1.5 px-3 text-sm font-semibold ${isDownloadingModel ? 'bg-gray-400 text-white cursor-not-allowed' : 'bg-green-500 text-white hover:bg-green-600'}`}
+                              >
+                                {isDownloadingModel ? (modelDownloadStatus || 'Preparing download...') : 'Download'}
+                              </Button>
+                            )}
                           </div>
                         </div>
-                        {spinupStatus === 'completed' && (
-                          <Button
-                            type="button"
-                            onClick={handleDownloadResults}
-                            disabled={isDownloading}
-                            className={`w-full py-2 rounded-md font-semibold ${isDownloading ? 'bg-gray-400 text-white cursor-not-allowed' : 'bg-green-500 text-white hover:bg-green-600'}`}
-                          >
-                            {isDownloading ? (downloadStatus || 'Preparing download...') : 'Download Model Results'}
-                          </Button>
-                        )}
                       </div>
-                    )}
+                    </div>
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        const confirmed = window.confirm(
+                          'Reset everything on this page? This clears sites, practice variables, spin-up and model-run status, and removes saved session data from your browser for SCEPTER.'
+                        );
+                        if (!confirmed) return;
+                        resetAllScepterSession();
+                      }}
+                      className="w-full bg-red-500 text-white hover:bg-red-600 rounded-md py-2 font-semibold"
+                    >
+                      Reset
+                    </Button>
                   </div>
 
                 </form>
