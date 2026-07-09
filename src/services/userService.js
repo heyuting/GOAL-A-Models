@@ -13,12 +13,14 @@ import {
   Timestamp
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { DEFAULT_USER_TIER, normalizeUserTier } from '@/config/userTiers';
 
 class UserService {
   constructor() {
     this.usersKey = 'goal-a-users';
     this.modelsKey = 'goal-a-models';
     this.modelsCollection = 'savedModels'; // Firestore collection name
+    this.usersCollection = 'users'; // Firestore user profiles (tier, etc.)
     this.migrationDoneKey = 'models_migrated_to_firestore';
   }
 
@@ -42,14 +44,32 @@ class UserService {
     }
   }
 
-  // Create a new user
+  // Create a new user (upsert by firebaseUid)
   createUser(userData) {
     const users = this.getUsers();
+    const { password: _password, tier: rawTier, ...safeUserData } = userData || {};
+    const uid = safeUserData.firebaseUid;
+    const existingIndex = users.findIndex((u) => u.id === uid);
+    const tier = normalizeUserTier(rawTier || DEFAULT_USER_TIER);
+
+    if (existingIndex !== -1) {
+      users[existingIndex] = {
+        ...users[existingIndex],
+        ...safeUserData,
+        id: uid,
+        tier,
+        updatedAt: new Date().toISOString(),
+      };
+      this.saveUsers(users);
+      return users[existingIndex];
+    }
+
     const newUser = {
-      id: userData.firebaseUid, // Use Firebase UID as primary ID
-      ...userData,
+      id: uid,
+      ...safeUserData,
+      tier,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
 
     users.push(newUser);
@@ -75,15 +95,128 @@ class UserService {
     const userIndex = users.findIndex(user => user.id === userId);
 
     if (userIndex !== -1) {
+      const nextUpdates = { ...updates };
+      if (Object.prototype.hasOwnProperty.call(nextUpdates, 'tier')) {
+        nextUpdates.tier = normalizeUserTier(nextUpdates.tier);
+      }
+      // Never persist plaintext passwords on profile updates
+      delete nextUpdates.password;
+
       users[userIndex] = {
         ...users[userIndex],
-        ...updates,
+        ...nextUpdates,
         updatedAt: new Date().toISOString()
       };
       this.saveUsers(users);
       return users[userIndex];
     }
     return null;
+  }
+
+  /**
+   * Ensure local profile has a valid tier. Used on login for older profiles.
+   */
+  ensureUserTier(userId, preferredTier) {
+    const existing = this.findUserByFirebaseUid(userId);
+    if (!existing) return null;
+    const normalized = normalizeUserTier(existing.tier || preferredTier || DEFAULT_USER_TIER);
+    if (existing.tier === normalized) return existing;
+    return this.updateUser(userId, { tier: normalized });
+  }
+
+  /**
+   * Load / sync user profile from Firestore.
+   * Tier in Firestore is set by admins (console / rules); clients create with standard only.
+   * Env allowlists still raise effective tier at resolve time (see resolveUserTier).
+   */
+  async getOrCreateFirestoreProfile({ uid, email, name }) {
+    if (!uid) return null;
+    const userRef = doc(db, this.usersCollection, uid);
+
+    try {
+      const snap = await getDoc(userRef);
+      if (snap.exists()) {
+        const data = snap.data() || {};
+        const profile = {
+          id: uid,
+          email: data.email || email || '',
+          name: data.name || name || '',
+          tier: normalizeUserTier(data.tier || DEFAULT_USER_TIER),
+          createdAt: data.createdAt?.toDate?.()?.toISOString?.() || data.createdAt || null,
+          updatedAt: data.updatedAt?.toDate?.()?.toISOString?.() || data.updatedAt || null,
+        };
+
+        this.createUser({
+          firebaseUid: uid,
+          email: profile.email,
+          name: profile.name,
+          tier: profile.tier,
+        });
+        return profile;
+      }
+
+      const newProfile = {
+        email: email || '',
+        name: name || (email ? email.split('@')[0] : ''),
+        tier: DEFAULT_USER_TIER,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+      await setDoc(userRef, newProfile);
+
+      this.createUser({
+        firebaseUid: uid,
+        email: newProfile.email,
+        name: newProfile.name,
+        tier: DEFAULT_USER_TIER,
+      });
+
+      return {
+        id: uid,
+        email: newProfile.email,
+        name: newProfile.name,
+        tier: DEFAULT_USER_TIER,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      console.error('Error loading Firestore user profile:', error);
+      let local = this.findUserByFirebaseUid(uid);
+      if (!local) {
+        local = this.createUser({
+          firebaseUid: uid,
+          email,
+          name: name || (email ? email.split('@')[0] : ''),
+          tier: DEFAULT_USER_TIER,
+        });
+      } else {
+        local = this.ensureUserTier(uid, DEFAULT_USER_TIER) || local;
+      }
+      return local;
+    }
+  }
+
+  /**
+   * Set a user's tier in Firestore (and local cache).
+   * Prefer Firebase Console / Admin SDK in production; protect with security rules
+   * so clients cannot elevate themselves.
+   */
+  async setUserTierInFirestore(userId, tier) {
+    if (!userId) return null;
+    const normalized = normalizeUserTier(tier);
+    try {
+      const userRef = doc(db, this.usersCollection, userId);
+      await setDoc(
+        userRef,
+        { tier: normalized, updatedAt: serverTimestamp() },
+        { merge: true }
+      );
+      this.updateUser(userId, { tier: normalized });
+      return normalized;
+    } catch (error) {
+      console.error('Error setting user tier in Firestore:', error);
+      return null;
+    }
   }
 
   // Migrate models from localStorage to Firestore (one-time operation)

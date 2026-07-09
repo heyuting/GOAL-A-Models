@@ -3,9 +3,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import userService from '@/services/userService';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatLocationLimit, getTierConfig } from '@/config/userTiers';
 
 export default function UserDashboard({ onLogout, onNavigateToModels, onViewModel }) {
   const { user, deleteAccount } = useAuth();
+  const tierConfig = getTierConfig(user);
   const [activeTab, setActiveTab] = useState('profile');
   const [savedModels, setSavedModels] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -172,6 +174,14 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
                   <div>
                     <label className="text-sm font-medium text-gray-700">Email</label>
                     <p className="text-gray-900">{user.email}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Access level</label>
+                    <p className="text-gray-900 capitalize">{tierConfig.label}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Locations per run</label>
+                    <p className="text-gray-900">{formatLocationLimit(tierConfig.locationLimit)}</p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-700">Member Since</label>

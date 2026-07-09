@@ -12,6 +12,7 @@ import {
 } from 'firebase/auth';
 import { auth } from '@/firebase';
 import userService from '@/services/userService';
+import { resolveUserTier } from '@/config/userTiers';
 
 const AuthContext = createContext();
 
@@ -35,25 +36,21 @@ export const AuthProvider = ({ children }) => {
         
         // User is signed in AND email is verified, get additional profile data from userService
         try {
-          let userData = userService.findUserByFirebaseUid(firebaseUser.uid);
-          
-          // If user doesn't exist in userService, create a basic profile
-          if (!userData) {
-            userData = userService.createUser({
-              email: firebaseUser.email,
-              name: firebaseUser.displayName || firebaseUser.email.split('@')[0],
-              firebaseUid: firebaseUser.uid
-            });
-          }
-          
-          // Use Firebase UID as primary ID
+          const userData = await userService.getOrCreateFirestoreProfile({
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            name: firebaseUser.displayName || firebaseUser.email.split('@')[0],
+          });
+
+          // Effective tier: Firestore profile + env allowlists (highest wins)
           const combinedUser = {
             ...userData,
-            id: firebaseUser.uid,  // Firebase UID as primary ID
+            id: firebaseUser.uid,
             email: firebaseUser.email,
-            emailVerified: firebaseUser.emailVerified
+            emailVerified: firebaseUser.emailVerified,
+            tier: resolveUserTier({ ...userData, email: firebaseUser.email }),
           };
-          
+
           setUser(combinedUser);
         } catch (error) {
           console.error('Error loading user profile:', error);
@@ -85,20 +82,17 @@ export const AuthProvider = ({ children }) => {
         throw new Error('Please verify your email address before signing in. Check your inbox for the verification email.');
       }
       
-      // Get additional profile data from userService
-      let userData = userService.findUserByFirebaseUid(firebaseUser.uid);
-      
-      if (!userData) {
-        // Create user profile if it doesn't exist
-        userData = userService.createUser({
-          email: firebaseUser.email,
-          name: firebaseUser.displayName || firebaseUser.email.split('@')[0],
-          firebaseUid: firebaseUser.uid
-        });
-      }
-      
-      // The user state will be updated by onAuthStateChanged
-      return userData;
+      // Profile sync happens in onAuthStateChanged via Firestore
+      const userData = await userService.getOrCreateFirestoreProfile({
+        uid: firebaseUser.uid,
+        email: firebaseUser.email,
+        name: firebaseUser.displayName || firebaseUser.email.split('@')[0],
+      });
+
+      return {
+        ...userData,
+        tier: resolveUserTier({ ...userData, email: firebaseUser.email }),
+      };
     } catch (error) {
       console.error('Login error:', error);
       throw new Error(error.message);
@@ -132,11 +126,11 @@ export const AuthProvider = ({ children }) => {
         url: `${window.location.origin}/email-verification-pending`
       });
 
-      // Create user profile in userService
-      const newUser = userService.createUser({
-        ...userData,
-        firebaseUid: firebaseUser.uid,
-        email: firebaseUser.email
+      // Create user profile in Firestore + local cache (standard; env may elevate)
+      const newUser = await userService.getOrCreateFirestoreProfile({
+        uid: firebaseUser.uid,
+        email: firebaseUser.email,
+        name: userData.name || firebaseUser.email.split('@')[0],
       });
 
       // Sign out the user until they verify their email
@@ -175,13 +169,16 @@ export const AuthProvider = ({ children }) => {
 
   const updateProfile = (updates) => {
     if (!user) return null;
-    
-    const updatedUser = userService.updateUser(user.id, updates);
+
+    // Tier is assigned via env allowlists / admin tooling — not self-service.
+    const { tier: _tier, password: _password, ...safeUpdates } = updates || {};
+    const updatedUser = userService.updateUser(user.id, safeUpdates);
     if (updatedUser) {
-      // Update local user state with the changes
-      setUser(prevUser => ({
+      // Update local user state with the changes; keep effective tier from resolver
+      setUser((prevUser) => ({
         ...prevUser,
-        ...updatedUser
+        ...updatedUser,
+        tier: resolveUserTier({ ...prevUser, ...updatedUser, email: prevUser.email }),
       }));
     }
     return updatedUser;

@@ -11,6 +11,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import userService from '@/services/userService';
 import 'leaflet/dist/leaflet.css';
 import { usStates } from "@/data/usStates"; // Import state codes
+import {
+  formatLocationLimit,
+  getLocationLimit,
+  hasUnlimitedLocations,
+} from '@/config/userTiers';
 
 // API base URL configuration - Use relative URLs for local development (proxied through Vite)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
@@ -25,8 +30,6 @@ const particleSizeToNumber = (value) => {
   const match = value.match(/(\d+)um/);
   return match ? parseInt(match[1], 10) : null;
 };
-
-const MAX_SCEPTER_LOCATIONS = 5;
 
 const BASELINE_STATUS_FETCH_MS = 90_000;
 
@@ -127,6 +130,132 @@ const normalizeBaselineStatusToken = (raw) => {
   if (/pend|queue|wait|hold/i.test(t)) return 'pending';
   // Unknown free-form text (especially log lines) should not become a synthetic status token.
   return '';
+};
+
+const MODEL_RUN_ACTIVE_STATUSES = new Set(['pending', 'queued', 'submitted', 'submitting', 'running']);
+const MODEL_RUN_RETRYABLE_STATUSES = new Set(['failed', 'error', 'cancelled', 'timeout']);
+
+const isModelRunInProgress = (status) =>
+  MODEL_RUN_ACTIVE_STATUSES.has(normalizeBaselineStatusToken(String(status || '')));
+
+const isModelRunRetryable = (status) =>
+  MODEL_RUN_RETRYABLE_STATUSES.has(normalizeBaselineStatusToken(String(status || '')));
+
+const isModelRunCompleted = (status) =>
+  normalizeBaselineStatusToken(String(status || '')) === 'completed';
+
+const formatUsdEstimate = (usd) => {
+  if (usd == null || !Number.isFinite(Number(usd))) return null;
+  return `$${Number(usd).toFixed(2)}`;
+};
+
+const formatDurationFromSeconds = (seconds) => {
+  if (seconds == null || !Number.isFinite(Number(seconds))) return null;
+  const total = Math.max(0, Math.round(Number(seconds)));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  if (hours) return `${hours}h ${minutes}m`;
+  if (minutes) return `${minutes}m ${secs}s`;
+  return `${secs}s`;
+};
+
+const extractUsageFromStatusPayload = (payload) => {
+  if (!payload || typeof payload !== 'object') return null;
+  const resources = payload.resources;
+  const aws = payload.aws_cost_estimate;
+  if (!resources && !aws) return null;
+  return {
+    resources: resources || null,
+    aws_cost_estimate: aws || null,
+  };
+};
+
+const aggregateUsageFromStatusRows = (rows) => {
+  if (!Array.isArray(rows) || !rows.length) return null;
+  let totalElapsed = 0;
+  let totalUsd = 0;
+  let maxRss = 0;
+  let hasElapsed = false;
+  let hasUsd = false;
+  let requestedCpus = null;
+  let requestedMemGb = null;
+
+  for (const row of rows) {
+    const usage = extractUsageFromStatusPayload(row?.result);
+    if (!usage) continue;
+    const r = usage.resources || {};
+    const c = usage.aws_cost_estimate || {};
+    if (r.requested_cpus != null) requestedCpus = r.requested_cpus;
+    if (r.requested_memory_gb != null) requestedMemGb = r.requested_memory_gb;
+    if (r.elapsed_seconds != null) {
+      totalElapsed += Number(r.elapsed_seconds);
+      hasElapsed = true;
+    }
+    if (c.usd != null) {
+      totalUsd += Number(c.usd);
+      hasUsd = true;
+    }
+    if (r.max_rss_mb != null) {
+      maxRss = Math.max(maxRss, Number(r.max_rss_mb));
+    }
+  }
+
+  if (!hasElapsed && !hasUsd) return null;
+
+  return {
+    resources: {
+      requested_cpus: requestedCpus,
+      requested_memory_gb: requestedMemGb,
+      elapsed_seconds: hasElapsed ? totalElapsed : null,
+      elapsed: hasElapsed ? formatDurationFromSeconds(totalElapsed) : null,
+      max_rss_mb: maxRss || null,
+    },
+    aws_cost_estimate: hasUsd
+      ? {
+          instance_type: rows[0]?.result?.aws_cost_estimate?.instance_type || 'm6i.xlarge',
+          usd: totalUsd,
+          note: 'Sum across locations (parallel AWS jobs would bill concurrently).',
+        }
+      : null,
+  };
+};
+
+const JobUsageSummary = ({ usage, label }) => {
+  if (!usage?.resources && !usage?.aws_cost_estimate) return null;
+  const r = usage.resources || {};
+  const aws = usage.aws_cost_estimate || {};
+  const elapsedLabel =
+    r.elapsed ||
+    formatDurationFromSeconds(r.elapsed_seconds) ||
+    (r.elapsed_is_estimate ? 'estimating…' : null);
+
+  return (
+    <div className="mt-2 pt-2 border-t border-current/20 text-xs space-y-1">
+      {label ? <div className="font-semibold">{label}</div> : null}
+      <div>
+        <span className="font-semibold">Resources:</span>{' '}
+        {r.requested_cpus ?? '—'} CPU
+        {r.requested_memory_gb != null ? `, ${r.requested_memory_gb} GB requested` : ''}
+        {r.max_rss_mb != null ? `, peak ${r.max_rss_mb} MB RAM` : ''}
+      </div>
+      {elapsedLabel ? (
+        <div>
+          <span className="font-semibold">Runtime:</span> {elapsedLabel}
+          {r.elapsed_is_estimate ? ' (estimated so far)' : ''}
+          {r.total_cpu ? ` · CPU time ${r.total_cpu}` : ''}
+        </div>
+      ) : null}
+      {aws.usd != null ? (
+        <div>
+          <span className="font-semibold">AWS estimate:</span>{' '}
+          {formatUsdEstimate(aws.usd)} on {aws.instance_type || 'm6i.xlarge'} on-demand
+          {aws.region ? ` (${aws.region})` : ''}
+        </div>
+      ) : null}
+      {aws.note ? <div className="opacity-80">{aws.note}</div> : null}
+    </div>
+  );
 };
 
 const STATUS_LIKE_KEY_RE =
@@ -631,6 +760,52 @@ const fetchRunScepterModelBatchStatusPair = async (rawBatchId) => {
   return last || { response: { ok: false, status: 0 }, result: null, text: '' };
 };
 
+/** Baseline batch status: primary + /api/scepter/baseline-simulation-batch/ alias. */
+const fetchBaselineBatchStatusPair = async (rawBatchId) => {
+  const id = String(rawBatchId ?? '').trim();
+  if (!id) {
+    return {
+      response: { ok: false, status: 0 },
+      result: null,
+      text: 'Empty baseline batch id',
+    };
+  }
+  const enc = encodeURIComponent(id);
+  const paths = [
+    `api/baseline-simulation-batch/${enc}/status`,
+    `api/scepter/baseline-simulation-batch/${enc}/status`,
+  ];
+  let last = null;
+  let sawAbort = false;
+  for (const path of paths) {
+    try {
+      const response = await fetchWithTimeout(getApiUrl(path), {
+        headers: { 'ngrok-skip-browser-warning': 'true' },
+      });
+      const text = await response.text();
+      let result = null;
+      if (text?.trim()) {
+        try {
+          result = JSON.parse(text);
+        } catch {
+          result = {};
+        }
+      }
+      last = { response, result, text };
+      if (response.ok) return last;
+      if (response.status !== 400 && response.status !== 404) return last;
+    } catch (e) {
+      if (e?.name === 'AbortError') {
+        sawAbort = true;
+        continue;
+      }
+      throw e;
+    }
+  }
+  if (sawAbort && !last) throw new DOMException('Baseline batch status timed out', 'AbortError');
+  return last || { response: { ok: false, status: 0 }, result: null, text: '' };
+};
+
 /** True when every row failed with an id-format/not-found style client error. */
 const areAllRowsClientIdErrors = (rows) => {
   if (!Array.isArray(rows) || !rows.length) return false;
@@ -650,6 +825,56 @@ const parseCoordField = (raw, kind) => {
     if (n < -180 || n > 180) return null;
   }
   return n;
+};
+
+/**
+ * Parse a pasted list of coordinates. Accepts one pair per line (or semicolon-separated),
+ * with lat/lng separated by comma, whitespace, or tab. Optional trailing label after a third token.
+ * Returns { pairs: [{ lat, lng, label? }], errors: string[] }.
+ */
+const parsePastedCoordinateList = (raw) => {
+  const text = String(raw ?? '').trim();
+  if (!text) return { pairs: [], errors: ['Paste at least one latitude, longitude pair.'] };
+
+  const lines = text
+    .split(/[\n;]+/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'));
+
+  const pairs = [];
+  const errors = [];
+
+  lines.forEach((line, index) => {
+    const lineNo = index + 1;
+    const parts = line.split(/[,|\t]+|\s{2,}|\s+/).map((p) => p.trim()).filter(Boolean);
+    if (parts.length < 2) {
+      errors.push(`Line ${lineNo}: need latitude and longitude (got "${line}").`);
+      return;
+    }
+
+    let lat = parseCoordField(parts[0], 'lat');
+    let lng = parseCoordField(parts[1], 'lng');
+
+    // If first token is out of lat range but looks like a longitude, try lng, lat order
+    if ((lat === null || lng === null) && Number.isFinite(Number(parts[0])) && Math.abs(Number(parts[0])) > 90) {
+      const latAlt = parseCoordField(parts[1], 'lat');
+      const lngAlt = parseCoordField(parts[0], 'lng');
+      if (latAlt !== null && lngAlt !== null) {
+        lat = latAlt;
+        lng = lngAlt;
+      }
+    }
+
+    if (lat === null || lng === null) {
+      errors.push(`Line ${lineNo}: invalid coordinates "${line}". Use lat, lng (e.g. 41.3083, -72.9279).`);
+      return;
+    }
+
+    const label = parts.slice(2).join(' ').trim() || undefined;
+    pairs.push({ lat, lng, label });
+  });
+
+  return { pairs, errors };
 };
 
 // Find state abbreviation from coordinates (nearest state center)
@@ -1096,9 +1321,44 @@ const USGSSiteSelector = ({ handleSiteSelect, location, onSitesLoaded, onStateSe
   );
 };
 
-export default function SCEPTERConfig({ savedData }) {
+const SCEPTER_STORAGE_KEYS = [
+  'scepter_baseline_job_id',
+  'scepter_baseline_job_ids',
+  'scepter_baseline_batch_id',
+  'scepter_baseline_coordinate',
+  'scepter_baseline_status',
+  'scepter_spinup_checkpoint',
+  'scepter_practice_vars',
+  'scepter_selected_locations_ui',
+  'scepter_spinup_job_id',
+  'scepter_run_model_batch_id',
+  'scepter_model_status',
+  'scepter_usgs_locations',
+];
+
+const clearScepterPersistedSession = () => {
+  try {
+    for (const key of SCEPTER_STORAGE_KEYS) {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // ignore localStorage errors
+  }
+};
+
+export default function SCEPTERConfig({ savedData, freshSession = false }) {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const maxLocations = getLocationLimit(user);
+  const locationsUnlimited = hasUnlimitedLocations(user);
+  const locationLimitLabel = formatLocationLimit(maxLocations);
+  const shouldStartFreshSession = freshSession && !savedData;
+  const freshSessionPreparedRef = useRef(false);
+  if (shouldStartFreshSession && !freshSessionPreparedRef.current) {
+    clearScepterPersistedSession();
+    freshSessionPreparedRef.current = true;
+  }
+  const [activeModelId, setActiveModelId] = useState(() => savedData?.id || null);
   const [feedstock, setFeedstock] = useState('');
   const [particleSize, setParticleSize] = useState('');
   const [applicationRate, setApplicationRate] = useState('');
@@ -1168,14 +1428,40 @@ export default function SCEPTERConfig({ savedData }) {
   const [selectedLocations, setSelectedLocations] = useState([]);
   /** Per-location practice vars keyed by location id. */
   const [practiceVarsById, setPracticeVarsById] = useState({});
+  /** When true, edits in Step 2 apply to every selected site. */
+  const [applySamePracticeToAll, setApplySamePracticeToAll] = useState(false);
   /** Per-location coordinate strings for inputs (keyed by loc.id) */
   const [coordTextById, setCoordTextById] = useState({});
   /** Invalidates prior baseline status poll loops so only one chain updates UI. */
   const baselinePollGenerationRef = useRef(0);
+  /** Prevent overlapping auto-sync requests for saved models. */
+  const isAutoSyncingRunTrackingRef = useRef(false);
+  /** Last serialized run-tracking payload synced to backend for this saved model. */
+  const lastRunTrackingSnapshotRef = useRef('');
+  const [showNameModal, setShowNameModal] = useState(false);
+  const [modelName, setModelName] = useState('');
+  const [baselineJobUsage, setBaselineJobUsage] = useState(null);
+  const [modelRunUsage, setModelRunUsage] = useState(null);
   /** User chose "Select on map" — Option 1 stays light blue until they choose USGS. */
   const [mapSelectMode, setMapSelectMode] = useState(true);
+  /** Paste-list UI for Step 1 coordinate bulk add. */
+  const [pasteCoordsText, setPasteCoordsText] = useState('');
+  const [pasteCoordsFeedback, setPasteCoordsFeedback] = useState(null);
+  const [isAddingPastedCoords, setIsAddingPastedCoords] = useState(false);
+  const [showPasteCoords, setShowPasteCoords] = useState(false);
 
   const hasAnyLocation = selectedLocations.length > 0;
+  const hasAnyRunTrackingId = Boolean(
+    String(baselineJobId || '').trim() ||
+    baselineJobIds.length > 0 ||
+    String(baselineBatchId || '').trim() ||
+    String(spinupJobId || '').trim() ||
+    String(runModelBatchId || '').trim()
+  );
+
+  useEffect(() => {
+    setActiveModelId(savedData?.id || null);
+  }, [savedData]);
 
   useEffect(() => {
     setCoordTextById((prev) => {
@@ -1258,13 +1544,13 @@ export default function SCEPTERConfig({ savedData }) {
             };
           })
           .filter(Boolean)
-          .slice(0, MAX_SCEPTER_LOCATIONS);
+          .slice(0, Number.isFinite(maxLocations) ? maxLocations : undefined);
       });
     } catch (error) {
       console.error('Failed to restore cached SCEPTER locations:', error);
       localStorage.removeItem('scepter_selected_locations_ui');
     }
-  }, [savedData]);
+  }, [savedData, maxLocations]);
 
   useEffect(() => {
     if (savedData) return;
@@ -1279,6 +1565,80 @@ export default function SCEPTERConfig({ savedData }) {
       // Ignore localStorage write errors
     }
   }, [savedData, selectedLocations]);
+
+  useEffect(() => {
+    if (savedData) return;
+
+    try {
+      const rawPractice = localStorage.getItem('scepter_practice_vars');
+      if (!rawPractice) return;
+      const parsed = JSON.parse(rawPractice);
+      if (!parsed || typeof parsed !== 'object') return;
+      setPracticeVarsById((prev) => (Object.keys(prev).length > 0 ? prev : parsed));
+    } catch (error) {
+      console.error('Failed to restore cached SCEPTER practice variables:', error);
+      localStorage.removeItem('scepter_practice_vars');
+    }
+  }, [savedData]);
+
+  useEffect(() => {
+    if (savedData) return;
+
+    try {
+      if (Object.keys(practiceVarsById).length > 0) {
+        localStorage.setItem('scepter_practice_vars', JSON.stringify(practiceVarsById));
+      }
+    } catch {
+      // Ignore localStorage write errors
+    }
+  }, [savedData, practiceVarsById]);
+
+  useEffect(() => {
+    if (savedData) return;
+    try {
+      if (baselineStatus) {
+        localStorage.setItem('scepter_baseline_status', String(baselineStatus));
+      } else {
+        localStorage.removeItem('scepter_baseline_status');
+      }
+    } catch {
+      // Ignore localStorage write errors
+    }
+  }, [savedData, baselineStatus]);
+
+  useEffect(() => {
+    if (savedData) return;
+    if (normalizeBaselineStatusToken(String(baselineStatus || '')) !== 'completed') return;
+    if (!baselineJobId?.trim() && baselineJobIds.length === 0) return;
+
+    try {
+      localStorage.setItem(
+        'scepter_spinup_checkpoint',
+        JSON.stringify({
+          baselineJobId: baselineJobId || baselineJobIds[0] || null,
+          baselineJobIds,
+          baselineBatchId: baselineBatchId || '',
+          baselineStatus: 'completed',
+          completedAt: new Date().toISOString(),
+        })
+      );
+    } catch {
+      // Ignore localStorage write errors
+    }
+  }, [savedData, baselineStatus, baselineJobId, baselineJobIds, baselineBatchId]);
+
+  useEffect(() => {
+    if (savedData) return;
+    try {
+      if (spinupStatus) {
+        localStorage.setItem('scepter_model_status', String(spinupStatus));
+      } else {
+        localStorage.removeItem('scepter_model_status');
+      }
+    } catch {
+      // Ignore localStorage write errors
+    }
+  }, [savedData, spinupStatus]);
 
   useEffect(() => {
     if (savedData) return;
@@ -1318,7 +1678,7 @@ export default function SCEPTERConfig({ savedData }) {
           const existingIndex = merged.findIndex((item) => item.id === loc.id);
           if (existingIndex >= 0) {
             merged[existingIndex] = { ...merged[existingIndex], ...loc };
-          } else if (merged.length < MAX_SCEPTER_LOCATIONS) {
+          } else if (!Number.isFinite(maxLocations) || merged.length < maxLocations) {
             merged.push(loc);
           }
         }
@@ -1334,7 +1694,7 @@ export default function SCEPTERConfig({ savedData }) {
       console.error('Failed to load USGS locations for SCEPTER:', error);
       localStorage.removeItem('scepter_usgs_locations');
     }
-  }, [savedData]);
+  }, [savedData, maxLocations]);
 
   // Load saved data when component mounts or savedData changes
   useEffect(() => {
@@ -1347,6 +1707,46 @@ export default function SCEPTERConfig({ savedData }) {
       setTargetPH(params.targetPH || '');
       if (params.practiceVarsByLocation && typeof params.practiceVarsByLocation === 'object') {
         setPracticeVarsById(params.practiceVarsByLocation);
+      }
+      if (params.runTracking && typeof params.runTracking === 'object') {
+        const rt = params.runTracking;
+        const savedBaselineJobIds = Array.isArray(rt.baselineJobIds)
+          ? rt.baselineJobIds.map((id) => String(id || '').trim()).filter(Boolean)
+          : [];
+        const savedBaselineJobId = String(rt.baselineJobId || '').trim();
+        const savedBaselineBatchId = normalizeBaselineBatchIdForStatus(rt.baselineBatchId || '') || '';
+        const savedBaselineStatus = rt.baselineStatus ? String(rt.baselineStatus) : null;
+        const savedModelJobId = String(rt.modelJobId || '').trim();
+        const savedModelBatchId = String(rt.modelBatchId || '').trim();
+        const savedModelStatus = rt.modelStatus ? String(rt.modelStatus) : null;
+
+        setBaselineJobIds(savedBaselineJobIds);
+        setBaselineJobId(savedBaselineJobId || savedBaselineJobIds[0] || null);
+        setBaselineBatchId(savedBaselineBatchId);
+        const hasBaselineTrackingIds = Boolean(savedBaselineJobId || savedBaselineJobIds.length || savedBaselineBatchId);
+        setBaselineStatus(hasBaselineTrackingIds ? savedBaselineStatus : null);
+        setSpinupJobId(savedModelJobId || null);
+        setRunModelBatchId(savedModelBatchId);
+        setSpinupStatus(savedModelStatus);
+        lastRunTrackingSnapshotRef.current = JSON.stringify({
+          baselineJobId: savedBaselineJobId || savedBaselineJobIds[0] || null,
+          baselineJobIds: savedBaselineJobIds,
+          baselineBatchId: savedBaselineBatchId || '',
+          baselineStatus: savedBaselineStatus || null,
+          modelJobId: savedModelJobId || null,
+          modelBatchId: savedModelBatchId || '',
+          modelStatus: savedModelStatus || null,
+        });
+
+        try {
+          if (savedBaselineJobId) localStorage.setItem('scepter_baseline_job_id', savedBaselineJobId);
+          if (savedBaselineJobIds.length) localStorage.setItem('scepter_baseline_job_ids', JSON.stringify(savedBaselineJobIds));
+          if (savedBaselineBatchId) localStorage.setItem('scepter_baseline_batch_id', savedBaselineBatchId);
+          if (savedModelJobId) localStorage.setItem('scepter_spinup_job_id', savedModelJobId);
+          if (savedModelBatchId) localStorage.setItem('scepter_run_model_batch_id', savedModelBatchId);
+        } catch {
+          // ignore localStorage write errors
+        }
       }
       //setSelectedStatistic(params.selectedStatistic || 'most_recent');
       //setStatisticPeriod(params.statisticPeriod || '7d');
@@ -1445,13 +1845,47 @@ export default function SCEPTERConfig({ savedData }) {
   };
 
   const updatePracticeVarForLocation = (locId, key, value) => {
-    setPracticeVarsById((prev) => ({
-      ...prev,
-      [locId]: {
-        ...(prev[locId] || {}),
-        [key]: value,
-      },
-    }));
+    setPracticeVarsById((prev) => {
+      if (applySamePracticeToAll && selectedLocations.length > 0) {
+        const next = { ...prev };
+        for (const loc of selectedLocations) {
+          next[loc.id] = {
+            ...(next[loc.id] || {}),
+            [key]: value,
+          };
+        }
+        return next;
+      }
+      return {
+        ...prev,
+        [locId]: {
+          ...(prev[locId] || {}),
+          [key]: value,
+        },
+      };
+    });
+  };
+
+  /** Copy the active site's practice vars onto every selected location. */
+  const applyCurrentPracticeVarsToAllSites = () => {
+    if (selectedLocations.length < 2) return;
+    const source = selectedLocations[activePracticeIndex] || selectedLocations[0];
+    if (!source) return;
+    const vars = getPracticeVarsForLocation(source.id);
+    setPracticeVarsById((prev) => {
+      const next = { ...prev };
+      for (const loc of selectedLocations) {
+        next[loc.id] = {
+          ...(next[loc.id] || {}),
+          feedstock: vars.feedstock,
+          particleSize: vars.particleSize,
+          applicationRate: vars.applicationRate,
+          targetPH: vars.targetPH,
+        };
+      }
+      return next;
+    });
+    setApplySamePracticeToAll(true);
   };
 
   const focusPracticeLocationOnMap = (loc) => {
@@ -1471,9 +1905,11 @@ export default function SCEPTERConfig({ savedData }) {
     setIsDownloadingModel(false);
     setModelDownloadStatus('');
     setSpinupDownloadStatus('');
+    setModelRunUsage(null);
     try {
       localStorage.removeItem('scepter_spinup_job_id');
       localStorage.removeItem('scepter_run_model_batch_id');
+      localStorage.removeItem('scepter_model_status');
     } catch {
       // ignore
     }
@@ -1485,6 +1921,7 @@ export default function SCEPTERConfig({ savedData }) {
 
     resetStep2ModelRun();
     setIsDownloadingSpinup(false);
+    setBaselineJobUsage(null);
 
     setBaselineJobId(null);
     setBaselineJobIds([]);
@@ -1505,24 +1942,44 @@ export default function SCEPTERConfig({ savedData }) {
     setCoordTextById({});
     setSelectedLocations([]);
     setActivePracticeIndex(0);
+    setApplySamePracticeToAll(false);
     setMapCenter([39.8283, -98.5795]);
     setMapZoom(4);
     setMapSelectMode(true);
     setCurrentPage(1);
 
     try {
-      localStorage.removeItem('scepter_baseline_job_id');
-      localStorage.removeItem('scepter_baseline_job_ids');
-      localStorage.removeItem('scepter_baseline_batch_id');
-      localStorage.removeItem('scepter_baseline_coordinate');
-      localStorage.removeItem('scepter_selected_locations_ui');
+      clearScepterPersistedSession();
     } catch {
       // ignore
     }
   };
 
+  useEffect(() => {
+    if (!shouldStartFreshSession) return;
+    resetAllScepterSession();
+    setActiveModelId(null);
+    lastRunTrackingSnapshotRef.current = '';
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldStartFreshSession]);
+
+  const spinupIsCompleted =
+    normalizeBaselineStatusToken(String(baselineStatus || '')) === 'completed';
+  const modelRunInProgress = isModelRunInProgress(spinupStatus);
+  const modelRunFailed = isModelRunRetryable(spinupStatus);
+  const modelRunCompleted = isModelRunCompleted(spinupStatus);
+  const hasModelRunIds = Boolean(
+    String(spinupJobId || '').trim() || String(runModelBatchId || '').trim()
+  );
+  const canSubmitModelRun =
+    spinupIsCompleted &&
+    !isSubmittingRunModel &&
+    !modelRunInProgress &&
+    !modelRunCompleted &&
+    (!hasModelRunIds || modelRunFailed);
+
   const handleRunModel = async (e, options = {}) => {
-    const { skipBaselineCheck = false } = options;
+    const { skipBaselineCheck = false, forceRetry = false } = options;
     e.preventDefault();
     if (isSubmittingRunModel) return;
 
@@ -1531,13 +1988,19 @@ export default function SCEPTERConfig({ savedData }) {
       return;
     }
 
-    const hasActiveRunAlready =
-      !!(spinupJobId && String(spinupJobId).trim()) ||
-      !!(runModelBatchId && String(runModelBatchId).trim()) ||
-      ['pending', 'queued', 'submitted', 'submitting', 'running'].includes(String(spinupStatus || '').toLowerCase());
-    if (hasActiveRunAlready) {
-      setSpinupError('SCEPTER model run already submitted. Use Reset to clear and submit again.');
-      return;
+    if (!forceRetry) {
+      const hasActiveRunAlready =
+        isModelRunInProgress(spinupStatus) ||
+        isModelRunCompleted(spinupStatus) ||
+        (hasModelRunIds && !isModelRunRetryable(spinupStatus));
+      if (hasActiveRunAlready) {
+        setSpinupError(
+          isModelRunCompleted(spinupStatus)
+            ? 'Model run already completed. Use Reset to start over.'
+            : 'SCEPTER model run already submitted. Use Retry from spin-up if it failed, or Reset to start over.'
+        );
+        return;
+      }
     }
 
     if (!selectedLocations.length) {
@@ -1721,6 +2184,13 @@ export default function SCEPTERConfig({ savedData }) {
     }
   };
 
+  const handleRetryModelRun = async (e) => {
+    e.preventDefault();
+    if (!spinupIsCompleted || isSubmittingRunModel) return;
+    resetStep2ModelRun();
+    await handleRunModel(e, { skipBaselineCheck: true, forceRetry: true });
+  };
+
   /** Poll spin-up status using per-job ids only (no batch GET .../baseline-simulation-batch/{batchId}/status). */
   const pollBaselineBatchStatus = useCallback((ids) => {
     const generation = ++baselinePollGenerationRef.current;
@@ -1791,6 +2261,12 @@ export default function SCEPTERConfig({ savedData }) {
   );
 
   const hasActiveBaselineJobs = !!(baselineJobId?.trim() || baselineJobIds.length > 0);
+  const hasSubmittedSpinup =
+    hasActiveBaselineJobs ||
+    !!String(baselineBatchId || '').trim() ||
+    ['pending', 'queued', 'submitted', 'submitting', 'running', 'completed'].includes(
+      normalizeBaselineStatusToken(String(baselineStatus || ''))
+    );
 
   useEffect(() => {
     if (!hasActiveBaselineJobs || baselineStatus) return;
@@ -1798,6 +2274,19 @@ export default function SCEPTERConfig({ savedData }) {
       ? baselineJobIds
       : (baselineJobId ? [baselineJobId] : []);
     if (!ids.length) return;
+    try {
+      const savedStatus = localStorage.getItem('scepter_baseline_status');
+      if (savedStatus) {
+        const normalized = normalizeBaselineStatusToken(savedStatus);
+        setBaselineStatus(normalized || savedStatus);
+        if (normalized !== 'completed') {
+          pollBaselineBatchStatus(ids);
+        }
+        return;
+      }
+    } catch {
+      // Ignore invalid cached baseline status
+    }
     // Restore visible baseline status after refresh before the first manual check.
     setBaselineStatus('submitted');
     pollBaselineBatchStatus(ids);
@@ -1808,13 +2297,22 @@ export default function SCEPTERConfig({ savedData }) {
     const batchId = String(runModelBatchId || '').trim();
     if (!jobId && !batchId) return;
     if (spinupStatus) return;
+    try {
+      const savedStatus = localStorage.getItem('scepter_model_status');
+      if (savedStatus) {
+        setSpinupStatus(normalizeBaselineStatusToken(savedStatus) || savedStatus);
+        return;
+      }
+    } catch {
+      // Ignore invalid cached model status
+    }
     // Restore visible model status after refresh before the first manual check.
     setSpinupStatus('submitted');
   }, [spinupJobId, runModelBatchId, spinupStatus]);
 
   const handleBaselineSimulation = async () => {
     // Prevent duplicate submissions for the same spin-up request.
-    if (isSubmittingBaseline || hasActiveBaselineJobs) {
+    if (isSubmittingBaseline || hasSubmittedSpinup) {
       return {
         ok: false,
         reason: 'already_submitted',
@@ -1997,14 +2495,34 @@ export default function SCEPTERConfig({ savedData }) {
         : baselineJobId?.trim()
           ? [baselineJobId.trim()]
           : [];
-    if (!ids.length) {
-      setBaselineError('No spin-up job IDs. Run spin-up job first (batch id is not used for status).');
-      return;
-    }
+    const batchId = String(baselineBatchId || '').trim();
     setIsCheckingBaselineStatus(true);
     setBaselineError(null);
     const checkedAt = new Date().toLocaleTimeString();
     try {
+      if (!ids.length && batchId) {
+        const { response, result, text } = await fetchBaselineBatchStatusPair(batchId);
+        if (!response.ok) {
+          const msg =
+            result?.error || result?.message || text || `Baseline batch status check failed (${response.status})`;
+          setBaselineError(msg);
+          setBaselineCheckInfo(`Checked ${checkedAt}: baseline batch status request failed.`);
+          return;
+        }
+        const status =
+          extractStatusFromBaselinePayload(result) ||
+          (result?.status != null ? normalizeBaselineStatusToken(String(result.status)) : '') ||
+          'unknown';
+        setBaselineStatus(status);
+        setBaselineError(result?.error || null);
+        setBaselineCheckInfo(`Checked ${checkedAt}: ${status}${result?.error ? ` — ${result.error}` : ''}.`);
+        return;
+      }
+      if (!ids.length) {
+        setBaselineStatus(null);
+        setBaselineError('No spin-up tracking IDs were saved for this model. Run spin-up again (or re-save after run starts).');
+        return;
+      }
       const rows = await Promise.all(ids.map((id) => fetchBaselineSpinupStatusRow(id)));
       if (areAllRowsClientIdErrors(rows)) {
         setBaselineError(
@@ -2018,6 +2536,7 @@ export default function SCEPTERConfig({ savedData }) {
       const { status, error } = mergeBaselineStatusRows(rows);
       setBaselineStatus(status);
       setBaselineError(error);
+      setBaselineJobUsage(aggregateUsageFromStatusRows(rows));
       if (status === 'unknown' && rows[0]?.result && typeof rows[0].result === 'object') {
         const keys = Object.keys(rows[0].result).filter((k) => !k.startsWith('_')).slice(0, 12);
         setBaselineCheckInfo(
@@ -2061,7 +2580,9 @@ export default function SCEPTERConfig({ savedData }) {
         const msg =
           result?.error || result?.message || text || `Status check failed (${response.status})`;
         setSpinupError(msg);
-        setSpinupStatus('error');
+        const failedStatus = normalizeBaselineStatusToken(String(result?.status || ''));
+        setSpinupStatus(failedStatus || 'error');
+        setModelRunUsage(extractUsageFromStatusPayload(result));
         return;
       }
       const parsed = extractRunScepterModelStatusFromPayload(result);
@@ -2071,6 +2592,30 @@ export default function SCEPTERConfig({ savedData }) {
         'unknown';
       setSpinupStatus(status);
       setSpinupError(result?.error || null);
+      if (batchId && result?.usage_summary) {
+        setModelRunUsage({
+          resources: {
+            requested_cpus: 4,
+            requested_memory_gb: 16,
+            elapsed_seconds: result.usage_summary.total_elapsed_seconds,
+            elapsed: result.usage_summary.total_elapsed,
+            max_rss_mb: result.usage_summary.max_rss_mb,
+          },
+          aws_cost_estimate: result.usage_summary.aws_cost_estimate || {
+            usd: result.usage_summary.total_aws_usd,
+            instance_type: 'm6i.xlarge',
+            note: result.usage_summary.aws_cost_estimate?.note,
+          },
+        });
+      } else if (batchId && Array.isArray(result?.jobs)) {
+        setModelRunUsage(
+          aggregateUsageFromStatusRows(
+            result.jobs.map((job) => ({ result: job }))
+          )
+        );
+      } else {
+        setModelRunUsage(extractUsageFromStatusPayload(result));
+      }
     } catch (err) {
       console.error('Model status check error:', err);
       if (err.name === 'AbortError') {
@@ -2089,7 +2634,8 @@ export default function SCEPTERConfig({ savedData }) {
     const jobId = spinupJobId?.trim();
     const batchIdPreview = String(runModelBatchId ?? '').trim();
     // Batch ZIP can use runModelBatchId alone; single-job path needs a job id and completed status.
-    const canDownload = Boolean(batchIdPreview) || (Boolean(jobId) && spinupStatus === 'completed');
+    const modelIsCompleted = normalizeBaselineStatusToken(String(spinupStatus || '')) === 'completed';
+    const canDownload = Boolean(batchIdPreview) || (Boolean(jobId) && modelIsCompleted);
     if (!canDownload) return;
 
     setIsDownloadingModel(true);
@@ -2185,7 +2731,8 @@ export default function SCEPTERConfig({ savedData }) {
 
   const handleDownloadSpinupResults = async () => {
     const jobId = baselineJobId?.trim();
-    if (!jobId || baselineStatus !== 'completed') return;
+    const spinupIsCompleted = normalizeBaselineStatusToken(String(baselineStatus || '')) === 'completed';
+    if (!jobId || !spinupIsCompleted) return;
     if (isDownloadingSpinup) return;
 
     setIsDownloadingSpinup(true);
@@ -2297,7 +2844,74 @@ export default function SCEPTERConfig({ savedData }) {
     }
   };
 
-  const handleSaveModel = async () => {
+  const getDefaultScepterModelName = useCallback(() => {
+    if (savedData?.name && String(savedData.name).trim()) {
+      return String(savedData.name).trim();
+    }
+
+    return selectedLocations.length > 0
+      ? `SCEPTER_${selectedLocations.map((l) => l.label).join('_').replace(/\s+/g, '_')}`
+      : 'SCEPTER_Custom_Location';
+  }, [savedData, selectedLocations]);
+
+  const buildScepterModelDataPayload = useCallback((nameOverride) => {
+    const defaultName =
+      nameOverride && String(nameOverride).trim()
+        ? String(nameOverride).trim()
+        : getDefaultScepterModelName();
+
+    return {
+      name: defaultName,
+      model: 'SCEPTER',
+      locationMode: 'multiple',
+      selectedLocations,
+      location: selectedLocations.map((l) => `${l.lat.toFixed(4)}, ${l.lng.toFixed(4)}`).join(' | '),
+      status: 'saved',
+      parameters: {
+        feedstock,
+        particleSize,
+        applicationRate,
+        targetPH,
+        practiceVarsByLocation: practiceVarsById,
+        runTracking: {
+          baselineJobId: baselineJobId || null,
+          baselineJobIds,
+          baselineBatchId: baselineBatchId || '',
+          baselineStatus: baselineStatus || null,
+          modelJobId: spinupJobId || null,
+          modelBatchId: runModelBatchId || '',
+          modelStatus: spinupStatus || null,
+        },
+      },
+      siteData: selectedSite,
+    };
+  }, [
+    getDefaultScepterModelName,
+    selectedLocations,
+    feedstock,
+    particleSize,
+    applicationRate,
+    targetPH,
+    practiceVarsById,
+    baselineJobId,
+    baselineJobIds,
+    baselineBatchId,
+    baselineStatus,
+    spinupJobId,
+    runModelBatchId,
+    spinupStatus,
+    selectedSite,
+  ]);
+
+  const handleSaveModelClick = () => {
+    if (!user || !hasAnyLocation || !hasAnyRunTrackingId) {
+      return;
+    }
+    setModelName(getDefaultScepterModelName());
+    setShowNameModal(true);
+  };
+
+  const handleSaveModel = async (nameOverride) => {
     if (!user) {
       return;
     }
@@ -2306,43 +2920,31 @@ export default function SCEPTERConfig({ savedData }) {
       return;
     }
 
+    if (!nameOverride || !String(nameOverride).trim()) {
+      return;
+    }
+
     setIsSaving(true);
+    setShowNameModal(false);
 
     try {
-      const defaultName =
-        selectedLocations.length > 0
-          ? `SCEPTER_${selectedLocations.map((l) => l.label).join('_').replace(/\s+/g, '_')}`
-          : 'SCEPTER_Custom_Location';
-      const modelData = {
-        name: defaultName,
-        model: 'SCEPTER',
-        locationMode: 'multiple',
-        selectedLocations,
-        location: selectedLocations.map((l) => `${l.lat.toFixed(4)}, ${l.lng.toFixed(4)}`).join(' | '),
-        status: 'saved',
-        parameters: {
-          feedstock,
-          particleSize,
-          applicationRate,
-          targetPH,
-          practiceVarsByLocation: practiceVarsById,
-          // selectedStatistic,
-          // statisticPeriod,
-          // discharge: editedDischarge,
-          // alkalinity: editedAlkalinity,
-          // temperature: editedTemperature,
-          // ph: editedPH,
-          // bicarbonate: editedBicarbonate
-        },
-        siteData: selectedSite
-      };
+      const modelData = buildScepterModelDataPayload(nameOverride);
 
-      if (savedData) {
+      if (activeModelId) {
         // Update existing model
-        await userService.updateUserModel(user.id, savedData.id, modelData);
+        await userService.updateUserModel(user.id, activeModelId, modelData);
       } else {
         // Create new model
-        await userService.saveUserModel(user.id, modelData);
+        const created = await userService.saveUserModel(user.id, modelData);
+        const createdId =
+          created?.id ??
+          created?.data?.id ??
+          created?.model?.id ??
+          created?.savedModel?.id ??
+          null;
+        if (createdId) {
+          setActiveModelId(createdId);
+        }
       }
     } catch (error) {
       console.error('Error saving model:', error);
@@ -2350,6 +2952,54 @@ export default function SCEPTERConfig({ savedData }) {
       setIsSaving(false);
     }
   };
+
+  useEffect(() => {
+    if (!activeModelId || !user?.id) return;
+    if (!hasAnyLocation) return;
+    if (isSaving || isAutoSyncingRunTrackingRef.current) return;
+
+    const runTrackingSnapshot = JSON.stringify({
+      baselineJobId: baselineJobId || null,
+      baselineJobIds,
+      baselineBatchId: baselineBatchId || '',
+      baselineStatus: baselineStatus || null,
+      modelJobId: spinupJobId || null,
+      modelBatchId: runModelBatchId || '',
+      modelStatus: spinupStatus || null,
+    });
+    if (runTrackingSnapshot === lastRunTrackingSnapshotRef.current) return;
+
+    let cancelled = false;
+    isAutoSyncingRunTrackingRef.current = true;
+    (async () => {
+      try {
+        await userService.updateUserModel(user.id, activeModelId, buildScepterModelDataPayload());
+        if (!cancelled) {
+          lastRunTrackingSnapshotRef.current = runTrackingSnapshot;
+        }
+      } catch (error) {
+        console.error('Error auto-syncing SCEPTER run tracking:', error);
+      } finally {
+        isAutoSyncingRunTrackingRef.current = false;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeModelId,
+    user,
+    hasAnyLocation,
+    isSaving,
+    baselineJobId,
+    baselineJobIds,
+    baselineBatchId,
+    baselineStatus,
+    spinupJobId,
+    runModelBatchId,
+    spinupStatus,
+    buildScepterModelDataPayload,
+  ]);
 
 /*   const calculateStatistic = (values, statistic) => {
     if (!values || values.length === 0) return null;
@@ -2602,6 +3252,77 @@ export default function SCEPTERConfig({ savedData }) {
     setSelectedLocations([]);
   };
 
+  const addLocationsFromPaste = useCallback(async () => {
+    setPasteCoordsFeedback(null);
+    const { pairs, errors } = parsePastedCoordinateList(pasteCoordsText);
+    if (!pairs.length) {
+      setPasteCoordsFeedback({
+        type: 'error',
+        message: errors[0] || 'No valid coordinates found.',
+      });
+      return;
+    }
+
+    const remaining = locationsUnlimited
+      ? pairs.length
+      : maxLocations - selectedLocations.length;
+    if (!locationsUnlimited && remaining <= 0) {
+      setPasteCoordsFeedback({
+        type: 'error',
+        message: `Maximum of ${locationLimitLabel} locations reached. Remove some before adding more.`,
+      });
+      return;
+    }
+
+    setIsAddingPastedCoords(true);
+    try {
+      const toAdd = locationsUnlimited ? pairs : pairs.slice(0, remaining);
+      const skippedForCap = pairs.length - toAdd.length;
+      const stamp = Date.now();
+      const newLocs = [];
+
+      for (let i = 0; i < toAdd.length; i++) {
+        const { lat, lng, label: pastedLabel } = toAdd[i];
+        const stateCodeResolved =
+          (await resolveStateCodeFromCoords(lat, lng)) || getStateCodeFromCoords(lat, lng) || 'LOC';
+        const nextIndex = selectedLocations.length + i + 1;
+        newLocs.push({
+          id: `paste-${stamp}-${i}`,
+          lat,
+          lng,
+          label: pastedLabel || `${stateCodeResolved}_Location_${nextIndex}`,
+        });
+      }
+
+      setSelectedLocations((prev) => {
+        if (locationsUnlimited) return [...prev, ...newLocs];
+        const room = maxLocations - prev.length;
+        if (room <= 0) return prev;
+        return [...prev, ...newLocs.slice(0, room)];
+      });
+
+      if (newLocs[0]) {
+        setMapCenter([newLocs[0].lat, newLocs[0].lng]);
+        setMapZoom(8);
+      }
+
+      setPasteCoordsText('');
+      const parts = [`Added ${newLocs.length} location${newLocs.length === 1 ? '' : 's'}.`];
+      if (errors.length) parts.push(`${errors.length} line(s) skipped as invalid.`);
+      if (skippedForCap > 0) {
+        parts.push(
+          `${skippedForCap} skipped (limit is ${locationLimitLabel} locations).`
+        );
+      }
+      setPasteCoordsFeedback({
+        type: errors.length || skippedForCap ? 'warn' : 'success',
+        message: parts.join(' '),
+      });
+    } finally {
+      setIsAddingPastedCoords(false);
+    }
+  }, [pasteCoordsText, selectedLocations.length, maxLocations, locationsUnlimited, locationLimitLabel]);
+
   const updateLocationCoordText = useCallback((locId, field, text) => {
     const kind = field === 'lat' ? 'lat' : 'lng';
     setCoordTextById((prev) => ({
@@ -2619,6 +3340,58 @@ export default function SCEPTERConfig({ savedData }) {
 
   return (
     <div className="space-y-6">
+      {showNameModal && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 bg-gray-900/40">
+          <div className="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">
+            <h2 className="text-2xl font-bold mb-4 text-center text-gray-800">
+              Name Your Model Run
+            </h2>
+            <p className="text-gray-600 mb-4 text-center text-sm">
+              Enter a name to identify this model run in your saved models
+            </p>
+
+            <div className="mb-6">
+              <Label htmlFor="modelName" className="text-sm font-medium text-gray-700 mb-2 block">
+                Model Name
+              </Label>
+              <Input
+                id="modelName"
+                type="text"
+                value={modelName}
+                onChange={(e) => setModelName(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-md"
+                placeholder="Enter model name"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && modelName.trim()) {
+                    handleSaveModel(modelName);
+                  }
+                }}
+                autoFocus
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <Button
+                onClick={() => handleSaveModel(modelName)}
+                disabled={!modelName.trim() || isSaving}
+                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white"
+              >
+                {isSaving ? 'Saving...' : 'Save'}
+              </Button>
+              <Button
+                onClick={() => {
+                  setShowNameModal(false);
+                  setModelName('');
+                }}
+                disabled={isSaving}
+                className="flex-1 bg-gray-500 hover:bg-gray-600 text-white"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex gap-6">
         <div className="w-3/5 min-w-0">
           <h2 className="text-xl font-bold text-center mb-6 text-gray-800">SCEPTER Area of Interest</h2>
@@ -2633,7 +3406,7 @@ export default function SCEPTERConfig({ savedData }) {
                   const stateCodeResolved =
                     (await resolveStateCodeFromCoords(clickedPoint.lat, clickedPoint.lng)) || 'LOC';
                   setSelectedLocations((prev) => {
-                    if (prev.length >= MAX_SCEPTER_LOCATIONS) return prev;
+                    if (Number.isFinite(maxLocations) && prev.length >= maxLocations) return prev;
                     const nextIndex = prev.length + 1;
                     const label = `${stateCodeResolved}_Location_${nextIndex}`;
                     return [
@@ -2730,15 +3503,18 @@ export default function SCEPTERConfig({ savedData }) {
                     <div>
                       <h4 className="text-md font-semibold">Step 1: Add sites</h4>
                       <p className="text-sm text-gray-600 mt-1">
-                        Add one or more locations by clicking the map or choosing sites from USGS Water Quality Sites.
+                        Add one or more locations by clicking the map, pasting coordinates, or choosing USGS Water Quality Sites.
                       </p>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <button
                         type="button"
-                        onClick={() => setMapSelectMode(true)}
+                        onClick={() => {
+                          setMapSelectMode(true);
+                          setShowPasteCoords(false);
+                        }}
                         className={`w-full rounded-xl border px-3 py-2 text-center text-sm font-semibold transition-colors ${
-                          mapSelectMode
+                          mapSelectMode && !showPasteCoords
                             ? 'border-blue-300 bg-blue-50 text-blue-900'
                             : 'border-gray-200 bg-gray-50 text-gray-900 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-900'
                         }`}
@@ -2747,9 +3523,25 @@ export default function SCEPTERConfig({ savedData }) {
                       </button>
                       <button
                         type="button"
+                        onClick={() => {
+                          setMapSelectMode(false);
+                          setShowPasteCoords(true);
+                          setPasteCoordsFeedback(null);
+                        }}
+                        className={`w-full rounded-xl border px-3 py-2 text-center text-sm font-semibold transition-colors ${
+                          showPasteCoords
+                            ? 'border-blue-300 bg-blue-50 text-blue-900'
+                            : 'border-gray-200 bg-gray-50 text-gray-900 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-900'
+                        }`}
+                      >
+                        Paste coordinates
+                      </button>
+                      <button
+                        type="button"
                         onClick={(e) => {
                           e.preventDefault();
                           setMapSelectMode(false);
+                          setShowPasteCoords(false);
                           navigate('/usgs-sites');
                         }}
                         className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-center text-sm font-semibold text-gray-900 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-900"
@@ -2759,11 +3551,70 @@ export default function SCEPTERConfig({ savedData }) {
                     </div>
                   </div>
 
-                  {selectedLocations.length === 0 ? (
+                  {showPasteCoords ? (
+                    <div className="bg-white p-4 rounded-xl border border-gray-200 space-y-3 mb-4">
+                      <div>
+                        <Label htmlFor="paste-coords" className="text-sm font-medium text-gray-800">
+                          Paste a list of coordinates
+                        </Label>
+                        <p className="text-xs text-gray-500 mt-1">
+                          One pair per line as <span className="font-mono">lat, lng</span>
+                          {locationsUnlimited
+                            ? ' · no location limit on your account'
+                            : selectedLocations.length > 0
+                              ? ` · ${maxLocations - selectedLocations.length} slot${maxLocations - selectedLocations.length === 1 ? '' : 's'} remaining`
+                              : ` · up to ${locationLimitLabel} locations`}
+                          . Optional name after the coordinates.
+                        </p>
+                      </div>
+                      <textarea
+                        id="paste-coords"
+                        value={pasteCoordsText}
+                        onChange={(e) => {
+                          setPasteCoordsText(e.target.value);
+                          if (pasteCoordsFeedback) setPasteCoordsFeedback(null);
+                        }}
+                        rows={5}
+                        placeholder={'41.3083, -72.9279\n42.3601, -71.0589 Boston\n40.7128\t-74.0060'}
+                        className="w-full rounded-xl border border-gray-300 p-3 text-sm font-mono resize-y min-h-[120px] focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        disabled={
+                          isAddingPastedCoords ||
+                          (!locationsUnlimited && selectedLocations.length >= maxLocations)
+                        }
+                      />
+                      {pasteCoordsFeedback ? (
+                        <p
+                          className={`text-sm ${
+                            pasteCoordsFeedback.type === 'error'
+                              ? 'text-red-700'
+                              : pasteCoordsFeedback.type === 'warn'
+                                ? 'text-amber-700'
+                                : 'text-green-700'
+                          }`}
+                        >
+                          {pasteCoordsFeedback.message}
+                        </p>
+                      ) : null}
+                      <Button
+                        type="button"
+                        onClick={addLocationsFromPaste}
+                        disabled={
+                          isAddingPastedCoords ||
+                          !pasteCoordsText.trim() ||
+                          (!locationsUnlimited && selectedLocations.length >= maxLocations)
+                        }
+                        className="w-full bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-50"
+                      >
+                        {isAddingPastedCoords ? 'Adding…' : 'Add pasted locations'}
+                      </Button>
+                    </div>
+                  ) : null}
+
+                  {selectedLocations.length === 0 && !showPasteCoords ? (
                     <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-300">
                       <h3 className="text-sm font-semibold text-yellow-800 mb-2">Add locations</h3>
                       <p className="text-sm text-yellow-700">
-                        Click the map to add one or more locations, or use USGS Water Quality Sites.
+                        Click the map, paste a coordinate list, or use USGS Water Quality Sites.
                       </p>
                     </div>
                   ) : null}
@@ -2771,7 +3622,10 @@ export default function SCEPTERConfig({ savedData }) {
                   {selectedLocations.length > 0 ? (
                     <div className="bg-blue-50 p-4 rounded-xl border border-blue-200 space-y-3">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <h3 className="text-sm font-semibold">Selected locations ({selectedLocations.length}/{MAX_SCEPTER_LOCATIONS})</h3>
+                        <h3 className="text-sm font-semibold">
+                          Selected locations ({selectedLocations.length}
+                          {locationsUnlimited ? '' : `/${locationLimitLabel}`})
+                        </h3>
                         <Button type="button" variant="outline" size="sm" onClick={clearAllMultipleLocations}>
                           Clear all
                         </Button>
@@ -2880,7 +3734,34 @@ export default function SCEPTERConfig({ savedData }) {
                         Configure feedstock and application settings for each selected site, then run Spin-Up and Model Run as one flow.
                       </p>
                     </div>
-
+                    {selectedLocations.length > 1 ? (
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
+                        <label className="flex items-center gap-2 text-sm text-gray-800 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-gray-300"
+                            checked={applySamePracticeToAll}
+                            onChange={(e) => {
+                              const enabled = e.target.checked;
+                              setApplySamePracticeToAll(enabled);
+                              if (enabled) applyCurrentPracticeVarsToAllSites();
+                            }}
+                          />
+                          <span>Use the same parameters for all {selectedLocations.length} sites</span>
+                        </label>
+                        {!applySamePracticeToAll ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={applyCurrentPracticeVarsToAllSites}
+                            className="shrink-0"
+                          >
+                            Apply current site to all
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                   <div className="bg-white p-3 rounded-2xl shadow-md space-y-4">
                     {selectedLocations.length > 0 ? (
@@ -2895,7 +3776,9 @@ export default function SCEPTERConfig({ savedData }) {
                               onClick={() => focusPracticeLocationOnMap(loc)}
                             >
                               <div className="font-semibold text-sm mb-3">
-                                Site {activePracticeIndex + 1}: {loc.label}
+                                {applySamePracticeToAll && selectedLocations.length > 1
+                                  ? `All ${selectedLocations.length} sites`
+                                  : `Site ${activePracticeIndex + 1}: ${loc.label}`}
                               </div>
                               <Label className="block mb-2">Feedstock Type</Label>
                               <select
@@ -2946,6 +3829,7 @@ export default function SCEPTERConfig({ savedData }) {
                             </div>
                           );
                         })()}
+                        {selectedLocations.length > 1 && !applySamePracticeToAll ? (
                         <div className="flex items-center justify-between gap-3">
                           <Button
                             type="button"
@@ -2975,34 +3859,23 @@ export default function SCEPTERConfig({ savedData }) {
                             Next →
                           </Button>
                         </div>
+                        ) : selectedLocations.length > 1 && applySamePracticeToAll ? (
+                          <p className="text-xs text-gray-500 text-center">
+                            Edits apply to every selected site. Uncheck the option above to set parameters per site.
+                          </p>
+                        ) : null}
                       </>
                     ) : null}
                   </div>
 
                   <div className="space-y-2">
-                    <Button
-                      type="button"
-                      onClick={() => {
-                        const confirmed = window.confirm(
-                          savedData
-                            ? 'Update this model configuration with the current settings?'
-                            : 'Save this model configuration with the current settings?'
-                        );
-                        if (!confirmed) return;
-                        handleSaveModel();
-                      }}
-                      disabled={isSaving || !hasAnyLocation}
-                      className="w-full bg-purple-500 hover:bg-purple-600 text-white py-2 rounded-md font-semibold"
-                    >
-                      {isSaving ? 'Saving...' : savedData ? 'Update Model Configuration' : 'Save Model Configuration'}
-                    </Button>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="space-y-3">
                         <Button
                           type="button"
                           disabled={
                             isSubmittingBaseline ||
-                            hasActiveBaselineJobs ||
+                            hasSubmittedSpinup ||
                             selectedLocations.length < 1
                           }
                           onClick={handleBaselineSimulation}
@@ -3010,7 +3883,7 @@ export default function SCEPTERConfig({ savedData }) {
                         >
                           {isSubmittingBaseline
                             ? 'Submitting Spin-Up...'
-                            : hasActiveBaselineJobs
+                            : hasSubmittedSpinup
                               ? 'Spin-Up submitted'
                               : 'Run Spin-Up'}
                         </Button>
@@ -3029,17 +3902,23 @@ export default function SCEPTERConfig({ savedData }) {
                             {baselineCheckInfo && <div className="sr-only">{baselineCheckInfo}</div>}
                             {baselineNotice && <div className="text-xs mt-1">{baselineNotice}</div>}
                             {baselineError && <div className="mt-1">{baselineError}</div>}
+                            {spinupIsCompleted && (
+                              <div className="text-xs mt-2 text-green-800">
+                                Spin-up complete. Progress is saved — you can run the model or return later without re-running spin-up.
+                              </div>
+                            )}
+                            <JobUsageSummary usage={baselineJobUsage} label="Spin-up usage" />
                           </div>
                           <div className="mt-2 flex flex-wrap gap-2">
                             <Button
                               type="button"
                               onClick={handleCheckBaselineStatus}
-                              disabled={isCheckingBaselineStatus || !hasActiveBaselineJobs}
+                              disabled={isCheckingBaselineStatus}
                               className="bg-yellow-500 text-white hover:bg-yellow-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
                             >
                               {isCheckingBaselineStatus ? 'Checking...' : 'Check status'}
                             </Button>
-                            {baselineStatus === 'completed' && (
+                            {normalizeBaselineStatusToken(String(baselineStatus || '')) === 'completed' && (
                               <Button
                                 type="button"
                                 onClick={handleDownloadSpinupResults}
@@ -3056,28 +3935,19 @@ export default function SCEPTERConfig({ savedData }) {
                       <div className="space-y-3">
                         <Button
                           type="button"
-                          disabled={
-                            isSubmittingRunModel ||
-                            !baselineJobId ||
-                            baselineStatus !== 'completed' ||
-                            !!(spinupJobId && String(spinupJobId).trim()) ||
-                            !!(runModelBatchId && String(runModelBatchId).trim()) ||
-                            ['pending', 'queued', 'submitted', 'submitting', 'running'].includes(
-                              String(spinupStatus || '').toLowerCase()
-                            )
-                          }
-                          onClick={(e) => handleRunModel(e)}
+                          disabled={!canSubmitModelRun}
+                          onClick={(e) => (modelRunFailed ? handleRetryModelRun(e) : handleRunModel(e))}
                           className="w-full bg-blue-600 text-white hover:bg-blue-700 rounded-md p-2 disabled:opacity-50"
                         >
                           {isSubmittingRunModel
                             ? 'Submitting Model Run...'
-                            : !!(spinupJobId && String(spinupJobId).trim()) ||
-                                !!(runModelBatchId && String(runModelBatchId).trim()) ||
-                                ['pending', 'queued', 'submitted', 'submitting', 'running'].includes(
-                                  String(spinupStatus || '').toLowerCase()
-                                )
+                            : modelRunInProgress
                               ? 'Model run submitted'
-                              : 'Run Model'}
+                              : modelRunFailed
+                                ? 'Retry Model Run'
+                                : modelRunCompleted
+                                  ? 'Model run completed'
+                                  : 'Run Model'}
                         </Button>
 
                         <div className={`p-3 rounded-lg text-sm ${spinupStatus === 'completed' ? 'bg-green-100 text-green-700' : spinupStatus === 'running' ? 'bg-blue-100 text-blue-700' : spinupStatus === 'failed' || spinupStatus === 'error' ? 'bg-red-100 text-red-700' : spinupStatus === 'pending' || spinupStatus === 'submitted' || spinupStatus === 'waiting_for_spinup' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
@@ -3097,17 +3967,33 @@ export default function SCEPTERConfig({ savedData }) {
                               </span>
                             </div>
                             {spinupError && <div>{spinupError}</div>}
+                            {modelRunFailed && spinupIsCompleted && (
+                              <div className="text-xs mt-2">
+                                Model run failed. Your completed spin-up is still saved — use Retry Model Run to submit again without restarting spin-up.
+                              </div>
+                            )}
+                            <JobUsageSummary usage={modelRunUsage} label="Model run usage" />
                           </div>
                           <div className="mt-2 flex flex-wrap gap-2">
                             <Button
                               type="button"
                               onClick={handleCheckSpinupStatus}
-                              disabled={(!spinupJobId && !runModelBatchId?.trim()) || isCheckingSpinupStatus}
+                              disabled={isCheckingSpinupStatus || (!hasModelRunIds && !modelRunFailed)}
                               className="bg-yellow-500 text-white hover:bg-yellow-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
                             >
                               {isCheckingSpinupStatus ? 'Checking...' : 'Check status'}
                             </Button>
-                            {(spinupStatus === 'completed' || !!runModelBatchId?.trim()) && (
+                            {modelRunFailed && canSubmitModelRun && (
+                              <Button
+                                type="button"
+                                onClick={handleRetryModelRun}
+                                disabled={isSubmittingRunModel}
+                                className="bg-blue-600 text-white hover:bg-blue-700 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
+                              >
+                                {isSubmittingRunModel ? 'Submitting...' : 'Retry from spin-up'}
+                              </Button>
+                            )}
+                            {(normalizeBaselineStatusToken(String(spinupStatus || '')) === 'completed' || !!runModelBatchId?.trim()) && (
                               <Button
                                 type="button"
                                 onClick={handleDownloadResults}
@@ -3121,19 +4007,35 @@ export default function SCEPTERConfig({ savedData }) {
                         </div>
                       </div>
                     </div>
-                    <Button
-                      type="button"
-                      onClick={() => {
-                        const confirmed = window.confirm(
-                          'Reset everything on this page? This clears sites, practice variables, spin-up and model-run status, and removes saved session data from your browser for SCEPTER.'
-                        );
-                        if (!confirmed) return;
-                        resetAllScepterSession();
-                      }}
-                      className="w-full bg-red-500 text-white hover:bg-red-600 rounded-md py-2 font-semibold"
-                    >
-                      Reset
-                    </Button>
+                    {!hasAnyRunTrackingId && (
+                      <p className="text-xs text-gray-500">
+                        Save unlocks after spin-up or model run creates a tracking ID.
+                      </p>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <Button
+                        type="button"
+                        onClick={handleSaveModelClick}
+                        disabled={isSaving || !hasAnyLocation || !hasAnyRunTrackingId}
+                        title={!hasAnyRunTrackingId ? 'Save is enabled after run tracking ID is available.' : undefined}
+                        className="w-full bg-purple-500 hover:bg-purple-600 text-white py-2 rounded-md font-semibold disabled:opacity-50"
+                      >
+                        {isSaving ? 'Saving...' : savedData ? 'Update Model' : 'Save Model'}
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={() => {
+                          const confirmed = window.confirm(
+                            'Reset everything on this page? This clears sites, practice variables, spin-up and model-run status, and removes saved session data from your browser for SCEPTER.'
+                          );
+                          if (!confirmed) return;
+                          resetAllScepterSession();
+                        }}
+                        className="w-full bg-red-500 text-white hover:bg-red-600 rounded-md py-2 font-semibold"
+                      >
+                        Reset
+                      </Button>
+                    </div>
                   </div>
 
                 </form>

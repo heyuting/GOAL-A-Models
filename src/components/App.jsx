@@ -542,6 +542,15 @@ function PublicHomePage() {
 function HomePage() {
   const navigate = useNavigate();
 
+  const openModel = (modelName) => {
+    const path = `/model/${modelName.toLowerCase().replace('+', '-')}`;
+    if (modelName === 'SCEPTER') {
+      navigate(path, { state: { freshSession: true } });
+      return;
+    }
+    navigate(path);
+  };
+
   // Function to get model-specific colors
   const getModelColors = (modelName) => {
     switch (modelName) {
@@ -599,13 +608,13 @@ function HomePage() {
                     <Card className={`shadow-lg ${colors.borderColor} hover:shadow-xl hover:bg-gray-50 transition h-full flex flex-col overflow-hidden`}>
                       <div 
                         className={`px-6 py-3 border-b ${colors.borderColor} ${colors.headerBg} cursor-pointer`}
-                        onClick={() => navigate(`/model/${model.name.toLowerCase().replace('+', '-')}`)}
+                        onClick={() => openModel(model.name)}
                       >
                         <h3 className={`text-xl font-bold ${colors.titleColor} tracking-wide`}>{model.name}</h3>
                       </div>
                       <CardContent className="px-6 flex flex-col flex-grow">
                       <div 
-                        onClick={() => navigate(`/model/${model.name.toLowerCase().replace('+', '-')}`)}
+                        onClick={() => openModel(model.name)}
                         className="cursor-pointer"
                       >
                         <p className="text-gray-600 flex-grow leading-relaxed mb-4">{model.description}</p>
@@ -662,13 +671,13 @@ function HomePage() {
                     <Card className={`shadow-lg ${colors.borderColor} hover:shadow-xl hover:bg-gray-50 transition h-full flex flex-col overflow-hidden`}>
                       <div 
                         className={`px-6 py-3 border-b ${colors.borderColor} ${colors.headerBg} cursor-pointer`}
-                        onClick={() => navigate(`/model/${model.name.toLowerCase().replace('+', '-')}`)}
+                        onClick={() => openModel(model.name)}
                       >
                         <h3 className={`text-xl font-bold ${colors.titleColor} tracking-wide`}>{model.name}</h3>
                       </div>
                       <CardContent className="px-6 flex flex-col flex-grow ">
                       <div 
-                        onClick={() => navigate(`/model/${model.name.toLowerCase().replace('+', '-')}`)}
+                        onClick={() => openModel(model.name)}
                         className="cursor-pointer"
                       >
                         <p className="text-gray-600 flex-grow leading-relaxed mb-4">{model.description}</p>
@@ -744,6 +753,10 @@ function DashboardPage() {
         
         if (model.model) {
           modelType = model.model.toLowerCase();
+        } else if (model.type && String(model.type).toUpperCase().includes('DRN')) {
+          modelType = 'drn';
+        } else if (model.type && String(model.type).toUpperCase().includes('SCEPTER')) {
+          modelType = 'scepter';
         } else if (model.name && model.name.includes('DRN')) {
           modelType = 'drn';
         } else if (model.name && model.name.includes('SCEPTER')) {
@@ -766,13 +779,19 @@ function ModelPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
-  const [savedModelData, setSavedModelData] = useState(null);
+  const [savedModelData, setSavedModelData] = useState(
+    () => location.state?.savedModelData ?? null
+  );
 
   useEffect(() => {
     if (location.state?.savedModelData) {
       setSavedModelData(location.state.savedModelData);
+    } else {
+      setSavedModelData(null);
     }
   }, [location.state]);
+
+  const isFreshScepterSession = Boolean(location.state?.freshSession);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -831,7 +850,11 @@ function ModelPage() {
           ) : modelNameUpperCase === "ATS" ? (
             <ATSConfig savedData={savedModelData} />
           ) : modelNameUpperCase === "SCEPTER" ? (
-            <SCEPTERConfig savedData={savedModelData} />
+            <SCEPTERConfig
+              key={isFreshScepterSession ? `scepter-fresh-${location.key}` : (savedModelData?.id || 'scepter-default')}
+              savedData={savedModelData}
+              freshSession={isFreshScepterSession}
+            />
           ) : modelNameUpperCase === "SCEPTER-DRN" ? (
             <SCEPTERDRNConfig savedData={savedModelData} />
           ) : (

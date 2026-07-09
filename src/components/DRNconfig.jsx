@@ -7,6 +7,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/contexts/AuthContext";
 import userService from "@/services/userService";
+import {
+  formatLocationLimit,
+  getLocationLimit,
+  hasUnlimitedLocations,
+} from "@/config/userTiers";
 
 // API base URL configuration - Use relative URLs for local development (proxied through Vite)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
@@ -22,14 +27,100 @@ const getApiUrl = (endpoint) => {
   }
 };
 
+const formatUsdEstimate = (usd) => {
+  if (usd == null || !Number.isFinite(Number(usd))) return null;
+  return `$${Number(usd).toFixed(2)}`;
+};
+
+const formatDurationFromSeconds = (seconds) => {
+  if (seconds == null || !Number.isFinite(Number(seconds))) return null;
+  const total = Math.max(0, Math.round(Number(seconds)));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  if (hours) return `${hours}h ${minutes}m`;
+  if (minutes) return `${minutes}m ${secs}s`;
+  return `${secs}s`;
+};
+
+const extractUsageFromStatusPayload = (payload) => {
+  if (!payload || typeof payload !== 'object') return null;
+  const resources = payload.resources;
+  const aws = payload.aws_cost_estimate;
+  if (!resources && !aws) return null;
+  return {
+    resources: resources || null,
+    aws_cost_estimate: aws || null,
+  };
+};
+
+const normalizeDrnJobStatus = (status, completedAt) => {
+  if (completedAt) return 'completed';
+  const normalized = String(status || '').trim().toLowerCase();
+  if (normalized === 'complete' || normalized === 'completed') return 'completed';
+  if (normalized === 'failed' || normalized === 'error') return 'failed';
+  if (['pending', 'running', 'submitted', 'submitting', 'unknown'].includes(normalized)) {
+    return normalized;
+  }
+  return normalized || 'pending';
+};
+
+const resolveSavedDrnJobId = (savedData) => {
+  if (!savedData) return null;
+  if (savedData.jobId) return String(savedData.jobId);
+  if (savedData.parameters?.jobId) return String(savedData.parameters.jobId);
+  const match = String(savedData.name || '').match(/Job ID:\s*(\S+)/i);
+  return match ? match[1] : null;
+};
+
+const JobUsageSummary = ({ usage, label }) => {
+  if (!usage?.resources && !usage?.aws_cost_estimate) return null;
+  const r = usage.resources || {};
+  const aws = usage.aws_cost_estimate || {};
+  const elapsedLabel =
+    r.elapsed ||
+    formatDurationFromSeconds(r.elapsed_seconds) ||
+    (r.elapsed_is_estimate ? 'estimating…' : null);
+
+  return (
+    <div className="mt-2 pt-2 border-t border-gray-300 text-xs space-y-1">
+      {label ? <div className="font-semibold text-gray-700">{label}</div> : null}
+      <div>
+        <span className="font-semibold">Resources:</span>{' '}
+        {r.requested_cpus ?? '—'} CPU
+        {r.requested_memory_gb != null ? `, ${r.requested_memory_gb} GB requested` : ''}
+        {r.max_rss_mb != null ? `, peak ${r.max_rss_mb} MB RAM` : ''}
+      </div>
+      {elapsedLabel ? (
+        <div>
+          <span className="font-semibold">Runtime:</span> {elapsedLabel}
+          {r.elapsed_is_estimate ? ' (estimated so far)' : ''}
+          {r.total_cpu ? ` · CPU time ${r.total_cpu}` : ''}
+        </div>
+      ) : null}
+      {aws.usd != null ? (
+        <div>
+          <span className="font-semibold">AWS estimate:</span>{' '}
+          {formatUsdEstimate(aws.usd)} on {aws.instance_type || 'm6i.xlarge'} on-demand
+          {aws.region ? ` (${aws.region})` : ''}
+        </div>
+      ) : null}
+      {aws.note ? <div className="text-gray-500">{aws.note}</div> : null}
+    </div>
+  );
+};
+
 export default function DRNConfig({ savedData }) {
   const { user, loading: authLoading } = useAuth();
+  const maxLocations = getLocationLimit(user);
+  const locationsUnlimited = hasUnlimitedLocations(user);
+  const locationLimitLabel = formatLocationLimit(maxLocations);
 
   // Mode selection: 'single' or 'multiple'
   const [locationMode, setLocationMode] = useState(null); // null = not selected yet, 'single' or 'multiple'
   // Don't show mode selection modal if we have savedData (viewing a saved model)
-  const [showModeSelection, setShowModeSelection] = useState(!savedData);
-  const [currentPage, setCurrentPage] = useState(1); // 1 = Step 1 (Location Selection), 2 = Step 2 (Model Parameters)
+  const [showModeSelection, setShowModeSelection] = useState(() => !savedData);
+  const [currentPage, setCurrentPage] = useState(() => (savedData ? 2 : 1)); // 1 = Step 1, 2 = Model Parameters
 
   // Multiple location mode states
   const [outletCheckStatus, setOutletCheckStatus] = useState(null); // null, 'checking', 'same', 'different', 'error'
@@ -63,6 +154,7 @@ export default function DRNConfig({ savedData }) {
   // fullPipelineResults state removed - not currently used (backend returns placeholder)
   const [currentStep, setCurrentStep] = useState(null);
   const [stepProgress, setStepProgress] = useState(null);
+  const [fullPipelineJobUsage, setFullPipelineJobUsage] = useState(null);
 
   // Model saving state
   const [isModelSaved, setIsModelSaved] = useState(false);
@@ -83,145 +175,156 @@ export default function DRNConfig({ savedData }) {
   );
 
 
-  // Load saved data on component mount
-  useEffect(() => {
-    if (savedData) {
-      console.log('Loading saved model data:', savedData);
+  const applyCompletedStepUi = () => {
+    setCurrentStep('All 5 Steps Completed');
+    setStepProgress({
+      step: 5,
+      name: 'Compile Results',
+      status: 'completed',
+    });
+  };
 
-      // Hide mode selection modal when viewing saved model
+  const restoreSavedModelParameters = (data, jobInfo = null) => {
+    const locations = data.locations || data.parameters?.locations || jobInfo?.locations;
+    if (Array.isArray(locations) && locations.length > 0) {
+      setSelectedLocations(locations);
+      setCurrentLocationIndex(locations.length - 1);
+    }
+
+    const params = data.parameters || {};
+    const jobParams = jobInfo?.parameters || {};
+    const savedDuration = params.simulationDuration ?? params.yearRun ?? jobParams.monthRun;
+    if (typeof savedDuration === 'number') {
+      setYearRun(savedDuration <= 2 ? savedDuration * 12 : savedDuration);
+    }
+    if (params.outputTimestep ?? jobParams.timeStep) {
+      setTimeStep(params.outputTimestep ?? jobParams.timeStep);
+    }
+    if (params.feedstock ?? jobParams.feedstock) {
+      setFeedstock(params.feedstock ?? jobParams.feedstock);
+    }
+
+    const restoredLocationMode = params.locationMode || jobInfo?.locationMode;
+    if (restoredLocationMode) {
+      setLocationMode(restoredLocationMode);
       setShowModeSelection(false);
+    }
 
-      // If savedData has a jobId, restore the job state first
-      if (savedData.jobId) {
-        console.log('Restoring job from saved model data, jobId:', savedData.jobId);
-        setFullPipelineJobId(savedData.jobId);
-        // Use savedData status, defaulting to 'completed' if saved model was completed
-        const jobStatus = savedData.status === 'completed' ? 'completed' : (savedData.status || 'completed');
-        setFullPipelineStatus(jobStatus);
-
-        // Try to load full job details from localStorage
-        const savedJob = localStorage.getItem(`drn_job_${savedData.jobId}`);
-        if (savedJob) {
-          try {
-            const jobInfo = JSON.parse(savedJob);
-            console.log('Found job in localStorage:', jobInfo);
-            // Prioritize savedData status if it's 'completed', otherwise use jobInfo status
-            const finalStatus = savedData.status === 'completed' ? 'completed' : (jobInfo.status || jobStatus);
-            setFullPipelineStatus(finalStatus);
-            // Use jobInfo data if available, otherwise use savedData
-            if (jobInfo.locations) {
-              setSelectedLocations(jobInfo.locations);
-              setCurrentLocationIndex(jobInfo.locations.length - 1);
-            } else if (savedData.locations) {
-              setSelectedLocations(savedData.locations);
-              setCurrentLocationIndex(savedData.locations.length - 1);
-            }
-            if (jobInfo.parameters) {
-              if (jobInfo.parameters.monthRun) setYearRun(jobInfo.parameters.monthRun);
-              if (jobInfo.parameters.timeStep) setTimeStep(jobInfo.parameters.timeStep);
-              if (jobInfo.parameters.feedstock) setFeedstock(jobInfo.parameters.feedstock);
-            }
-            if (jobInfo.locationMode) {
-              setLocationMode(jobInfo.locationMode);
-              setShowModeSelection(false);
-            }
-            // When viewing saved model, always navigate to page 2 to show model status
-            setCurrentPage(2);
-            // If job is completed, set step progress to show all steps completed
-            if (jobInfo.status === 'completed' || jobStatus === 'completed') {
-              setCurrentStep('All 5 Steps Completed');
-              setStepProgress({
-                step: 5,
-                name: 'Compile Results',
-                status: 'completed'
-              });
-            }
-          } catch (error) {
-            console.error('Error loading job from localStorage:', error);
-          }
-        } else {
-          // No localStorage job, use savedData directly
-          if (savedData.locations) {
-            setSelectedLocations(savedData.locations);
-            setCurrentLocationIndex(savedData.locations.length - 1);
-          }
-          if (savedData.parameters) {
-            if (savedData.parameters.simulationDuration) {
-              setYearRun(savedData.parameters.simulationDuration);
-            }
-            if (savedData.parameters.outputTimestep) {
-              setTimeStep(savedData.parameters.outputTimestep);
-            }
-            if (savedData.parameters.feedstock) {
-              setFeedstock(savedData.parameters.feedstock);
-            }
-            if (savedData.parameters.locationMode) {
-              setLocationMode(savedData.parameters.locationMode);
-              setShowModeSelection(false);
-            }
-          }
-          // When viewing saved model, always navigate to page 2 to show model status
-          setCurrentPage(2);
-          // If job is completed, set step progress to show all steps completed
-          if (jobStatus === 'completed') {
-            setCurrentStep('All 5 Steps Completed');
-            setStepProgress({
-              step: 5,
-              name: 'Compile Results',
-              status: 'completed'
-            });
-          }
-        }
-      } else {
-        // No jobId in savedData, load from savedData parameters
-        // When viewing saved model, always navigate to page 2
-        setCurrentPage(2);
-
-        if (savedData.parameters && savedData.parameters.locations) {
-          setSelectedLocations(savedData.parameters.locations);
-          setCurrentLocationIndex(savedData.parameters.locations.length - 1);
-        }
-        if (savedData.parameters) {
-          const savedDuration = savedData.parameters.yearRun || savedData.parameters.simulationDuration;
-          if (typeof savedDuration === 'number') {
-            if (savedDuration <= 2) {
-              setYearRun(savedDuration * 12);
-            } else {
-              setYearRun(savedDuration);
-            }
-          } else {
-            setYearRun(24);
-          }
-          if (savedData.parameters.outputTimestep) {
-            setTimeStep(savedData.parameters.outputTimestep);
-          }
-          if (savedData.parameters.feedstock) {
-            setFeedstock(savedData.parameters.feedstock);
-          }
-          if (savedData.parameters.locationMode) {
-            setLocationMode(savedData.parameters.locationMode);
-            setShowModeSelection(false);
-          }
-        } else {
-          setYearRun(24);
-        }
+    if (data.outletCheckResults) {
+      setOutletCheckResults({
+        same_outlet: data.outletCheckResults.sameOutlet,
+        outlet_comids: data.outletCheckResults.outletComids,
+        unique_outlets: data.outletCheckResults.uniqueOutlets,
+      });
+      if (data.outletCheckResults.sameOutlet) {
+        setOutletCheckStatus('same');
       }
     }
-    // No savedData - don't restore from localStorage
-    // Only restore when explicitly viewing from Account → My Models (savedData is provided)
+
+    if (data.currentStep) {
+      setCurrentStep(data.currentStep);
+    }
+    if (data.stepProgress) {
+      setStepProgress(data.stepProgress);
+    }
+  };
+
+  // Load saved data on component mount
+  useEffect(() => {
+    if (!savedData) return;
+
+    console.log('Loading saved model data:', savedData);
+    setShowModeSelection(false);
+    setCurrentPage(2);
+    setIsModelSaved(true);
+
+    const restoredJobId = resolveSavedDrnJobId(savedData);
+    const restoredStatus = normalizeDrnJobStatus(savedData.status, savedData.completedAt);
+
+    if (restoredJobId) {
+      console.log('Restoring job from saved model data, jobId:', restoredJobId);
+      setFullPipelineJobId(restoredJobId);
+      setFullPipelineStatus(restoredStatus);
+
+      let jobInfo = null;
+      const savedJob = localStorage.getItem(`drn_job_${restoredJobId}`);
+      if (savedJob) {
+        try {
+          jobInfo = JSON.parse(savedJob);
+          console.log('Found job in localStorage:', jobInfo);
+          const cachedStatus = normalizeDrnJobStatus(jobInfo.status, savedData.completedAt);
+          const finalStatus =
+            restoredStatus === 'completed' || cachedStatus === 'completed'
+              ? 'completed'
+              : (cachedStatus || restoredStatus);
+          setFullPipelineStatus(finalStatus);
+        } catch (error) {
+          console.error('Error loading job from localStorage:', error);
+        }
+      } else {
+        try {
+          localStorage.setItem(
+            `drn_job_${restoredJobId}`,
+            JSON.stringify({
+              jobId: restoredJobId,
+              status: restoredStatus,
+              submittedAt: savedData.savedAt || savedData.createdAt || new Date().toISOString(),
+              locations: savedData.locations || savedData.parameters?.locations || [],
+              locationMode: savedData.parameters?.locationMode || null,
+              parameters: {
+                monthRun: savedData.parameters?.simulationDuration,
+                timeStep: savedData.parameters?.outputTimestep,
+                feedstock: savedData.parameters?.feedstock,
+              },
+            })
+          );
+        } catch (error) {
+          console.error('Error seeding localStorage job cache:', error);
+        }
+      }
+
+      restoreSavedModelParameters(savedData, jobInfo);
+
+      if (
+        restoredStatus === 'completed' ||
+        normalizeDrnJobStatus(jobInfo?.status, savedData.completedAt) === 'completed'
+      ) {
+        applyCompletedStepUi();
+      }
+      return;
+    }
+
+    restoreSavedModelParameters(savedData);
+    if (restoredStatus === 'completed') {
+      applyCompletedStepUi();
+    }
   }, [savedData]);
 
-  // Resume polling for restored jobs
+  // Refresh job status from backend when reopening a saved model
   useEffect(() => {
-    if (fullPipelineJobId && (fullPipelineStatus === 'submitted' || fullPipelineStatus === 'pending' || fullPipelineStatus === 'running')) {
-      // Small delay to ensure all functions are defined
+    const restoredJobId = resolveSavedDrnJobId(savedData);
+    if (!savedData || !restoredJobId) return;
+
+    const timer = setTimeout(() => {
+      checkFullPipelineStatus(restoredJobId);
+    }, 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedData?.id, savedData?.jobId]);
+
+  // Resume polling for restored in-progress jobs
+  useEffect(() => {
+    if (
+      fullPipelineJobId &&
+      ['submitted', 'pending', 'running', 'submitting', 'unknown'].includes(fullPipelineStatus)
+    ) {
       const timer = setTimeout(() => {
         pollFullPipelineStatus(fullPipelineJobId);
       }, 500);
       return () => clearTimeout(timer);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fullPipelineJobId]); // Only run when jobId changes (on restore)
+  }, [fullPipelineJobId, fullPipelineStatus]);
 
 
   const validateCoordinates = (lat, lng) => {
@@ -250,8 +353,8 @@ export default function DRNConfig({ savedData }) {
       return false;
     }
 
-    if (selectedLocations.length >= 5) {
-      alert('Maximum 5 locations allowed. Please remove some locations first.');
+    if (!locationsUnlimited && selectedLocations.length >= maxLocations) {
+      alert(`Maximum ${locationLimitLabel} locations allowed. Please remove some locations first.`);
       return false;
     }
 
@@ -576,8 +679,11 @@ export default function DRNConfig({ savedData }) {
 
       // Check if response was OK
       if (!response.ok) {
+        setFullPipelineJobUsage(extractUsageFromStatusPayload(result));
         throw new Error(result.error || result.message || `Server returned status ${response.status}`);
       }
+
+      setFullPipelineJobUsage(extractUsageFromStatusPayload(result));
 
       // Log the response for debugging
       console.log('Status check response:', result);
@@ -696,6 +802,7 @@ export default function DRNConfig({ savedData }) {
           },
         });
         const result = await response.json();
+        setFullPipelineJobUsage(extractUsageFromStatusPayload(result));
 
         if (result.status === 'completed') {
           setFullPipelineStatus('completed');
@@ -770,7 +877,7 @@ export default function DRNConfig({ savedData }) {
             setStepProgress(result.step_progress);
           }
           // Continue polling if still processing
-          if (result.status === 'pending' || result.status === 'running') {
+          if (result.status === 'pending' || result.status === 'running' || result.status === 'submitted') {
             setTimeout(checkStatus, 30000); // Poll every 30 seconds
           }
         }
@@ -852,6 +959,7 @@ export default function DRNConfig({ savedData }) {
       // Prepare model data - include current status
       const modelData = {
         type: 'DRN',
+        model: 'DRN',
         name: name.trim(), // Save the user-provided name
         jobId: fullPipelineJobId,
         status: fullPipelineStatus || 'pending', // Save current status (pending, running, completed, etc.)
@@ -1622,7 +1730,11 @@ export default function DRNConfig({ savedData }) {
                 <>
                   <h4 className="text-md font-semibold mb-4">
                     Click on the map to select locations within CONUS
-                    {locationMode === 'single' ? ' (1 location)' : ' (up to 5 locations)'}
+                    {locationMode === 'single'
+                      ? ' (1 location)'
+                      : locationsUnlimited
+                        ? ' (unlimited locations)'
+                        : ` (up to ${locationLimitLabel} locations)`}
                   </h4>
                   {!locationMode && (
                     <p className="text-sm text-gray-500 mb-4">
@@ -2052,6 +2164,7 @@ export default function DRNConfig({ savedData }) {
                                 )}
                               </div>
                               <div><strong>Parameters:</strong> Months: {yearRun}, Timestep: {timeStep}, Feedstock: {feedstock}</div>
+                              <JobUsageSummary usage={fullPipelineJobUsage} label="Job usage" />
                               {/* Monte Count: {monteCount} - commented out */}
                               {(currentStep || fullPipelineStatus === 'completed') && (
                                 <div className="mt-2 pt-2 border-t border-gray-300">
@@ -2108,6 +2221,21 @@ export default function DRNConfig({ savedData }) {
                               )}
                             </div>
                           </div>
+                        )}
+
+                        {fullPipelineStatus === 'completed' && fullPipelineJobId && (
+                          <Button
+                            onClick={() => downloadFullPipelineResults(fullPipelineJobId)}
+                            disabled={isDownloading}
+                            className={`w-full mt-2 text-sm font-semibold rounded-md p-3 ${isDownloading
+                              ? 'bg-gray-400 text-white cursor-not-allowed'
+                              : 'bg-green-500 text-white hover:bg-green-600'
+                              }`}
+                          >
+                            {isDownloading
+                              ? (downloadStatus || 'Preparing Download...')
+                              : 'Download Model Results (.zip)'}
+                          </Button>
                         )}
 
                       </div>
