@@ -3,6 +3,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import userService from '@/services/userService';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { formatLocationLimit, getTierConfig } from '@/config/userTiers';
 
 export default function UserDashboard({ onLogout, onNavigateToModels, onViewModel }) {
@@ -11,23 +12,35 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
   const [activeTab, setActiveTab] = useState('profile');
   const [savedModels, setSavedModels] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [renamingModelId, setRenamingModelId] = useState(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [isRenaming, setIsRenaming] = useState(false);
+
+  const refreshModels = async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const models = await userService.getUserModels(user.id);
+      setSavedModels(Array.isArray(models) ? [...models] : []);
+    } catch (error) {
+      console.error('Error loading models:', error);
+      setSavedModels([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (user) {
-      setLoading(true);
-      userService.getUserModels(user.id)
-        .then((models) => {
-          // Create a new array reference to ensure React detects the change
-          setSavedModels(Array.isArray(models) ? [...models] : []);
-          setLoading(false);
-        })
-        .catch((error) => {
-          console.error('Error loading models:', error);
-          setSavedModels([]);
-          setLoading(false);
-        });
+      refreshModels();
     }
   }, [user]);
+
+  useEffect(() => {
+    if (user && activeTab === 'models') {
+      refreshModels();
+    }
+  }, [activeTab]);
 
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -43,7 +56,10 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
         const success = await userService.deleteUserModel(user.id, modelId);
         if (success) {
           setSavedModels(prev => prev.filter(model => model.id !== modelId && model.timestamp !== modelId));
-          console.log('Model deleted successfully:', modelId);
+          if (renamingModelId === modelId) {
+            setRenamingModelId(null);
+            setRenameValue('');
+          }
         } else {
           console.error('Failed to delete model:', modelId);
           alert('Failed to delete model. Please try again.');
@@ -55,14 +71,53 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
     }
   };
 
+  const startRenameModel = (model) => {
+    const id = model.id || model.timestamp;
+    setRenamingModelId(id);
+    setRenameValue(model.name || '');
+  };
+
+  const cancelRenameModel = () => {
+    setRenamingModelId(null);
+    setRenameValue('');
+  };
+
+  const handleRenameModel = async (model) => {
+    const modelId = model.id || model.timestamp;
+    const nextName = String(renameValue || '').trim();
+    if (!nextName) {
+      alert('Please enter a model name.');
+      return;
+    }
+    if (nextName === (model.name || '').trim()) {
+      cancelRenameModel();
+      return;
+    }
+
+    setIsRenaming(true);
+    try {
+      const updated = await userService.updateUserModel(user.id, modelId, { name: nextName });
+      if (!updated) {
+        throw new Error('Failed to rename model.');
+      }
+      setSavedModels((prev) =>
+        prev.map((m) =>
+          (m.id || m.timestamp) === modelId ? { ...m, name: nextName, updatedAt: new Date().toISOString() } : m
+        )
+      );
+      cancelRenameModel();
+    } catch (error) {
+      console.error('Error renaming model:', error);
+      alert(error?.message || 'Failed to rename model. Please try again.');
+    } finally {
+      setIsRenaming(false);
+    }
+  };
 
   const handleViewModel = (model) => {
-    console.log('View button clicked for model:', model);
     if (onViewModel) {
-      console.log('Calling onViewModel with:', model);
       onViewModel(model);
     } else {
-      console.error('onViewModel prop is not defined');
       alert('View functionality is not available. Please contact support.');
     }
   };
@@ -201,9 +256,14 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
           <div className="space-y-4">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-semibold text-gray-800">Saved Models</h2>
-              <Button className="bg-blue-500 hover:bg-blue-600" onClick={onNavigateToModels}>
-                Run New Model
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={refreshModels} disabled={loading}>
+                  Refresh
+                </Button>
+                <Button className="bg-blue-500 hover:bg-blue-600" onClick={onNavigateToModels}>
+                  Run New Model
+                </Button>
+              </div>
             </div>
             
             {savedModels.length === 0 ? (
@@ -217,14 +277,51 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
               </Card>
             ) : (
               <div className="grid gap-4">
-                {savedModels.map((model) => (
-                  <Card key={model.id || model.timestamp} className="shadow-lg hover:shadow-xl transition-shadow">
+                {savedModels.map((model) => {
+                  const modelId = model.id || model.timestamp;
+                  const isEditingName = renamingModelId === modelId;
+                  return (
+                  <Card key={modelId} className="shadow-lg hover:shadow-xl transition-shadow">
                     <CardContent className="p-6">
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <h3 className="text-lg font-semibold text-gray-800 mb-2">
-                            {model.name || 'Unnamed Model'}
-                          </h3>
+                      <div className="flex justify-between items-start gap-4">
+                        <div className="flex-1 min-w-0">
+                          {isEditingName ? (
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
+                              <Input
+                                value={renameValue}
+                                onChange={(e) => setRenameValue(e.target.value)}
+                                className="text-sm"
+                                placeholder="Model name"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleRenameModel(model);
+                                  if (e.key === 'Escape') cancelRenameModel();
+                                }}
+                              />
+                              <div className="flex items-center gap-2 shrink-0">
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleRenameModel(model)}
+                                  disabled={isRenaming || !renameValue.trim()}
+                                  className="bg-blue-500 text-white hover:bg-blue-600"
+                                >
+                                  {isRenaming ? 'Saving…' : 'Save'}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={cancelRenameModel}
+                                  disabled={isRenaming}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                              {model.name || 'Unnamed Model'}
+                            </h3>
+                          )}
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                             <div>
                               <span className="text-gray-600">Model:</span>
@@ -240,14 +337,22 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
 
                           </div>
                         </div>
-                        <div className="flex items-center space-x-3">
+                        <div className="flex items-center space-x-2 shrink-0">
+                          {!isEditingName ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => startRenameModel(model)}
+                              className="border-gray-300 text-gray-700 hover:bg-gray-50"
+                              title="Rename this saved model"
+                            >
+                              Rename
+                            </Button>
+                          ) : null}
                           <Button 
                             variant="outline" 
                             size="sm" 
-                            onClick={() => {
-                              console.log('View button clicked for model:', model);
-                              handleViewModel(model);
-                            }}
+                            onClick={() => handleViewModel(model)}
                             className="bg-blue-500 text-white hover:bg-blue-600 border-blue-500"
                             title="View model configuration and download results"
                           >
@@ -256,7 +361,7 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
                           <Button 
                             variant="outline" 
                             size="sm"
-                            onClick={() => handleDeleteModel(model.id || model.timestamp)}
+                            onClick={() => handleDeleteModel(modelId)}
                             className="text-red-600 border-red-300 hover:bg-red-50"
                           >
                             Delete
@@ -265,7 +370,8 @@ export default function UserDashboard({ onLogout, onNavigateToModels, onViewMode
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

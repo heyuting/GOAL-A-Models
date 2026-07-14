@@ -621,6 +621,121 @@ const saveBlobAsFileDownload = (blob, filename) => {
   document.body.removeChild(a);
 };
 
+const formatBytes = (n) => {
+  const num = Number(n);
+  if (!Number.isFinite(num) || num < 0) return '—';
+  if (num < 1024) return `${Math.round(num)} B`;
+  if (num < 1024 ** 2) return `${(num / 1024).toFixed(1)} KB`;
+  if (num < 1024 ** 3) return `${(num / (1024 ** 2)).toFixed(1)} MB`;
+  return `${(num / (1024 ** 3)).toFixed(2)} GB`;
+};
+
+const formatEtaSeconds = (sec) => {
+  if (!Number.isFinite(sec) || sec < 0) return null;
+  if (sec < 5) return 'a few seconds';
+  if (sec < 60) return `~${Math.ceil(sec)}s`;
+  if (sec < 3600) return `~${Math.ceil(sec / 60)} min`;
+  const h = Math.floor(sec / 3600);
+  const m = Math.ceil((sec % 3600) / 60);
+  return `~${h}h ${m}m`;
+};
+
+/**
+ * Read a fetch Response as a Blob while reporting transfer progress.
+ * Uses Content-Length when present; otherwise reports bytes received + speed.
+ */
+const readResponseBlobWithProgress = async (response, onProgress) => {
+  const totalHeader =
+    response.headers.get('content-length') ||
+    response.headers.get('x-content-length') ||
+    response.headers.get('x-file-size');
+  const totalParsed = totalHeader ? parseInt(totalHeader, 10) : NaN;
+  const hasTotal = Number.isFinite(totalParsed) && totalParsed > 0;
+  const total = hasTotal ? totalParsed : null;
+  const contentType = response.headers.get('content-type') || 'application/zip';
+
+  const emit = (partial) => {
+    if (typeof onProgress === 'function') onProgress(partial);
+  };
+
+  if (!response.body?.getReader) {
+    emit({ phase: 'receiving', loaded: 0, total, percent: null, speed: null, etaSec: null });
+    const blob = await response.blob();
+    emit({
+      phase: 'done',
+      loaded: blob.size,
+      total: blob.size,
+      percent: 100,
+      speed: null,
+      etaSec: 0,
+    });
+    return blob;
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let loaded = 0;
+  const started = Date.now();
+  let lastEmit = 0;
+
+  emit({ phase: 'receiving', loaded: 0, total, percent: hasTotal ? 0 : null, speed: null, etaSec: null });
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.byteLength;
+    const now = Date.now();
+    if (now - lastEmit >= 250) {
+      lastEmit = now;
+      const elapsedSec = Math.max(0.25, (now - started) / 1000);
+      const speed = loaded / elapsedSec;
+      const percent = hasTotal ? Math.min(99, Math.floor((loaded / total) * 100)) : null;
+      const etaSec = hasTotal && speed > 0 ? (total - loaded) / speed : null;
+      emit({ phase: 'receiving', loaded, total, percent, speed, etaSec });
+    }
+  }
+
+  emit({
+    phase: 'assembling',
+    loaded,
+    total: total ?? loaded,
+    percent: hasTotal ? 100 : null,
+    speed: null,
+    etaSec: 0,
+  });
+  const blob = new Blob(chunks, { type: contentType });
+  emit({
+    phase: 'done',
+    loaded: blob.size,
+    total: blob.size,
+    percent: 100,
+    speed: null,
+    etaSec: 0,
+  });
+  return blob;
+};
+
+const formatDownloadProgressMessage = (p, fallback = 'Downloading...') => {
+  if (!p) return fallback;
+  if (p.phase === 'connecting') return 'Connecting to server…';
+  if (p.phase === 'assembling') {
+    return `Almost done — preparing file (${formatBytes(p.loaded)})…`;
+  }
+  if (p.phase === 'saving') return 'Saving file to your computer…';
+  if (p.phase === 'done') return 'Download complete!';
+  if (p.phase === 'failed') return 'Download failed';
+
+  const sizePart = p.total
+    ? `${formatBytes(p.loaded)} / ${formatBytes(p.total)}`
+    : `${formatBytes(p.loaded)} received`;
+  const pctPart = p.percent != null ? ` · ${p.percent}%` : '';
+  const speedPart = p.speed > 0 ? ` · ${formatBytes(p.speed)}/s` : '';
+  const etaLabel = formatEtaSeconds(p.etaSec);
+  const etaPart = etaLabel ? ` · ${etaLabel} left` : p.total ? '' : ' · large file, please wait';
+  return `Downloading ${sizePart}${pctPart}${speedPart}${etaPart}`;
+};
+
 /** GET /api/baseline-simulation/{jobId}/status (+ scepter alias). Batch status endpoint is not used for spin-up checks. */
 const baselineSpinupJobStatusUrls = (jobId) => {
   const enc = encodeURIComponent(String(jobId).trim());
@@ -810,6 +925,240 @@ const fetchBaselineBatchStatusPair = async (rawBatchId) => {
 const areAllRowsClientIdErrors = (rows) => {
   if (!Array.isArray(rows) || !rows.length) return false;
   return rows.every((r) => !r?.ok && (r?.statusCode === 400 || r?.statusCode === 404));
+};
+
+/**
+ * Parse pasted spin-up restore text.
+ * Accepts a batch id (baseline_batch_…), one or more job ids, or both.
+ */
+const parsePastedSpinupRestoreIds = (raw) => {
+  const text = String(raw ?? '').trim();
+  if (!text) {
+    return { batchId: '', jobIds: [], errors: ['Paste a spin-up batch id or one or more job ids.'] };
+  }
+
+  const tokens = text
+    .split(/[\n;]+/)
+    .flatMap((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return [];
+      return trimmed.split(/[\s,]+/);
+    })
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  let batchId = '';
+  const jobIds = [];
+  const errors = [];
+
+  for (const token of tokens) {
+    const normalizedBatch = normalizeBaselineBatchIdForStatus(token);
+    if (/^baseline_batch_\d+$/i.test(normalizedBatch)) {
+      if (!batchId) batchId = normalizedBatch;
+      else if (batchId !== normalizedBatch) {
+        errors.push(`Multiple batch ids found; using ${batchId}.`);
+      }
+      continue;
+    }
+    // Keep other tokens as job ids (e.g. baseline_…_0, numeric SLURM ids, path-like names)
+    if (/^[A-Za-z0-9._/-]+$/.test(token)) {
+      jobIds.push(token);
+    } else {
+      errors.push(`Ignored invalid token: ${token}`);
+    }
+  }
+
+  if (!batchId && !jobIds.length) {
+    return {
+      batchId: '',
+      jobIds: [],
+      errors: ['Could not parse a batch id or job id. Example: baseline_batch_887986'],
+    };
+  }
+
+  return { batchId, jobIds: [...new Set(jobIds)], errors };
+};
+
+const extractJobIdsFromBaselinePayload = (result) => {
+  if (!result || typeof result !== 'object') return [];
+  const fromTop = Array.isArray(result.job_ids)
+    ? result.job_ids.map((id) => String(id ?? '').trim()).filter(Boolean)
+    : [];
+  if (fromTop.length) return [...new Set(fromTop)];
+
+  const arrays = [result.jobs, result.results, result.children, result.items].filter(Array.isArray);
+  const fromJobs = arrays.flatMap((arr) =>
+    arr
+      .map((j) =>
+        String(
+          j?.job_id ??
+            j?.baseline_job_id ??
+            j?.id ??
+            j?.name ??
+            ''
+        ).trim()
+      )
+      .filter(Boolean)
+  );
+  return [...new Set(fromJobs)];
+};
+
+const extractLocationsFromBaselinePayload = (result) => {
+  if (!result || typeof result !== 'object') return [];
+
+  const candidates = [];
+
+  const pushPair = (latRaw, lngRaw, label, id) => {
+    const lat = Number(latRaw);
+    const lng = Number(lngRaw);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
+    candidates.push({ lat, lng, label, id });
+  };
+
+  const pushCoordLike = (c, label, id) => {
+    if (c == null) return;
+    if (Array.isArray(c) && c.length >= 2) {
+      pushPair(c[0], c[1], label, id);
+      return;
+    }
+    if (typeof c === 'object') {
+      pushPair(
+        c.lat ?? c.latitude ?? c.y,
+        c.lng ?? c.lon ?? c.longitude ?? c.x,
+        label || c.label || c.name || c.location_name,
+        id || c.id || c.job_id
+      );
+    }
+  };
+
+  // Common top-level shapes
+  if (Array.isArray(result.locations)) {
+    result.locations.forEach((loc, i) => pushCoordLike(loc, loc?.label, loc?.id || `loc-${i}`));
+  }
+  if (Array.isArray(result.coordinates)) {
+    const names = Array.isArray(result.location_names) ? result.location_names : [];
+    result.coordinates.forEach((c, i) => pushCoordLike(c, names[i], `coord-${i}`));
+  }
+  if (Array.isArray(result.coordinate) && result.coordinate.length >= 2 && typeof result.coordinate[0] === 'number') {
+    pushCoordLike(result.coordinate, result.location_name || result.name);
+  }
+
+  // Nested request / input / params often carry the original submit body
+  const nestedBags = [
+    result.input,
+    result.request,
+    result.params,
+    result.parameters,
+    result.config,
+    result.data,
+    result.payload,
+    result.job,
+  ].filter((x) => x && typeof x === 'object');
+
+  for (const bag of nestedBags) {
+    if (Array.isArray(bag.locations)) {
+      bag.locations.forEach((loc, i) => pushCoordLike(loc, loc?.label, loc?.id || `nested-loc-${i}`));
+    }
+    if (Array.isArray(bag.coordinates)) {
+      const names = Array.isArray(bag.location_names) ? bag.location_names : [];
+      bag.coordinates.forEach((c, i) => pushCoordLike(c, names[i], `nested-coord-${i}`));
+    }
+    if (Array.isArray(bag.coordinate) && bag.coordinate.length >= 2) {
+      pushCoordLike(bag.coordinate, bag.location_name || bag.name);
+    }
+  }
+
+  const jobArrays = [result.jobs, result.results, result.children, result.items, result.tasks]
+    .filter(Array.isArray);
+  for (const arr of jobArrays) {
+    arr.forEach((j, i) => {
+      if (!j || typeof j !== 'object') return;
+      const label = j.label || j.name || j.location_name || j.job_id || j.id;
+      const id = j.job_id || j.id || `job-${i}`;
+      pushCoordLike(j, label, id);
+      pushCoordLike(j.coordinate, label, id);
+      pushCoordLike(j.coordinates, label, id);
+      pushCoordLike(j.location, label, id);
+      pushCoordLike(j.site, label, id);
+      if (j.input) {
+        pushCoordLike(j.input, label, id);
+        pushCoordLike(j.input.coordinate, label, id);
+        if (Array.isArray(j.input.coordinates) && typeof j.input.coordinates[0] === 'number') {
+          pushCoordLike(j.input.coordinates, label, id);
+        }
+      }
+      if (j.params || j.parameters) {
+        const p = j.params || j.parameters;
+        pushCoordLike(p, label, id);
+        pushCoordLike(p.coordinate, label, id);
+      }
+    });
+  }
+
+  // Deduplicate by rounded lat/lng
+  const seen = new Set();
+  const stamp = Date.now();
+  return candidates
+    .map((loc, i) => {
+      const key = `${Number(loc.lat).toFixed(5)},${Number(loc.lng).toFixed(5)}`;
+      if (seen.has(key)) return null;
+      seen.add(key);
+      return {
+        id: String(loc.id || `restore-${stamp}-${i}`),
+        lat: Number(loc.lat),
+        lng: Number(loc.lng),
+        label: String(
+          loc.label ||
+            `${getStateCodeFromCoords(Number(loc.lat), Number(loc.lng)) || 'LOC'}_Location_${i + 1}`
+        ),
+      };
+    })
+    .filter(Boolean);
+};
+
+/** Try a few batch metadata URLs for location hints (best-effort). */
+const fetchBaselineBatchLocationHints = async (rawBatchId) => {
+  const id = String(rawBatchId ?? '').trim();
+  if (!id) return [];
+  const enc = encodeURIComponent(id);
+  const paths = [
+    `api/baseline-simulation-batch/${enc}`,
+    `api/scepter/baseline-simulation-batch/${enc}`,
+    `api/baseline-simulation-batch/${enc}/manifest`,
+    `api/scepter/baseline-simulation-batch/${enc}/manifest`,
+  ];
+  const found = [];
+  for (const path of paths) {
+    try {
+      const response = await fetchWithTimeout(
+        getApiUrl(path),
+        { headers: { 'ngrok-skip-browser-warning': 'true' } },
+        20_000
+      );
+      if (!response.ok) continue;
+      const text = await response.text();
+      if (!text?.trim()) continue;
+      let result = null;
+      try {
+        result = JSON.parse(text);
+      } catch {
+        continue;
+      }
+      const locs = extractLocationsFromBaselinePayload(result);
+      if (locs.length) found.push(...locs);
+    } catch {
+      // ignore optional metadata failures
+    }
+  }
+  // Dedup
+  const seen = new Set();
+  return found.filter((loc) => {
+    const key = `${loc.lat.toFixed(5)},${loc.lng.toFixed(5)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 };
 
 const parseCoordField = (raw, kind) => {
@@ -1359,6 +1708,10 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
     freshSessionPreparedRef.current = true;
   }
   const [activeModelId, setActiveModelId] = useState(() => savedData?.id || null);
+  /** Last user-chosen saved name — auto-sync must not overwrite this. */
+  const [savedModelName, setSavedModelName] = useState(() =>
+    savedData?.name && String(savedData.name).trim() ? String(savedData.name).trim() : ''
+  );
   const [feedstock, setFeedstock] = useState('');
   const [particleSize, setParticleSize] = useState('');
   const [applicationRate, setApplicationRate] = useState('');
@@ -1422,6 +1775,8 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
   const [isDownloadingSpinup, setIsDownloadingSpinup] = useState(false);
   const [modelDownloadStatus, setModelDownloadStatus] = useState('');
   const [spinupDownloadStatus, setSpinupDownloadStatus] = useState('');
+  const [modelDownloadPercent, setModelDownloadPercent] = useState(null);
+  const [spinupDownloadPercent, setSpinupDownloadPercent] = useState(null);
   const [currentPage, setCurrentPage] = useState(1); // 1 = Add Sites, 2 = Practice Variables & Run Model
   const [activePracticeIndex, setActivePracticeIndex] = useState(0);
   /** { id, lat, lng, label }[] — labels like CT_Location_1 */
@@ -1449,6 +1804,14 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
   const [pasteCoordsFeedback, setPasteCoordsFeedback] = useState(null);
   const [isAddingPastedCoords, setIsAddingPastedCoords] = useState(false);
   const [showPasteCoords, setShowPasteCoords] = useState(false);
+  /** Restore completed spin-up from pasted batch/job ids. */
+  const [restoreSpinupText, setRestoreSpinupText] = useState('');
+  const [restoreSpinupSitesText, setRestoreSpinupSitesText] = useState('');
+  const [restoreSpinupFeedback, setRestoreSpinupFeedback] = useState(null);
+  const [isRestoringSpinup, setIsRestoringSpinup] = useState(false);
+  const [showRestoreSpinup, setShowRestoreSpinup] = useState(false);
+  /** After restore, auto-advance to Step 2 once spin-up status becomes completed. */
+  const pendingRestoreAdvanceRef = useRef(false);
 
   const hasAnyLocation = selectedLocations.length > 0;
   const hasAnyRunTrackingId = Boolean(
@@ -1461,6 +1824,9 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
 
   useEffect(() => {
     setActiveModelId(savedData?.id || null);
+    if (savedData?.name && String(savedData.name).trim()) {
+      setSavedModelName(String(savedData.name).trim());
+    }
   }, [savedData]);
 
   useEffect(() => {
@@ -1905,6 +2271,8 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
     setIsDownloadingModel(false);
     setModelDownloadStatus('');
     setSpinupDownloadStatus('');
+    setModelDownloadPercent(null);
+    setSpinupDownloadPercent(null);
     setModelRunUsage(null);
     try {
       localStorage.removeItem('scepter_spinup_job_id');
@@ -1943,10 +2311,12 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
     setSelectedLocations([]);
     setActivePracticeIndex(0);
     setApplySamePracticeToAll(false);
+    setSavedModelName('');
     setMapCenter([39.8283, -98.5795]);
     setMapZoom(4);
     setMapSelectMode(true);
     setCurrentPage(1);
+    pendingRestoreAdvanceRef.current = false;
 
     try {
       clearScepterPersistedSession();
@@ -1960,6 +2330,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
     resetAllScepterSession();
     setActiveModelId(null);
     lastRunTrackingSnapshotRef.current = '';
+    setSavedModelName('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldStartFreshSession]);
 
@@ -1971,21 +2342,31 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
   const hasModelRunIds = Boolean(
     String(spinupJobId || '').trim() || String(runModelBatchId || '').trim()
   );
+  /** After spin-up finishes, allow a fresh model submit even if a prior attempt is stuck/lost. */
+  const needsModelRunResubmit =
+    hasModelRunIds || modelRunInProgress || modelRunFailed || Boolean(String(spinupStatus || '').trim());
   const canSubmitModelRun =
     spinupIsCompleted &&
     !isSubmittingRunModel &&
-    !modelRunInProgress &&
-    !modelRunCompleted &&
-    (!hasModelRunIds || modelRunFailed);
+    !modelRunCompleted;
 
   const handleRunModel = async (e, options = {}) => {
     const { skipBaselineCheck = false, forceRetry = false } = options;
     e.preventDefault();
     if (isSubmittingRunModel) return;
 
-    if (!skipBaselineCheck && (!baselineJobId || baselineStatus !== 'completed')) {
-      setSpinupError('Spin-up must be completed before running the SCEPTER model.');
-      return;
+    if (!skipBaselineCheck) {
+      const hasSpinupId = Boolean(
+        String(baselineJobId || '').trim() ||
+        String(baselineBatchId || '').trim() ||
+        baselineJobIds.length > 0
+      );
+      if (!hasSpinupId || baselineStatus !== 'completed') {
+        setSpinupError(
+          'Spin-up must be completed before running the SCEPTER model. Run spin-up, or restore a completed spin-up ID.'
+        );
+        return;
+      }
     }
 
     if (!forceRetry) {
@@ -1996,8 +2377,8 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
       if (hasActiveRunAlready) {
         setSpinupError(
           isModelRunCompleted(spinupStatus)
-            ? 'Model run already completed. Use Reset to start over.'
-            : 'SCEPTER model run already submitted. Use Retry from spin-up if it failed, or Reset to start over.'
+            ? 'Model run already completed. Use Reset to start over, or Resubmit Model Run if you need another attempt.'
+            : 'A model run was already submitted. Use Resubmit Model Run to clear the stuck attempt and submit again (spin-up is kept).'
         );
         return;
       }
@@ -2186,10 +2567,343 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
 
   const handleRetryModelRun = async (e) => {
     e.preventDefault();
-    if (!spinupIsCompleted || isSubmittingRunModel) return;
+    if (!spinupIsCompleted || isSubmittingRunModel || modelRunCompleted) return;
+
+    if (modelRunInProgress || hasModelRunIds) {
+      const confirmed = window.confirm(
+        'Resubmit the model run using your completed spin-up?\n\n' +
+          'Use this if the previous model submission was lost or stuck (for example after a connection issue). ' +
+          'This clears the previous model-run tracking and submits a new model run. Spin-up results are kept.'
+      );
+      if (!confirmed) return;
+    }
+
     resetStep2ModelRun();
     await handleRunModel(e, { skipBaselineCheck: true, forceRetry: true });
   };
+
+  /**
+   * Restore a completed HPC spin-up into this session from a pasted batch/job id,
+   * so the user can continue to model run / save without re-running spin-up.
+   */
+  const handleRestoreSpinupFromIds = async ({ forceCompleted = false } = {}) => {
+    setRestoreSpinupFeedback(null);
+    const { batchId, jobIds: pastedJobIds, errors } = parsePastedSpinupRestoreIds(restoreSpinupText);
+    if (!batchId && !pastedJobIds.length) {
+      setRestoreSpinupFeedback({
+        type: 'error',
+        message: errors[0] || 'Paste a spin-up batch id or job id.',
+      });
+      return;
+    }
+
+    setIsRestoringSpinup(true);
+    try {
+      let resolvedBatchId = batchId;
+      let resolvedJobIds = [...pastedJobIds];
+      let status = forceCompleted ? 'completed' : '';
+      let statusError = null;
+      let restoredLocations = [];
+      let usage = null;
+
+      // Optional pasted sites (most reliable for practice-variable setup)
+      if (restoreSpinupSitesText.trim()) {
+        const { pairs, errors: siteErrors } = parsePastedCoordinateList(restoreSpinupSitesText);
+        if (pairs.length) {
+          const stamp = Date.now();
+          restoredLocations = pairs.map((p, i) => ({
+            id: `restore-paste-${stamp}-${i}`,
+            lat: p.lat,
+            lng: p.lng,
+            label:
+              p.label ||
+              `${getStateCodeFromCoords(p.lat, p.lng) || 'LOC'}_Location_${i + 1}`,
+          }));
+        } else if (siteErrors.length) {
+          setRestoreSpinupFeedback({
+            type: 'error',
+            message: `Could not parse site coordinates: ${siteErrors[0]}`,
+          });
+          return;
+        }
+      }
+
+      if (resolvedBatchId) {
+        try {
+          const { response, result, text } = await fetchBaselineBatchStatusPair(resolvedBatchId);
+          if (response.ok && result) {
+            const fromPayload = extractJobIdsFromBaselinePayload(result);
+            if (fromPayload.length) {
+              resolvedJobIds = [...new Set([...resolvedJobIds, ...fromPayload])];
+            }
+            if (!restoredLocations.length) {
+              restoredLocations = extractLocationsFromBaselinePayload(result);
+            }
+            status =
+              extractStatusFromBaselinePayload(result) ||
+              (result?.status != null ? normalizeBaselineStatusToken(String(result.status)) : '') ||
+              status;
+            statusError = result?.error || null;
+            usage = extractUsageFromStatusPayload(result);
+          } else if (!forceCompleted) {
+            const msg =
+              result?.error || result?.message || text || `Batch status check failed (${response.status})`;
+            statusError = msg;
+          }
+        } catch (err) {
+          if (!forceCompleted) {
+            statusError = err?.message || 'Batch status check failed.';
+          }
+        }
+
+        if (!restoredLocations.length) {
+          try {
+            const hinted = await fetchBaselineBatchLocationHints(resolvedBatchId);
+            if (hinted.length) restoredLocations = hinted;
+          } catch {
+            // optional
+          }
+        }
+      }
+
+      if (resolvedJobIds.length) {
+        try {
+          const rows = await Promise.all(resolvedJobIds.map((id) => fetchBaselineSpinupStatusRow(id)));
+          const usable = rows.filter((r) => r?.ok);
+          if (usable.length) {
+            const merged = mergeBaselineStatusRows(rows);
+            if (!forceCompleted) {
+              status = merged.status || status;
+              statusError = merged.error || statusError;
+            }
+            usage = aggregateUsageFromStatusRows(rows) || usage;
+            if (!restoredLocations.length) {
+              const fromJobs = [];
+              for (const row of usable) {
+                const locs = extractLocationsFromBaselinePayload(baselineStatusRowPayload(row));
+                if (locs.length) fromJobs.push(...locs);
+              }
+              if (fromJobs.length) restoredLocations = fromJobs;
+            }
+            const fromRows = rows.flatMap((r) => extractJobIdsFromBaselinePayload(baselineStatusRowPayload(r)));
+            if (fromRows.length) {
+              resolvedJobIds = [...new Set([...resolvedJobIds, ...fromRows])];
+            }
+          } else if (!forceCompleted && !status) {
+            statusError =
+              statusError ||
+              'Could not verify job status. If spin-up finished on HPC, use “Restore as completed”.';
+          }
+        } catch (err) {
+          if (!forceCompleted && !statusError) {
+            statusError = err?.message || 'Job status check failed.';
+          }
+        }
+      }
+
+      // Fall back to browser-cached sites from the original spin-up session, if still present
+      if (!restoredLocations.length) {
+        try {
+          const cachedRaw = localStorage.getItem('scepter_baseline_coordinate');
+          if (cachedRaw) {
+            const parsed = JSON.parse(cachedRaw);
+            if (Array.isArray(parsed?.locations) && parsed.locations.length) {
+              restoredLocations = parsed.locations
+                .map((loc, i) => {
+                  const lat = Number(loc.lat);
+                  const lng = Number(loc.lng);
+                  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+                  return {
+                    id: String(loc.id || `cached-${i}`),
+                    lat,
+                    lng,
+                    label: String(
+                      loc.label ||
+                        `${getStateCodeFromCoords(lat, lng) || 'LOC'}_Location_${i + 1}`
+                    ),
+                  };
+                })
+                .filter(Boolean);
+            } else if (Array.isArray(parsed?.coordinate) && parsed.coordinate.length >= 2) {
+              const [lat, lng] = parsed.coordinate.map(Number);
+              if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                restoredLocations = [
+                  {
+                    id: 'cached-single',
+                    lat,
+                    lng,
+                    label:
+                      parsed.locationName ||
+                      `${getStateCodeFromCoords(lat, lng) || 'LOC'}_Location_1`,
+                  },
+                ];
+              }
+            }
+          }
+          if (!restoredLocations.length) {
+            const uiRaw = localStorage.getItem('scepter_selected_locations_ui');
+            if (uiRaw) {
+              const parsed = JSON.parse(uiRaw);
+              if (Array.isArray(parsed) && parsed.length) {
+                restoredLocations = parsed
+                  .map((loc, i) => {
+                    const lat = Number(loc.lat);
+                    const lng = Number(loc.lng);
+                    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+                    return {
+                      id: String(loc.id || `ui-${i}`),
+                      lat,
+                      lng,
+                      label: String(loc.label || `Location_${i + 1}`),
+                    };
+                  })
+                  .filter(Boolean);
+              }
+            }
+          }
+        } catch {
+          // ignore cache parse errors
+        }
+      }
+
+      if (forceCompleted) {
+        status = 'completed';
+        statusError = null;
+      }
+
+      if (!resolvedJobIds.length && resolvedBatchId) {
+        resolvedJobIds = [];
+      }
+
+      const primaryJobId = resolvedJobIds[0] || resolvedBatchId || null;
+      setBaselineBatchId(resolvedBatchId || '');
+      setBaselineJobIds(resolvedJobIds);
+      setBaselineJobId(primaryJobId);
+      setBaselineStatus(status || (forceCompleted ? 'completed' : 'unknown'));
+      setBaselineError(statusError);
+      setBaselineNotice(
+        forceCompleted
+          ? 'Restored spin-up IDs and marked completed (skipped strict status verification).'
+          : `Restored spin-up tracking from pasted id${resolvedBatchId ? ` (${resolvedBatchId})` : ''}.`
+      );
+      setBaselineCheckInfo(null);
+      if (usage) setBaselineJobUsage(usage);
+      resetStep2ModelRun();
+
+      let locationNote = '';
+      let appliedLocations = [];
+      if (restoredLocations.length) {
+        const capped = Number.isFinite(maxLocations)
+          ? restoredLocations.slice(0, maxLocations)
+          : restoredLocations;
+        appliedLocations = capped.map((loc, i) => ({
+          ...loc,
+          label:
+            loc.label ||
+            `${getStateCodeFromCoords(loc.lat, loc.lng) || 'LOC'}_Location_${i + 1}`,
+        }));
+        setSelectedLocations(appliedLocations);
+        setActivePracticeIndex(0);
+        if (appliedLocations[0]) {
+          setMapCenter([appliedLocations[0].lat, appliedLocations[0].lng]);
+          setMapZoom(8);
+        }
+        locationNote = ` Restored ${appliedLocations.length} site(s) for practice variables.`;
+        try {
+          localStorage.setItem(
+            'scepter_baseline_coordinate',
+            JSON.stringify({
+              mode: appliedLocations.length > 1 ? 'multiple' : 'single',
+              coordinates: appliedLocations.map((l) => [l.lat, l.lng]),
+              coordinate: [appliedLocations[0].lat, appliedLocations[0].lng],
+              locations: appliedLocations,
+              restored: true,
+            })
+          );
+          localStorage.setItem('scepter_selected_locations_ui', JSON.stringify(appliedLocations));
+        } catch {
+          // ignore
+        }
+      } else {
+        locationNote =
+          ' No sites were found on the server response. Paste the same site coordinates in the restore box (or Step 1) so you can set practice variables.';
+      }
+
+      try {
+        if (resolvedBatchId) localStorage.setItem('scepter_baseline_batch_id', resolvedBatchId);
+        else localStorage.removeItem('scepter_baseline_batch_id');
+        if (primaryJobId) localStorage.setItem('scepter_baseline_job_id', String(primaryJobId));
+        else localStorage.removeItem('scepter_baseline_job_id');
+        if (resolvedJobIds.length) {
+          localStorage.setItem('scepter_baseline_job_ids', JSON.stringify(resolvedJobIds));
+        } else {
+          localStorage.removeItem('scepter_baseline_job_ids');
+        }
+        if ((status || '') === 'completed' || forceCompleted) {
+          localStorage.setItem('scepter_baseline_status', 'completed');
+          localStorage.setItem(
+            'scepter_spinup_checkpoint',
+            JSON.stringify({
+              baselineJobId: primaryJobId,
+              baselineJobIds: resolvedJobIds,
+              baselineBatchId: resolvedBatchId || '',
+              baselineStatus: 'completed',
+              completedAt: new Date().toISOString(),
+              restored: true,
+            })
+          );
+        }
+      } catch {
+        // ignore localStorage errors
+      }
+
+      const completed =
+        normalizeBaselineStatusToken(String(status || '')) === 'completed' || forceCompleted;
+      const hasSitesNow = appliedLocations.length > 0 || selectedLocations.length > 0;
+      const parts = [
+        completed
+          ? 'Spin-up restored as completed.'
+          : `Spin-up IDs restored (status: ${status || 'unknown'}). When status is completed, you’ll move to Step 2 automatically — or use “Restore as completed”.`,
+      ];
+      if (resolvedJobIds.length) parts.push(`${resolvedJobIds.length} job id(s).`);
+      if (errors.length) parts.push(errors.join(' '));
+      parts.push(locationNote);
+      if (completed && hasSitesNow) {
+        parts.push(' Moving to Step 2 so you can set practice variables and run the model.');
+      } else if (completed && !hasSitesNow) {
+        parts.push(' Add site coordinates in the restore panel, then restore again.');
+      }
+
+      setRestoreSpinupFeedback({
+        type: completed ? (hasSitesNow ? 'success' : 'warn') : statusError ? 'warn' : 'success',
+        message: parts.join(' ').trim(),
+      });
+      if (completed && hasSitesNow) {
+        pendingRestoreAdvanceRef.current = false;
+        setCurrentPage(2);
+      } else if (completed && !hasSitesNow) {
+        pendingRestoreAdvanceRef.current = false;
+        setCurrentPage(1);
+        setShowRestoreSpinup(true);
+      } else {
+        pendingRestoreAdvanceRef.current = true;
+      }
+    } finally {
+      setIsRestoringSpinup(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!pendingRestoreAdvanceRef.current) return;
+    if (normalizeBaselineStatusToken(String(baselineStatus || '')) !== 'completed') return;
+    if (selectedLocations.length < 1) return;
+    pendingRestoreAdvanceRef.current = false;
+    setCurrentPage(2);
+    setRestoreSpinupFeedback({
+      type: 'success',
+      message: 'Spin-up status is completed and sites are ready. Moved to Step 2 for practice variables and model run.',
+    });
+  }, [baselineStatus, selectedLocations.length]);
 
   /** Poll spin-up status using per-job ids only (no batch GET .../baseline-simulation-batch/{batchId}/status). */
   const pollBaselineBatchStatus = useCallback((ids) => {
@@ -2639,8 +3353,14 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
     if (!canDownload) return;
 
     setIsDownloadingModel(true);
-    setModelDownloadStatus('Downloading...');
+    setModelDownloadPercent(null);
+    setModelDownloadStatus('Connecting to server…');
     setSpinupError(null);
+
+    const reportProgress = (p) => {
+      setModelDownloadPercent(p?.percent ?? null);
+      setModelDownloadStatus(formatDownloadProgressMessage(p));
+    };
 
     try {
       const batchIdNorm = String(runModelBatchId ?? '').trim();
@@ -2650,6 +3370,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
       let batchZipFilename = `scepter_results_${batchIdNorm}.zip`;
 
       if (canTryBatch) {
+        setModelDownloadStatus('Requesting batch ZIP…');
         for (const path of runModelBatchDownloadUrls(batchIdNorm)) {
           const r = await fetch(getApiUrl(path), {
             headers: { 'ngrok-skip-browser-warning': 'true' },
@@ -2675,12 +3396,15 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
       }
 
       if (batchResponse?.ok) {
-        setModelDownloadStatus('Receiving data...');
-        const blob = await batchResponse.blob();
-        setModelDownloadStatus('Starting download...');
+        const blob = await readResponseBlobWithProgress(batchResponse, reportProgress);
+        reportProgress({ phase: 'saving', loaded: blob.size, total: blob.size, percent: 100 });
         saveBlobAsFileDownload(blob, batchZipFilename);
         setModelDownloadStatus('Download complete!');
-        setTimeout(() => setModelDownloadStatus(''), 2000);
+        setModelDownloadPercent(100);
+        setTimeout(() => {
+          setModelDownloadStatus('');
+          setModelDownloadPercent(null);
+        }, 2500);
         return;
       }
 
@@ -2688,7 +3412,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
         throw new Error('Batch download was not available and no model job id was found for a single-file download.');
       }
 
-      setModelDownloadStatus('Downloading...');
+      setModelDownloadStatus('Requesting model ZIP…');
       let response = null;
       let lastErr = '';
       for (const path of runModelSingleDownloadUrls(jobId)) {
@@ -2713,16 +3437,22 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
         throw new Error(lastErr || 'Download failed');
       }
 
-      setModelDownloadStatus('Receiving data...');
-      const blob = await response.blob();
-      setModelDownloadStatus('Starting download...');
+      const blob = await readResponseBlobWithProgress(response, reportProgress);
+      reportProgress({ phase: 'saving', loaded: blob.size, total: blob.size, percent: 100 });
       saveBlobAsFileDownload(blob, `scepter_results_${jobId}.zip`);
-      setModelDownloadStatus(canTryBatch ? 'Download complete (single-job ZIP; batch ZIP unavailable).' : 'Download complete!');
-      setTimeout(() => setModelDownloadStatus(''), canTryBatch ? 3500 : 2000);
+      setModelDownloadStatus(
+        canTryBatch ? 'Download complete (single-job ZIP; batch ZIP unavailable).' : 'Download complete!'
+      );
+      setModelDownloadPercent(100);
+      setTimeout(() => {
+        setModelDownloadStatus('');
+        setModelDownloadPercent(null);
+      }, canTryBatch ? 3500 : 2500);
     } catch (err) {
       console.error('Download error:', err);
       setSpinupError(err.message || 'Failed to download results.');
       setModelDownloadStatus('Download failed');
+      setModelDownloadPercent(null);
       setTimeout(() => setModelDownloadStatus(''), 3000);
     } finally {
       setIsDownloadingModel(false);
@@ -2736,11 +3466,17 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
     if (isDownloadingSpinup) return;
 
     setIsDownloadingSpinup(true);
-    setSpinupDownloadStatus('Connecting...');
+    setSpinupDownloadPercent(null);
+    setSpinupDownloadStatus('Connecting to server…');
     setBaselineError(null);
 
+    const reportProgress = (p, prefix = '') => {
+      setSpinupDownloadPercent(p?.percent ?? null);
+      const msg = formatDownloadProgressMessage(p);
+      setSpinupDownloadStatus(prefix ? `${prefix}${msg}` : msg);
+    };
+
     try {
-      setSpinupDownloadStatus('Downloading...');
       const batchIdNorm =
         normalizeBaselineBatchIdForStatus(baselineBatchId) || String(baselineBatchId ?? '').trim();
       const canTryBatch = /^baseline_batch_\d+$/i.test(batchIdNorm);
@@ -2749,6 +3485,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
       let batchZipFilename = `scepter_spinup_${batchIdNorm}.zip`;
 
       if (canTryBatch) {
+        setSpinupDownloadStatus('Requesting batch ZIP (this can take a while for large outputs)…');
         for (const path of baselineBatchDownloadUrls(batchIdNorm)) {
           const r = await fetch(getApiUrl(path), {
             headers: { 'ngrok-skip-browser-warning': 'true' },
@@ -2774,12 +3511,15 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
       }
 
       if (batchResponse?.ok) {
-        setSpinupDownloadStatus('Receiving data...');
-        const blob = await batchResponse.blob();
-        setSpinupDownloadStatus('Starting download...');
+        const blob = await readResponseBlobWithProgress(batchResponse, reportProgress);
+        reportProgress({ phase: 'saving', loaded: blob.size, total: blob.size, percent: 100 });
         saveBlobAsFileDownload(blob, batchZipFilename);
         setSpinupDownloadStatus('Download complete!');
-        setTimeout(() => setSpinupDownloadStatus(''), 2000);
+        setSpinupDownloadPercent(100);
+        setTimeout(() => {
+          setSpinupDownloadStatus('');
+          setSpinupDownloadPercent(null);
+        }, 2500);
         return;
       }
 
@@ -2800,8 +3540,9 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
       const usedBatchZip = canTryBatch;
       for (let i = 0; i < ids.length; i += 1) {
         const jid = ids[i];
+        const prefix = ids.length > 1 ? `File ${i + 1}/${ids.length}: ` : '';
         setSpinupDownloadStatus(
-          ids.length > 1 ? `Downloading location ${i + 1} of ${ids.length}...` : 'Receiving data...'
+          `${prefix}Requesting ZIP…`
         );
         const response = await fetch(
           getApiUrl(`api/baseline-simulation/${encodeURIComponent(jid)}/download`),
@@ -2818,7 +3559,8 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
           }
           throw new Error(errMsg || `Download failed for ${jid} (${response.status})`);
         }
-        const blob = await response.blob();
+        const blob = await readResponseBlobWithProgress(response, (p) => reportProgress(p, prefix));
+        reportProgress({ phase: 'saving', loaded: blob.size, total: blob.size, percent: 100 }, prefix);
         saveBlobAsFileDownload(blob, `scepter_spinup_${jid}.zip`);
         if (i < ids.length - 1) {
           await new Promise((resolve) => setTimeout(resolve, 450));
@@ -2832,12 +3574,17 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
             ? `Downloaded ${ids.length} ZIP file(s).`
             : 'Download complete!'
       );
-      setTimeout(() => setSpinupDownloadStatus(''), 3000);
+      setSpinupDownloadPercent(100);
+      setTimeout(() => {
+        setSpinupDownloadStatus('');
+        setSpinupDownloadPercent(null);
+      }, 3000);
     } catch (err) {
       console.error('Spin-up download error:', err);
       const msg = err.message || 'Failed to download spin-up results.';
       setBaselineError(msg);
       setSpinupDownloadStatus('Download failed');
+      setSpinupDownloadPercent(null);
       setTimeout(() => setSpinupDownloadStatus(''), 3000);
     } finally {
       setIsDownloadingSpinup(false);
@@ -2845,6 +3592,9 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
   };
 
   const getDefaultScepterModelName = useCallback(() => {
+    if (savedModelName && String(savedModelName).trim()) {
+      return String(savedModelName).trim();
+    }
     if (savedData?.name && String(savedData.name).trim()) {
       return String(savedData.name).trim();
     }
@@ -2852,7 +3602,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
     return selectedLocations.length > 0
       ? `SCEPTER_${selectedLocations.map((l) => l.label).join('_').replace(/\s+/g, '_')}`
       : 'SCEPTER_Custom_Location';
-  }, [savedData, selectedLocations]);
+  }, [savedModelName, savedData, selectedLocations]);
 
   const buildScepterModelDataPayload = useCallback((nameOverride) => {
     const defaultName =
@@ -2924,15 +3674,21 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
       return;
     }
 
+    const trimmedName = String(nameOverride).trim();
     setIsSaving(true);
     setShowNameModal(false);
 
     try {
-      const modelData = buildScepterModelDataPayload(nameOverride);
+      const modelData = buildScepterModelDataPayload(trimmedName);
 
       if (activeModelId) {
-        // Update existing model
-        await userService.updateUserModel(user.id, activeModelId, modelData);
+        // Update existing model (including name)
+        const updated = await userService.updateUserModel(user.id, activeModelId, modelData);
+        if (!updated) {
+          throw new Error('Failed to update model. Please try again.');
+        }
+        setSavedModelName(trimmedName);
+        alert(`Model name updated to "${trimmedName}".`);
       } else {
         // Create new model
         const created = await userService.saveUserModel(user.id, modelData);
@@ -2945,9 +3701,12 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
         if (createdId) {
           setActiveModelId(createdId);
         }
+        setSavedModelName(trimmedName);
+        alert(`Model saved as "${trimmedName}".`);
       }
     } catch (error) {
       console.error('Error saving model:', error);
+      alert(error?.message || 'Failed to save model. Please try again.');
     } finally {
       setIsSaving(false);
     }
@@ -2973,7 +3732,10 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
     isAutoSyncingRunTrackingRef.current = true;
     (async () => {
       try {
-        await userService.updateUserModel(user.id, activeModelId, buildScepterModelDataPayload());
+        // Sync run tracking / parameters only — never overwrite the user-chosen model name.
+        const full = buildScepterModelDataPayload(savedModelName || undefined);
+        const { name: _omitName, ...syncPayload } = full;
+        await userService.updateUserModel(user.id, activeModelId, syncPayload);
         if (!cancelled) {
           lastRunTrackingSnapshotRef.current = runTrackingSnapshot;
         }
@@ -2998,6 +3760,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
     spinupJobId,
     runModelBatchId,
     spinupStatus,
+    savedModelName,
     buildScepterModelDataPayload,
   ]);
 
@@ -3226,7 +3989,10 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
     }
   }, [selectedStatistic, statisticPeriod]);
 */
-  const canContinueToStep2 = savedData || selectedLocations.length >= 1;
+  const canContinueToStep2 =
+    savedData ||
+    selectedLocations.length >= 1 ||
+    normalizeBaselineStatusToken(String(baselineStatus || '')) === 'completed';
 
   const removeLocationAt = (index) => {
     setSelectedLocations((prev) => prev.filter((_, i) => i !== index));
@@ -3504,7 +4270,97 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                       <h4 className="text-md font-semibold">Step 1: Add sites</h4>
                       <p className="text-sm text-gray-600 mt-1">
                         Add one or more locations by clicking the map, pasting coordinates, or choosing USGS Water Quality Sites.
+                        Or restore a completed HPC spin-up by ID below.
                       </p>
+                    </div>
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowRestoreSpinup((v) => !v);
+                          setRestoreSpinupFeedback(null);
+                        }}
+                        className="w-full text-left text-sm font-semibold text-amber-900"
+                      >
+                        {showRestoreSpinup ? '▾' : '▸'} Restore completed spin-up from ID
+                      </button>
+                      {showRestoreSpinup ? (
+                        <div className="space-y-2">
+                          <p className="text-xs text-amber-900/80">
+                            Paste a spin-up <span className="font-mono">baseline_batch_…</span> id and/or job ids from HPC.
+                            Also paste the same site coordinates used for that spin-up (one <span className="font-mono">lat, lng</span> per line) so practice variables can be set on Step 2.
+                          </p>
+                          <Label htmlFor="restore-spinup-id" className="text-xs font-medium text-amber-950">
+                            Spin-up batch / job ID
+                          </Label>
+                          <textarea
+                            id="restore-spinup-id"
+                            value={restoreSpinupText}
+                            onChange={(e) => {
+                              setRestoreSpinupText(e.target.value);
+                              if (restoreSpinupFeedback) setRestoreSpinupFeedback(null);
+                            }}
+                            rows={2}
+                            placeholder={'baseline_batch_887986'}
+                            className="w-full rounded-xl border border-amber-300 bg-white p-2 text-sm font-mono resize-y min-h-[56px] focus:outline-none focus:ring-2 focus:ring-amber-400"
+                            disabled={isRestoringSpinup}
+                          />
+                          <Label htmlFor="restore-spinup-sites" className="text-xs font-medium text-amber-950">
+                            Site coordinates (recommended)
+                          </Label>
+                          <textarea
+                            id="restore-spinup-sites"
+                            value={restoreSpinupSitesText}
+                            onChange={(e) => {
+                              setRestoreSpinupSitesText(e.target.value);
+                              if (restoreSpinupFeedback) setRestoreSpinupFeedback(null);
+                            }}
+                            rows={4}
+                            placeholder={'41.3083, -72.9279\n42.3601, -71.0589 Site_2\n40.7128, -74.0060'}
+                            className="w-full rounded-xl border border-amber-300 bg-white p-2 text-sm font-mono resize-y min-h-[96px] focus:outline-none focus:ring-2 focus:ring-amber-400"
+                            disabled={isRestoringSpinup}
+                          />
+                          {restoreSpinupFeedback ? (
+                            <p
+                              className={`text-sm ${
+                                restoreSpinupFeedback.type === 'error'
+                                  ? 'text-red-700'
+                                  : restoreSpinupFeedback.type === 'warn'
+                                    ? 'text-amber-800'
+                                    : 'text-green-800'
+                              }`}
+                            >
+                              {restoreSpinupFeedback.message}
+                            </p>
+                          ) : null}
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              onClick={() => handleRestoreSpinupFromIds({ forceCompleted: false })}
+                              disabled={isRestoringSpinup || !restoreSpinupText.trim()}
+                              className="bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+                            >
+                              {isRestoringSpinup ? 'Restoring…' : 'Restore & check status'}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => {
+                                const confirmed = window.confirm(
+                                  'Mark this spin-up as completed even if status cannot be verified?\n\n' +
+                                    'Use this when results already finished on HPC and you only need to continue to the model run.'
+                                );
+                                if (!confirmed) return;
+                                handleRestoreSpinupFromIds({ forceCompleted: true });
+                              }}
+                              disabled={isRestoringSpinup || !restoreSpinupText.trim()}
+                              className="disabled:opacity-50"
+                            >
+                              Restore as completed
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <button
@@ -3925,10 +4781,36 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                                 disabled={isDownloadingSpinup}
                                 className="bg-green-500 text-white hover:bg-green-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                               >
-                                {isDownloadingSpinup ? (spinupDownloadStatus || 'Preparing download...') : 'Download'}
+                                {isDownloadingSpinup ? 'Downloading…' : 'Download'}
                               </Button>
                             )}
                           </div>
+                          {(isDownloadingSpinup || spinupDownloadStatus) ? (
+                            <div className="mt-2 space-y-1">
+                              <p className="text-xs text-gray-800 break-words">
+                                {spinupDownloadStatus || 'Preparing download…'}
+                              </p>
+                              <div className="h-2 w-full rounded-full bg-gray-200 overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all duration-300 ${
+                                    spinupDownloadPercent == null
+                                      ? 'w-1/3 animate-pulse bg-green-400'
+                                      : 'bg-green-500'
+                                  }`}
+                                  style={
+                                    spinupDownloadPercent == null
+                                      ? undefined
+                                      : { width: `${Math.max(2, Math.min(100, spinupDownloadPercent))}%` }
+                                  }
+                                />
+                              </div>
+                              {spinupDownloadPercent == null && isDownloadingSpinup ? (
+                                <p className="text-[11px] text-gray-600">
+                                  Server is preparing or streaming the file. Size unknown until transfer finishes — keep this tab open.
+                                </p>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
 
@@ -3936,17 +4818,17 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                         <Button
                           type="button"
                           disabled={!canSubmitModelRun}
-                          onClick={(e) => (modelRunFailed ? handleRetryModelRun(e) : handleRunModel(e))}
+                          onClick={(e) => (needsModelRunResubmit ? handleRetryModelRun(e) : handleRunModel(e))}
                           className="w-full bg-blue-600 text-white hover:bg-blue-700 rounded-md p-2 disabled:opacity-50"
                         >
                           {isSubmittingRunModel
                             ? 'Submitting Model Run...'
-                            : modelRunInProgress
-                              ? 'Model run submitted'
+                            : modelRunCompleted
+                              ? 'Model run completed'
                               : modelRunFailed
                                 ? 'Retry Model Run'
-                                : modelRunCompleted
-                                  ? 'Model run completed'
+                                : needsModelRunResubmit
+                                  ? 'Resubmit Model Run'
                                   : 'Run Model'}
                         </Button>
 
@@ -3972,6 +4854,12 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                                 Model run failed. Your completed spin-up is still saved — use Retry Model Run to submit again without restarting spin-up.
                               </div>
                             )}
+                            {!modelRunFailed && needsModelRunResubmit && !modelRunCompleted && spinupIsCompleted && (
+                              <div className="text-xs mt-2">
+                                A previous model submission is still tracked{modelRunInProgress ? ' as in progress' : ''}.
+                                If the connection was lost or status never updated, use Resubmit Model Run to try again without re-running spin-up.
+                              </div>
+                            )}
                             <JobUsageSummary usage={modelRunUsage} label="Model run usage" />
                           </div>
                           <div className="mt-2 flex flex-wrap gap-2">
@@ -3983,14 +4871,18 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                             >
                               {isCheckingSpinupStatus ? 'Checking...' : 'Check status'}
                             </Button>
-                            {modelRunFailed && canSubmitModelRun && (
+                            {needsModelRunResubmit && canSubmitModelRun && (
                               <Button
                                 type="button"
                                 onClick={handleRetryModelRun}
                                 disabled={isSubmittingRunModel}
                                 className="bg-blue-600 text-white hover:bg-blue-700 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
                               >
-                                {isSubmittingRunModel ? 'Submitting...' : 'Retry from spin-up'}
+                                {isSubmittingRunModel
+                                  ? 'Submitting...'
+                                  : modelRunFailed
+                                    ? 'Retry from spin-up'
+                                    : 'Resubmit from spin-up'}
                               </Button>
                             )}
                             {(normalizeBaselineStatusToken(String(spinupStatus || '')) === 'completed' || !!runModelBatchId?.trim()) && (
@@ -4000,10 +4892,36 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                                 disabled={isDownloadingModel}
                                 className={`rounded-md py-1.5 px-3 text-sm font-semibold ${isDownloadingModel ? 'bg-gray-400 text-white cursor-not-allowed' : 'bg-green-500 text-white hover:bg-green-600'}`}
                               >
-                                {isDownloadingModel ? (modelDownloadStatus || 'Preparing download...') : 'Download'}
+                                {isDownloadingModel ? 'Downloading…' : 'Download'}
                               </Button>
                             )}
                           </div>
+                          {(isDownloadingModel || modelDownloadStatus) ? (
+                            <div className="mt-2 space-y-1">
+                              <p className="text-xs text-gray-800 break-words">
+                                {modelDownloadStatus || 'Preparing download…'}
+                              </p>
+                              <div className="h-2 w-full rounded-full bg-gray-200 overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all duration-300 ${
+                                    modelDownloadPercent == null
+                                      ? 'w-1/3 animate-pulse bg-green-400'
+                                      : 'bg-green-500'
+                                  }`}
+                                  style={
+                                    modelDownloadPercent == null
+                                      ? undefined
+                                      : { width: `${Math.max(2, Math.min(100, modelDownloadPercent))}%` }
+                                  }
+                                />
+                              </div>
+                              {modelDownloadPercent == null && isDownloadingModel ? (
+                                <p className="text-[11px] text-gray-600">
+                                  Server is preparing or streaming the file. Size unknown until transfer finishes — keep this tab open.
+                                </p>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     </div>
