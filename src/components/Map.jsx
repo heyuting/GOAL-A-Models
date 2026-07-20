@@ -32,13 +32,18 @@ if (typeof document !== 'undefined') {
   document.head.appendChild(styleElement);
 }
 
-export default function MapComponent({ onLocationSelect, disabled = false, selectedLocations = [], currentLocationIndex = -1, watershedResults = null }) {
+export default function MapComponent({ onLocationSelect, disabled = false, selectedLocations = [], currentLocationIndex = -1, watershedResults = null, watershedDirection = 'downstream' }) {
   const [riverData, setRiverData] = useState(null);
   const [boundaryData, setBoundaryData] = useState(null);
   const [loading, setLoading] = useState(true); // State to handle river loading state
   const [boundaryLoading, setBoundaryLoading] = useState(true);
   const [showRivers, setShowRivers] = useState(false); // State to track whether to show river layer
   const canvasRenderer = new L.Canvas();
+  const isUpstream = watershedDirection === 'upstream';
+  const wsFill = isUpstream ? '#0d9488' : '#10b981';
+  const riverMain = isUpstream ? '#0f766e' : '#3b82f6';
+  const riverTrib = isUpstream ? '#14b8a6' : '#60a5fa';
+  const riverMiddle = isUpstream ? '#5eead4' : '#93c5fd';
 
   // Fetch the river data once when the component mounts
   useEffect(() => {
@@ -150,8 +155,9 @@ export default function MapComponent({ onLocationSelect, disabled = false, selec
             <>
               {watershedResults.sf_ws_all && (
                 <GeoJSON
+                  key={`ws-all-${watershedDirection}`}
                   data={watershedResults.sf_ws_all}
-                  style={{ color: "#10b981", weight: 2, fillColor: "#10b981", fillOpacity: 0.2 }}
+                  style={{ color: wsFill, weight: 2, fillColor: wsFill, fillOpacity: 0.2 }}
                   eventHandlers={{ add: (e) => e.target.bringToBack() }}
                   smoothFactor={2.0}
                   renderer={canvasRenderer}
@@ -159,30 +165,34 @@ export default function MapComponent({ onLocationSelect, disabled = false, selec
               )}
               {watershedResults.sf_river_ode && (
                 <GeoJSON
+                  key={`river-ode-${watershedDirection}`}
                   data={watershedResults.sf_river_ode}
-                  style={{ color: "#3b82f6", weight: 2 }}
+                  style={{ color: riverMain, weight: 2 }}
                   smoothFactor={2.0}
                   renderer={canvasRenderer}
                 />
               )}
               {watershedResults.sf_river_trib && (
                 <GeoJSON
+                  key={`river-trib-${watershedDirection}`}
                   data={watershedResults.sf_river_trib}
-                  style={{ color: "#60a5fa", weight: 1.5 }}
+                  style={{ color: riverTrib, weight: 1.5 }}
                   smoothFactor={2.0}
                   renderer={canvasRenderer}
                 />
               )}
               {watershedResults.sf_river_middle && (
                 <GeoJSON
+                  key={`river-middle-${watershedDirection}`}
                   data={watershedResults.sf_river_middle}
-                  style={{ color: "#93c5fd", weight: 1 }}
+                  style={{ color: riverMiddle, weight: 1 }}
                   smoothFactor={2.0}
                   renderer={canvasRenderer}
                 />
               )}
               {watershedResults.sf_river_rock && (
                 <GeoJSON
+                  key={`river-rock-${watershedDirection}`}
                   data={watershedResults.sf_river_rock}
                   style={{ color: "#f59e0b", weight: 2, dashArray: "5, 5" }}
                   smoothFactor={2.0}

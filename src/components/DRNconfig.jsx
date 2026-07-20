@@ -134,6 +134,7 @@ export default function DRNConfig({ savedData }) {
   const [watershedResults, setWatershedResults] = useState(null);
   const [isGeneratingWatershed, setIsGeneratingWatershed] = useState(false);
   const [watershedError, setWatershedError] = useState(null);
+  const [watershedDirection, setWatershedDirection] = useState('downstream'); // 'downstream' | 'upstream'
 
   // DRN parameters
   const [selectedLocations, setSelectedLocations] = useState([]);
@@ -1401,7 +1402,7 @@ export default function DRNConfig({ savedData }) {
           'Content-Type': 'application/json',
           'ngrok-skip-browser-warning': 'true',
         },
-        body: JSON.stringify({ coordinates }),
+        body: JSON.stringify({ coordinates, direction: watershedDirection }),
       });
 
       const result = await response.json();
@@ -1413,8 +1414,11 @@ export default function DRNConfig({ savedData }) {
       // Check if watersheds are returned directly (local execution)
       if (result.watersheds) {
         setWatershedResults(result.watersheds);
+        if (result.direction) {
+          setWatershedDirection(result.direction);
+        }
         setWatershedStatus('completed');
-        console.log(`Successfully generated ${Object.keys(result.watersheds).length} watershed layers`);
+        console.log(`Successfully generated ${Object.keys(result.watersheds).length} ${result.direction || watershedDirection} watershed layers`);
       }
       // Otherwise, it's a SLURM job - poll for results
       else if (result.job_id) {
@@ -1599,6 +1603,7 @@ export default function DRNConfig({ savedData }) {
             selectedLocations={selectedLocations}
             currentLocationIndex={currentLocationIndex}
             watershedResults={watershedResults}
+            watershedDirection={watershedDirection}
           />
 
           {/* Output Folder Section - PDFs and Download */}
@@ -1905,14 +1910,52 @@ export default function DRNConfig({ savedData }) {
                   {/* Generate Watershed Button */}
                   {selectedLocations.length > 0 && (
                     <div className="mb-4">
+                      <div className="mb-2">
+                        <p className="text-sm font-medium text-gray-700 mb-2">Watershed direction</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setWatershedDirection('downstream')}
+                            disabled={isGeneratingWatershed}
+                            className={`py-2 px-3 rounded-md text-sm font-semibold border transition-colors ${
+                              watershedDirection === 'downstream'
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                            }`}
+                          >
+                            Downstream
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setWatershedDirection('upstream')}
+                            disabled={isGeneratingWatershed}
+                            className={`py-2 px-3 rounded-md text-sm font-semibold border transition-colors ${
+                              watershedDirection === 'upstream'
+                                ? 'bg-teal-600 text-white border-teal-600'
+                                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                            }`}
+                          >
+                            Upstream
+                          </button>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {watershedDirection === 'upstream'
+                            ? 'Draw the contributing watershed draining to this point.'
+                            : 'Draw the downstream river network from this point.'}
+                        </p>
+                      </div>
                       <Button
                         onClick={generateWatersheds}
                         disabled={isGeneratingWatershed}
-                        className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-md font-semibold disabled:opacity-50"
+                        className={`w-full text-white py-2 rounded-md font-semibold disabled:opacity-50 ${
+                          watershedDirection === 'upstream'
+                            ? 'bg-teal-500 hover:bg-teal-600'
+                            : 'bg-green-500 hover:bg-green-600'
+                        }`}
                       >
                         {isGeneratingWatershed
-                          ? 'Generating Watersheds...'
-                          : 'Generate Watershed'}
+                          ? `Generating ${watershedDirection === 'upstream' ? 'Upstream' : 'Downstream'} Watershed...`
+                          : `Generate ${watershedDirection === 'upstream' ? 'Upstream' : 'Downstream'} Watershed`}
                       </Button>
 
                       {watershedStatus === 'submitted' && (
