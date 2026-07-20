@@ -136,6 +136,8 @@ export default function DRNConfig({ savedData }) {
   const [isGeneratingWatershed, setIsGeneratingWatershed] = useState(false);
   const [watershedError, setWatershedError] = useState(null);
   const [watershedDirection, setWatershedDirection] = useState('downstream'); // 'downstream' | 'upstream'
+  const [watershedCount, setWatershedCount] = useState(null); // n_watersheds from last generation
+  const [watershedSummary, setWatershedSummary] = useState(null);
 
   // Uploaded shapefile / GeoJSON overlay on the map
   const [overlayGeoJSON, setOverlayGeoJSON] = useState(null);
@@ -475,6 +477,8 @@ export default function DRNConfig({ savedData }) {
     setWatershedStatus(null);
     setWatershedJobId(null);
     setWatershedError(null);
+    setWatershedCount(null);
+    setWatershedSummary(null);
     setIsGeneratingWatershed(false);
 
     // In multiple mode, reset outlet check status when locations change
@@ -496,6 +500,8 @@ export default function DRNConfig({ savedData }) {
     setWatershedStatus(null);
     setWatershedJobId(null);
     setWatershedError(null);
+    setWatershedCount(null);
+    setWatershedSummary(null);
     setIsGeneratingWatershed(false);
   };
 
@@ -1185,6 +1191,8 @@ export default function DRNConfig({ savedData }) {
       setWatershedResults(null);
       setWatershedStatus(null);
       setWatershedError(null);
+      setWatershedCount(null);
+      setWatershedSummary(null);
       setIsGeneratingWatershed(false);
 
       // Clear outlet check status
@@ -1210,6 +1218,8 @@ export default function DRNConfig({ savedData }) {
         setWatershedResults(null);
         setWatershedStatus(null);
         setWatershedError(null);
+        setWatershedCount(null);
+        setWatershedSummary(null);
         setIsGeneratingWatershed(false);
         setCurrentLocationIndex(-1);
         setOutletCheckStatus(null);
@@ -1434,6 +1444,8 @@ export default function DRNConfig({ savedData }) {
     setIsGeneratingWatershed(true);
     setWatershedError(null);
     setWatershedResults(null);
+    setWatershedCount(null);
+    setWatershedSummary(null);
 
     try {
       const coordinates = selectedLocations.map(loc => [loc.lat, loc.lng]);
@@ -1460,8 +1472,17 @@ export default function DRNConfig({ savedData }) {
         if (result.direction) {
           setWatershedDirection(result.direction);
         }
+        if (result.n_watersheds != null) {
+          setWatershedCount(result.n_watersheds);
+        }
+        if (result.watershed_summary) {
+          setWatershedSummary(result.watershed_summary);
+        }
         setWatershedStatus('completed');
-        console.log(`Successfully generated ${Object.keys(result.watersheds).length} ${result.direction || watershedDirection} watershed layers`);
+        console.log(
+          `Successfully generated ${Object.keys(result.watersheds).length} ${result.direction || watershedDirection} watershed layers` +
+          (result.n_watersheds != null ? ` (${result.n_watersheds} catchments)` : '')
+        );
       }
       // Otherwise, it's a SLURM job - poll for results
       else if (result.job_id) {
@@ -2053,6 +2074,30 @@ export default function DRNConfig({ savedData }) {
                           <p className="text-sm text-blue-700">
                             Watershed generation in progress...
                           </p>
+                        </div>
+                      )}
+
+                      {watershedStatus === 'completed' && watershedCount != null && (
+                        <div className={`mt-2 p-3 border rounded-lg ${
+                          watershedDirection === 'upstream'
+                            ? 'bg-teal-50 border-teal-200'
+                            : 'bg-green-50 border-green-200'
+                        }`}>
+                          <p className={`text-sm font-semibold ${
+                            watershedDirection === 'upstream' ? 'text-teal-800' : 'text-green-800'
+                          }`}>
+                            {watershedDirection === 'upstream'
+                              ? `${watershedCount.toLocaleString()} watershed${watershedCount === 1 ? '' : 's'} in the contributing area`
+                              : `${watershedCount.toLocaleString()} watershed${watershedCount === 1 ? '' : 's'} in the downstream area`}
+                          </p>
+                          {watershedSummary && watershedDirection === 'downstream' && (
+                            <p className="text-xs text-gray-600 mt-1">
+                              Network total: {(watershedSummary.n_total ?? 0).toLocaleString()}
+                              {watershedSummary.n_tributaries != null
+                                ? ` (${watershedSummary.n_tributaries.toLocaleString()} nearby tributaries)`
+                                : ''}
+                            </p>
+                          )}
                         </div>
                       )}
 
