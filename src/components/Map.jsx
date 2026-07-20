@@ -1,7 +1,25 @@
 import L from "leaflet";
-import { MapContainer, TileLayer, Marker, useMapEvents, GeoJSON, Tooltip } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, useMapEvents, useMap, GeoJSON, Tooltip } from "react-leaflet";
 import { useState, useEffect } from "react";
 import "leaflet/dist/leaflet.css";
+
+/** Zoom map to overlay bounds when a new overlay is loaded. */
+function FitToGeoJSON({ data, fitKey }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!data || !fitKey) return;
+    try {
+      const layer = L.geoJSON(data);
+      const bounds = layer.getBounds();
+      if (bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [28, 28], maxZoom: 12 });
+      }
+    } catch (err) {
+      console.warn("Could not fit map to overlay bounds:", err);
+    }
+  }, [data, fitKey, map]);
+  return null;
+}
 
 // Fix for default marker icon in React Leaflet
 delete L.Icon.Default.prototype._getIconUrl;
@@ -32,18 +50,33 @@ if (typeof document !== 'undefined') {
   document.head.appendChild(styleElement);
 }
 
-export default function MapComponent({ onLocationSelect, disabled = false, selectedLocations = [], currentLocationIndex = -1, watershedResults = null, watershedDirection = 'downstream' }) {
+export default function MapComponent({
+  onLocationSelect,
+  disabled = false,
+  selectedLocations = [],
+  currentLocationIndex = -1,
+  watershedResults = null,
+  watershedDirection = 'downstream',
+  overlayGeoJSON = null,
+  overlayFitKey = null,
+}) {
   const [riverData, setRiverData] = useState(null);
   const [boundaryData, setBoundaryData] = useState(null);
   const [loading, setLoading] = useState(true); // State to handle river loading state
   const [boundaryLoading, setBoundaryLoading] = useState(true);
   const [showRivers, setShowRivers] = useState(false); // State to track whether to show river layer
+  const [showOverlay, setShowOverlay] = useState(true);
   const canvasRenderer = new L.Canvas();
   const isUpstream = watershedDirection === 'upstream';
   const wsFill = isUpstream ? '#0d9488' : '#10b981';
   const riverMain = isUpstream ? '#0f766e' : '#3b82f6';
   const riverTrib = isUpstream ? '#14b8a6' : '#60a5fa';
   const riverMiddle = isUpstream ? '#5eead4' : '#93c5fd';
+
+  // When a new overlay arrives, show it by default
+  useEffect(() => {
+    if (overlayGeoJSON) setShowOverlay(true);
+  }, [overlayGeoJSON, overlayFitKey]);
 
   // Fetch the river data once when the component mounts
   useEffect(() => {
@@ -111,7 +144,7 @@ export default function MapComponent({ onLocationSelect, disabled = false, selec
   return (
     <div className="w-full h-[600px]">
       {/* Checkboxes to toggle layers */}
-      <div className="mb-4 flex justify-between items-center gap-4">
+      <div className="mb-4 flex flex-wrap items-center gap-6">
         <label className="relative inline-flex items-center cursor-pointer">
           <input
             type="checkbox"
@@ -122,6 +155,18 @@ export default function MapComponent({ onLocationSelect, disabled = false, selec
           <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
           <span className="ml-3">Show River Layer</span>
         </label>
+        {overlayGeoJSON && (
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showOverlay}
+              onChange={() => setShowOverlay(!showOverlay)}
+              className="sr-only peer"
+            />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+            <span className="ml-3">Show Uploaded Overlay</span>
+          </label>
+        )}
       </div>
       
       <div className={`relative h-[600px] ${disabled ? 'opacity-75' : ''}`}>
@@ -148,6 +193,34 @@ export default function MapComponent({ onLocationSelect, disabled = false, selec
           ) : (
             // Render the river GeoJSON if the checkbox is checked
             showRivers && riverData && <GeoJSON data={riverData} renderer={canvasRenderer} style={{ color: "blue", weight: 0.5 }} />
+          )}
+
+          {/* User-uploaded shapefile / GeoJSON overlay */}
+          {overlayGeoJSON && (
+            <FitToGeoJSON data={overlayGeoJSON} fitKey={overlayFitKey} />
+          )}
+          {showOverlay && overlayGeoJSON && (
+            <GeoJSON
+              key={`overlay-${overlayFitKey ?? 'static'}`}
+              data={overlayGeoJSON}
+              style={() => ({
+                color: '#b45309',
+                weight: 2,
+                fillColor: '#f59e0b',
+                fillOpacity: 0.25,
+                dashArray: '4, 4',
+              })}
+              onEachFeature={(feature, layer) => {
+                const props = feature?.properties;
+                if (!props || !Object.keys(props).length) return;
+                const rows = Object.entries(props)
+                  .slice(0, 15)
+                  .map(([k, v]) => `<strong>${k}</strong>: ${v == null ? '' : String(v)}`)
+                  .join('<br/>');
+                layer.bindPopup(rows || 'Uploaded feature');
+              }}
+              renderer={canvasRenderer}
+            />
           )}
 
           {/* Render watershed results if available */}

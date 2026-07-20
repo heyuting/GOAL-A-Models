@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import MapComponent from "./Map";
+import { parseGisUpload } from "../utils/shapefile";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -135,6 +136,14 @@ export default function DRNConfig({ savedData }) {
   const [isGeneratingWatershed, setIsGeneratingWatershed] = useState(false);
   const [watershedError, setWatershedError] = useState(null);
   const [watershedDirection, setWatershedDirection] = useState('downstream'); // 'downstream' | 'upstream'
+
+  // Uploaded shapefile / GeoJSON overlay on the map
+  const [overlayGeoJSON, setOverlayGeoJSON] = useState(null);
+  const [overlayFileName, setOverlayFileName] = useState('');
+  const [overlayFitKey, setOverlayFitKey] = useState(0);
+  const [overlayError, setOverlayError] = useState(null);
+  const [overlayLoading, setOverlayLoading] = useState(false);
+  const overlayInputRef = useRef(null);
 
   // DRN parameters
   const [selectedLocations, setSelectedLocations] = useState([]);
@@ -374,6 +383,40 @@ export default function DRNConfig({ savedData }) {
     return true;
   };
 
+
+  const handleOverlayUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (event.target) event.target.value = '';
+    if (!file) return;
+
+    setOverlayError(null);
+    setOverlayLoading(true);
+    try {
+      const geojson = await parseGisUpload(file);
+      const count = geojson?.features?.length ?? 0;
+      if (!count) {
+        throw new Error('No features found in the uploaded file.');
+      }
+      setOverlayGeoJSON(geojson);
+      setOverlayFileName(file.name);
+      setOverlayFitKey((k) => k + 1);
+    } catch (err) {
+      console.error('Overlay upload failed:', err);
+      setOverlayError(err?.message || 'Failed to parse uploaded file.');
+      setOverlayGeoJSON(null);
+      setOverlayFileName('');
+    } finally {
+      setOverlayLoading(false);
+    }
+  };
+
+  const clearOverlay = () => {
+    setOverlayGeoJSON(null);
+    setOverlayFileName('');
+    setOverlayError(null);
+    setOverlayFitKey(0);
+    if (overlayInputRef.current) overlayInputRef.current.value = '';
+  };
 
   // Handle location selection
   const handleLocationSelect = (location) => {
@@ -1584,8 +1627,53 @@ export default function DRNConfig({ savedData }) {
         <div className="w-3/5">
           <h3 className="text-xl font-bold text-center mb-6 text-gray-800">DRN Area of Interest</h3>
 
-          {/* Location Management Controls */}
-          <div className="mb-4">
+          {/* Shapefile / GeoJSON overlay upload */}
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                ref={overlayInputRef}
+                type="file"
+                accept=".zip,.geojson,.json,application/zip,application/json,application/geo+json"
+                onChange={handleOverlayUpload}
+                className="hidden"
+                id="drn-overlay-upload"
+              />
+              <label
+                htmlFor="drn-overlay-upload"
+                className={`inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border cursor-pointer ${
+                  overlayLoading
+                    ? 'bg-gray-200 text-gray-500 cursor-wait border-gray-300'
+                    : 'bg-white text-amber-900 border-amber-300 hover:bg-amber-100'
+                }`}
+              >
+                {overlayLoading ? 'Parsing…' : 'Upload Shapefile / GeoJSON'}
+              </label>
+              {overlayFileName && (
+                <>
+                  <span className="text-sm text-gray-700 truncate max-w-[220px]" title={overlayFileName}>
+                    {overlayFileName}
+                    {overlayGeoJSON?.features?.length != null && (
+                      <span className="text-gray-500">
+                        {' '}({overlayGeoJSON.features.length} feature{overlayGeoJSON.features.length === 1 ? '' : 's'})
+                      </span>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearOverlay}
+                    className="text-sm text-red-600 hover:text-red-800 underline"
+                  >
+                    Clear
+                  </button>
+                </>
+              )}
+            </div>
+            <p className="mt-2 text-xs text-gray-600">
+              ArcGIS shapefile: upload a <strong>.zip</strong> with .shp, .shx, and .dbf. Also accepts .geojson / .json. Overlay only — does not change model inputs.
+            </p>
+            {overlayError && (
+              <p className="mt-2 text-sm text-red-600">{overlayError}</p>
+            )}
           </div>
 
           <MapComponent
@@ -1604,6 +1692,8 @@ export default function DRNConfig({ savedData }) {
             currentLocationIndex={currentLocationIndex}
             watershedResults={watershedResults}
             watershedDirection={watershedDirection}
+            overlayGeoJSON={overlayGeoJSON}
+            overlayFitKey={overlayFitKey}
           />
 
           {/* Output Folder Section - PDFs and Download */}

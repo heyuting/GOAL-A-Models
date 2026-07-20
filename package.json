@@ -25,6 +25,7 @@
     "react-leaflet": "^5.0.0",
     "react-router-dom": "^7.6.3",
     "recharts": "^2.15.3",
+    "shpjs": "^6.2.0",
     "tailwind-merge": "^3.3.0",
     "tw-animate-css": "^1.2.4"
   },
