@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import MapComponent from "./Map";
-import { parseGisUpload } from "../utils/shapefile";
+import { parseGisUpload, downloadWatershedShapefiles } from "../utils/shapefile";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,86 @@ const getApiUrl = (endpoint) => {
     // Otherwise use relative URL (proxied through Vite)
     return `/${endpoint}`;
   }
+};
+
+const approxSameCoord = (a, b, eps = 1e-4) =>
+  Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= eps;
+
+const pickComidFields = (props) => {
+  if (!props || typeof props !== 'object') return null;
+  const comid = props.COMID ?? props.comid ?? props.Comid ?? null;
+  const outletComid =
+    props.outlet_comid ?? props.outlet ?? props.OUTLET ?? props.Outlet ?? null;
+  if (comid == null && outletComid == null) return null;
+  return {
+    comid: comid != null ? comid : null,
+    outletComid: outletComid != null ? outletComid : null,
+  };
+};
+
+const featureCentroidLngLat = (feature) => {
+  const g = feature?.geometry;
+  if (!g) return null;
+  if (g.type === 'Point' && Array.isArray(g.coordinates)) {
+    return { lng: g.coordinates[0], lat: g.coordinates[1] };
+  }
+  // Fallback: first coordinate pair for line/polygon rings
+  let coords = g.coordinates;
+  while (Array.isArray(coords) && Array.isArray(coords[0])) coords = coords[0];
+  if (Array.isArray(coords) && coords.length >= 2 && typeof coords[0] === 'number') {
+    return { lng: coords[0], lat: coords[1] };
+  }
+  return null;
+};
+
+/** Build per-location COMID rows from outlet-check / point_watershed_map style results. */
+const comidsFromApiRows = (rows, locations) => {
+  if (!Array.isArray(rows) || !locations?.length) return null;
+  return locations.map((loc, i) => {
+    const byIndex = rows[i];
+    const byCoord = rows.find(
+      (r) =>
+        approxSameCoord(r.lat, loc.lat) &&
+        approxSameCoord(r.lon ?? r.lng, loc.lng)
+    );
+    const byPointIndex = rows.find((r) => r.point_index === i);
+    const row = byPointIndex || byCoord || byIndex;
+    if (!row) return null;
+    return {
+      comid: row.comid ?? row.COMID ?? null,
+      outletComid: row.outlet_comid ?? row.outlet ?? row.OUTLET ?? null,
+    };
+  });
+};
+
+/** Extract selected-reach + outlet COMIDs from watershed GeoJSON layers. */
+const comidsFromWatershedLayers = (watersheds, locations) => {
+  if (!watersheds || !locations?.length) return null;
+  const features =
+    watersheds.sf_river_middle?.features ||
+    watersheds.sf_river_rock?.features ||
+    watersheds.sf_ws_selected?.features ||
+    [];
+  if (!features.length) return null;
+
+  if (locations.length === 1) {
+    return [pickComidFields(features[0]?.properties)];
+  }
+
+  return locations.map((loc) => {
+    let best = null;
+    let bestDist = Infinity;
+    for (const f of features) {
+      const c = featureCentroidLngLat(f);
+      if (!c) continue;
+      const d = (c.lat - loc.lat) ** 2 + (c.lng - loc.lng) ** 2;
+      if (d < bestDist) {
+        bestDist = d;
+        best = f;
+      }
+    }
+    return best ? pickComidFields(best.properties) : null;
+  });
 };
 
 const formatUsdEstimate = (usd) => {
@@ -138,6 +218,12 @@ export default function DRNConfig({ savedData }) {
   const [watershedDirection, setWatershedDirection] = useState('downstream'); // 'downstream' | 'upstream'
   const [watershedCount, setWatershedCount] = useState(null); // n_watersheds from last generation
   const [watershedSummary, setWatershedSummary] = useState(null);
+  const [isDownloadingWatershed, setIsDownloadingWatershed] = useState(false);
+  const [watershedDownloadError, setWatershedDownloadError] = useState(null);
+  // Per-location river segment COMIDs: [{ comid, outletComid } | null]
+  const [locationComids, setLocationComids] = useState([]);
+  const [comidLookupStatus, setComidLookupStatus] = useState(null); // null | 'loading' | 'error'
+  const [comidLookupError, setComidLookupError] = useState(null);
 
   // Uploaded shapefile / GeoJSON overlay on the map
   const [overlayGeoJSON, setOverlayGeoJSON] = useState(null);
@@ -420,6 +506,85 @@ export default function DRNConfig({ savedData }) {
     if (overlayInputRef.current) overlayInputRef.current.value = '';
   };
 
+  /** Resolve selected-reach + outlet COMIDs for the given locations. */
+  const lookupLocationComids = async (locations) => {
+    if (!locations?.length) {
+      setLocationComids([]);
+      setComidLookupStatus(null);
+      setComidLookupError(null);
+      return;
+    }
+
+    setComidLookupStatus('loading');
+    setComidLookupError(null);
+
+    try {
+      const coordinates = locations.map((loc) => [loc.lat, loc.lng]);
+      const response = await fetch(getApiUrl('api/drn/check-outlet-compatibility'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+        body: JSON.stringify({ coordinates }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to look up river segment COMID');
+      }
+
+      // Async job mode — keep loading; caller can also get COMIDs after watershed gen
+      if (result.job_id && !result.results) {
+        setComidLookupStatus(null);
+        return;
+      }
+
+      const rows = result.results || result.point_watershed_map || null;
+      const mapped = comidsFromApiRows(rows, locations);
+      if (mapped?.some((row) => row?.comid != null || row?.outletComid != null)) {
+        setLocationComids(mapped);
+        setComidLookupStatus(null);
+        return;
+      }
+
+      // Single shared outlet list fallback
+      if (result.outlet_comids?.length === 1 && locations.length === 1) {
+        setLocationComids([{
+          comid: result.results?.[0]?.comid ?? null,
+          outletComid: result.outlet_comids[0],
+        }]);
+        setComidLookupStatus(null);
+        return;
+      }
+
+      setComidLookupStatus(null);
+    } catch (err) {
+      console.error('COMID lookup failed:', err);
+      setComidLookupStatus('error');
+      setComidLookupError(err?.message || 'Failed to look up COMID');
+    }
+  };
+
+  const applyComidsFromWatershedPayload = (payload, locations = selectedLocations) => {
+    if (!locations?.length) return;
+    const fromMap = comidsFromApiRows(
+      payload?.point_watershed_map || payload?.results,
+      locations
+    );
+    if (fromMap?.some((row) => row?.comid != null || row?.outletComid != null)) {
+      setLocationComids(fromMap);
+      return;
+    }
+    const fromLayers = comidsFromWatershedLayers(
+      payload?.watersheds || payload?.shapefiles || payload,
+      locations
+    );
+    if (fromLayers?.some((row) => row?.comid != null || row?.outletComid != null)) {
+      setLocationComids(fromLayers);
+    }
+  };
+
   // Handle location selection
   const handleLocationSelect = (location) => {
 
@@ -428,7 +593,35 @@ export default function DRNConfig({ savedData }) {
       alert('Single location mode: Please remove the existing location before selecting a new one.');
       return;
     }
-    addLocation(location.lat, location.lng);
+
+    const validation = validateCoordinates(location.lat, location.lng);
+    if (!validation.valid) {
+      alert(validation.message);
+      return;
+    }
+
+    if (!locationsUnlimited && selectedLocations.length >= maxLocations) {
+      alert(`Maximum ${locationLimitLabel} locations allowed. Please remove some locations first.`);
+      return;
+    }
+
+    const newLocation = {
+      lat: validation.lat,
+      lng: validation.lng,
+      ewRiverInput: 1,
+    };
+
+    setSelectedLocations((prev) => {
+      const next = [...prev, newLocation];
+      setCurrentLocationIndex(next.length - 1);
+      // Look up COMID for single-location picks immediately; multi waits for outlet check / watershed
+      if (locationMode === 'single' || next.length === 1) {
+        queueMicrotask(() => lookupLocationComids(next));
+      } else {
+        setLocationComids((prevComids) => [...prevComids, null]);
+      }
+      return next;
+    });
   };
 
   const handleCoordinateBlur = (index, field, value, target) => {
@@ -455,6 +648,15 @@ export default function DRNConfig({ savedData }) {
         lat: validation.lat,
         lng: validation.lng
       };
+      // Coordinates changed — COMID must be re-resolved
+      setLocationComids((prevComids) => {
+        const next = [...prevComids];
+        next[index] = null;
+        return next;
+      });
+      if (locationMode === 'single' || updated.length === 1) {
+        queueMicrotask(() => lookupLocationComids(updated));
+      }
       return updated;
     });
   };
@@ -463,6 +665,7 @@ export default function DRNConfig({ savedData }) {
   const removeLocation = (index) => {
     const newLocations = selectedLocations.filter((_, i) => i !== index);
     setSelectedLocations(newLocations);
+    setLocationComids((prev) => prev.filter((_, i) => i !== index));
 
     // Adjust current location index
     if (currentLocationIndex >= newLocations.length) {
@@ -494,6 +697,9 @@ export default function DRNConfig({ savedData }) {
   const clearAllLocations = () => {
     setSelectedLocations([]);
     setCurrentLocationIndex(-1);
+    setLocationComids([]);
+    setComidLookupStatus(null);
+    setComidLookupError(null);
 
     // Clear watershed results when all locations are cleared
     setWatershedResults(null);
@@ -1292,6 +1498,7 @@ export default function DRNConfig({ savedData }) {
             if (status === 'completed' || statusResult.results) {
               const results = statusResult.results || statusResult;
               setOutletCheckResults(results);
+              applyComidsFromWatershedPayload(results, selectedLocations);
               if (results.same_outlet) {
                 setOutletCheckStatus('same');
               } else {
@@ -1330,6 +1537,7 @@ export default function DRNConfig({ savedData }) {
       } else {
         // Synchronous mode: Results returned immediately
         setOutletCheckResults(result);
+        applyComidsFromWatershedPayload(result, selectedLocations);
         if (result.same_outlet) {
           setOutletCheckStatus('same');
 
@@ -1337,6 +1545,7 @@ export default function DRNConfig({ savedData }) {
           if (result.watersheds) {
             setWatershedResults(result.watersheds);
             setWatershedStatus('completed');
+            applyComidsFromWatershedPayload(result, selectedLocations);
             console.log(`Received ${Object.keys(result.watersheds).length} watershed layers directly`);
           }
           // If watershed_job_id is provided (async mode), start polling for watershed results
@@ -1427,6 +1636,7 @@ export default function DRNConfig({ savedData }) {
       }
 
       setWatershedResults(result.shapefiles);
+      applyComidsFromWatershedPayload(result, selectedLocations);
     } catch (error) {
       console.error('Error fetching watershed results:', error);
       setWatershedStatus('error');
@@ -1446,6 +1656,7 @@ export default function DRNConfig({ savedData }) {
     setWatershedResults(null);
     setWatershedCount(null);
     setWatershedSummary(null);
+    setWatershedDownloadError(null);
 
     try {
       const coordinates = selectedLocations.map(loc => [loc.lat, loc.lng]);
@@ -1478,6 +1689,7 @@ export default function DRNConfig({ savedData }) {
         if (result.watershed_summary) {
           setWatershedSummary(result.watershed_summary);
         }
+        applyComidsFromWatershedPayload(result, selectedLocations);
         setWatershedStatus('completed');
         console.log(
           `Successfully generated ${Object.keys(result.watersheds).length} ${result.direction || watershedDirection} watershed layers` +
@@ -1498,6 +1710,25 @@ export default function DRNConfig({ savedData }) {
       setWatershedStatus('error');
     } finally {
       setIsGeneratingWatershed(false);
+    }
+  };
+
+  const handleDownloadWatershedShapefiles = async () => {
+    if (!watershedResults) {
+      setWatershedDownloadError('Generate a watershed first, then download.');
+      return;
+    }
+    setWatershedDownloadError(null);
+    setIsDownloadingWatershed(true);
+    try {
+      await downloadWatershedShapefiles(watershedResults, {
+        direction: watershedDirection,
+      });
+    } catch (err) {
+      console.error('Watershed shapefile download failed:', err);
+      setWatershedDownloadError(err?.message || 'Failed to build shapefile download.');
+    } finally {
+      setIsDownloadingWatershed(false);
     }
   };
 
@@ -1923,10 +2154,38 @@ export default function DRNConfig({ savedData }) {
                               </div>
 
 
+                              {/* River segment COMIDs */}
+                              <div className="mt-2 pt-2 border-t border-gray-100 text-xs space-y-1">
+                                {comidLookupStatus === 'loading' && !locationComids[index] && (
+                                  <p className="text-blue-600">Looking up river segment COMID…</p>
+                                )}
+                                {locationComids[index]?.comid != null && (
+                                  <p className="text-gray-700">
+                                    <span className="font-semibold text-gray-800">Selected reach COMID:</span>{' '}
+                                    <span className="font-mono">{locationComids[index].comid}</span>
+                                  </p>
+                                )}
+                                {locationComids[index]?.outletComid != null && (
+                                  <p className="text-gray-700">
+                                    <span className="font-semibold text-gray-800">Final outlet COMID:</span>{' '}
+                                    <span className="font-mono">{locationComids[index].outletComid}</span>
+                                  </p>
+                                )}
+                                {comidLookupStatus === 'error' && !locationComids[index] && index === 0 && (
+                                  <p className="text-amber-700">
+                                    {comidLookupError || 'COMID lookup failed.'} Generate watershed or check outlet compatibility to resolve.
+                                  </p>
+                                )}
+                              </div>
                             </div>
                           </div>
                         ))}
                       </div>
+                      {locationMode === 'multiple' && selectedLocations.length >= 2 && !locationComids.some((c) => c?.comid != null) && (
+                        <p className="mt-2 text-xs text-gray-500">
+                          COMIDs appear after you check outlet compatibility or generate a watershed.
+                        </p>
+                      )}
                     </div>
                   )}
 
@@ -1961,6 +2220,14 @@ export default function DRNConfig({ savedData }) {
                           <p className="text-gray-700 mb-3 text-sm">
                             You can proceed with model configuration for all locations.
                           </p>
+                          {(outletCheckResults.outlet_comids?.[0] ?? locationComids[0]?.outletComid) != null && (
+                            <p className="text-sm text-green-900">
+                              <span className="font-semibold">Final outlet COMID:</span>{' '}
+                              <span className="font-mono">
+                                {outletCheckResults.outlet_comids?.[0] ?? locationComids[0]?.outletComid}
+                              </span>
+                            </p>
+                          )}
                         </div>
                       )}
 
@@ -2097,6 +2364,33 @@ export default function DRNConfig({ savedData }) {
                                 ? ` (${watershedSummary.n_tributaries.toLocaleString()} nearby tributaries)`
                                 : ''}
                             </p>
+                          )}
+                        </div>
+                      )}
+
+                      {watershedResults && watershedStatus === 'completed' && (
+                        <div className="mt-2 space-y-2">
+                          <Button
+                            type="button"
+                            onClick={handleDownloadWatershedShapefiles}
+                            disabled={isDownloadingWatershed}
+                            className={`w-full ${
+                              isDownloadingWatershed
+                                ? 'bg-gray-400 text-white cursor-wait'
+                                : watershedDirection === 'upstream'
+                                  ? 'bg-teal-600 text-white hover:bg-teal-700'
+                                  : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                            }`}
+                          >
+                            {isDownloadingWatershed
+                              ? 'Preparing Shapefile…'
+                              : `Download ${watershedDirection === 'upstream' ? 'Upstream' : 'Downstream'} Shapefile (.zip)`}
+                          </Button>
+                          <p className="text-xs text-gray-500 text-center">
+                            ArcGIS-ready zip with watershed and river layers (.shp, .shx, .dbf, .prj).
+                          </p>
+                          {watershedDownloadError && (
+                            <p className="text-sm text-red-600 text-center">{watershedDownloadError}</p>
                           )}
                         </div>
                       )}
