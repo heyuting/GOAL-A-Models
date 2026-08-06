@@ -16,6 +16,7 @@ import {
   getLocationLimit,
   hasUnlimitedLocations,
 } from '@/config/userTiers';
+import { notifyHpcSshPending } from '@/services/hpcMfaService';
 
 // API base URL configuration - Use relative URLs for local development (proxied through Vite)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
@@ -2503,6 +2504,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
 
       let response = null;
       let text = '';
+      notifyHpcSshPending();
       for (const runPath of runPaths) {
         response = await fetch(getApiUrl(runPath), {
           method: 'POST',
@@ -3073,6 +3075,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
     };
 
     try {
+      notifyHpcSshPending();
       const response = await fetch(getApiUrl('api/baseline-simulation-batch'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },

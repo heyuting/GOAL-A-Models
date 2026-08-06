@@ -20,6 +20,7 @@ import Opportunities from "./Opportunities";
 import Publications from "./Publications";
 import USGSSitesExploration from "./USGSSitesExploration";
 import ScrollToTop from "./ScrollToTop";
+import DuoMfaPrompt from "./DuoMfaPrompt";
 
 const models = [
   { 
@@ -221,6 +222,8 @@ export default function App() {
         )}
       </Routes>
       </div>
+      {/* Duo MFA for Yale HPC SSH — polls proxy and posts 1/2/passcode */}
+      <DuoMfaPrompt enabled={!!user} />
     </div>
   );
 }
