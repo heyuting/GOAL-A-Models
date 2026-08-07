@@ -5,17 +5,15 @@ import {
 } from '@/services/hpcStatusService';
 
 const POLL_MS = 15000;
-// Matches nav `h-20` (5rem) so the banner sits fully below the fixed header.
-const NAV_OFFSET_CLASS = 'top-20';
 
 /**
- * Banner for logged-in users when the shared lab Bouchet session is down.
- * Fixed under the GOAL-A nav; stays until HPC is available again (not dismissible).
+ * Amber alert row for the fixed site header when shared-lab HPC is down.
+ * Not dismissible; clears only when HPC is available again.
+ * Must be rendered inside the fixed <nav> (below the blue bar), not as a
+ * separate fixed layer — that caused clipping behind GOAL-A.
  */
 export default function HpcStatusBanner({ enabled = true }) {
-  const [message, setMessage] = useState(null);
-  const [bannerHeight, setBannerHeight] = useState(0);
-  const bannerRef = useRef(null);
+  const [unavailable, setUnavailable] = useState(false);
   const inFlight = useRef(false);
 
   const poll = useCallback(async () => {
@@ -24,59 +22,34 @@ export default function HpcStatusBanner({ enabled = true }) {
     try {
       const data = await fetchHpcStatus();
       const available = data?.available === true || data?.status === 'authenticated';
-      if (available) {
-        setMessage(null);
-      } else {
-        setMessage(DEFAULT_HPC_UNAVAILABLE);
-      }
+      setUnavailable(!available);
     } catch {
-      // Proxy offline or CORS — don't spam the UI with a false HPC outage.
+      // Proxy offline — do not claim HPC is down.
     } finally {
       inFlight.current = false;
     }
   }, [enabled]);
 
   useEffect(() => {
-    if (!enabled) return undefined;
+    if (!enabled) {
+      setUnavailable(false);
+      return undefined;
+    }
     poll();
     const id = setInterval(poll, POLL_MS);
     return () => clearInterval(id);
   }, [enabled, poll]);
 
-  const visible = Boolean(enabled && message);
-
-  useEffect(() => {
-    if (!visible) {
-      setBannerHeight(0);
-      return undefined;
-    }
-    const el = bannerRef.current;
-    if (!el) return undefined;
-    const update = () => setBannerHeight(el.offsetHeight || 0);
-    update();
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
-    ro?.observe(el);
-    window.addEventListener('resize', update);
-    return () => {
-      ro?.disconnect();
-      window.removeEventListener('resize', update);
-    };
-  }, [visible, message]);
-
-  if (!visible) return null;
+  if (!enabled || !unavailable) return null;
 
   return (
-    <>
-      <div
-        ref={bannerRef}
-        role="alert"
-        className={`fixed ${NAV_OFFSET_CLASS} left-0 right-0 z-40 border-b border-amber-300 bg-amber-50 px-4 py-3 text-amber-950 shadow-sm`}
-      >
-        <div className="mx-auto max-w-5xl">
-          <p className="text-sm leading-relaxed">{message}</p>
-        </div>
-      </div>
-      <div style={{ height: bannerHeight }} aria-hidden="true" />
-    </>
+    <div
+      role="alert"
+      className="border-t border-amber-300 bg-amber-50 px-4 py-3 text-amber-950"
+    >
+      <p className="mx-auto max-w-5xl text-sm leading-relaxed">
+        {DEFAULT_HPC_UNAVAILABLE}
+      </p>
+    </div>
   );
 }

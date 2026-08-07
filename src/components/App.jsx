@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Routes, Route, Navigate, useNavigate, useParams, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -70,6 +70,23 @@ const models = [
 export default function App() {
   const { user, loading, logout } = useAuth();
   const navigate = useNavigate();
+  const headerRef = useRef(null);
+  const [headerHeight, setHeaderHeight] = useState(80);
+
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return undefined;
+    const update = () => setHeaderHeight(el.offsetHeight || 80);
+    update();
+    const ro =
+      typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
+    ro?.observe(el);
+    window.addEventListener('resize', update);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, [user, loading]);
 
   if (loading) {
     return (
@@ -85,10 +102,14 @@ export default function App() {
   return (
     <div className="min-h-screen bg-white">
       <ScrollToTop />
-      {/* Top Navigation Menu - App-wide */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-blue-900 shadow-md border-b border-blue-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-20">
+      {/* Fixed header: blue nav + optional HPC banner as a second row */}
+      <header
+        ref={headerRef}
+        className="fixed top-0 left-0 right-0 z-50 shadow-md"
+      >
+        <nav className="bg-blue-900 border-b border-blue-800">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-20">
             {/* Logo/Brand */}
             <div className="flex items-center">
               <h1 
@@ -188,10 +209,11 @@ export default function App() {
             </div>
           </div>
         </div>
-      </nav>
+        </nav>
+        <HpcStatusBanner enabled={!!user} />
+      </header>
 
-      <div className="pt-24">
-      <HpcStatusBanner enabled={!!user} />
+      <div style={{ paddingTop: headerHeight }}>
         <Routes>
         {/* Public Routes */}
         <Route path="/login" element={<LoginPage />} />
