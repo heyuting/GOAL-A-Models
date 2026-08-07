@@ -790,6 +790,7 @@ export default function DRNConfig({ savedData }) {
       });
 
       // No timeout needed - backend returns immediately with job_id
+      // Background SSH may prompt Duo — wake the MFA modal poller.
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
@@ -2173,7 +2174,10 @@ export default function DRNConfig({ savedData }) {
                                 )}
                                 {comidLookupStatus === 'error' && !locationComids[index] && index === 0 && (
                                   <p className="text-amber-700">
-                                    {comidLookupError || 'COMID lookup failed.'} Generate watershed or check outlet compatibility to resolve.
+                                    {comidLookupError || 'COMID lookup failed.'}
+                                    {locationMode === 'single'
+                                      ? ' Try Generate Watershed to resolve.'
+                                      : ' Generate watershed or check outlet compatibility to resolve.'}
                                   </p>
                                 )}
                               </div>
