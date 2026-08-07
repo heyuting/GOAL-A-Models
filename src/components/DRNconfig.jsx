@@ -1672,7 +1672,18 @@ export default function DRNConfig({ savedData }) {
         body: JSON.stringify({ coordinates, direction: watershedDirection }),
       });
 
-      const result = await response.json();
+      const rawText = await response.text();
+      let result;
+      try {
+        result = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        const snippet = rawText.replace(/\s+/g, ' ').slice(0, 160);
+        throw new Error(
+          `Watershed API returned non-JSON (HTTP ${response.status}). ` +
+            `Often a proxy/gunicorn timeout or wrong API URL. ` +
+            `Response starts with: ${snippet || '(empty)'}`
+        );
+      }
 
       if (!response.ok) {
         throw new Error(result.error || 'Failed to generate watersheds');
