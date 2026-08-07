@@ -1566,85 +1566,66 @@ export default function DRNConfig({ savedData }) {
     }
   };
 
-  // Poll for watershed results
+  // Poll for watershed results (Bouchet SLURM job)
   const pollWatershedResults = async (jobId) => {
-    const poll = async (retryCount = 0) => {
-      const maxRetries = 300; // 10 minutes max (300 * 2 seconds)
-      const pollingInterval = 2000; // 2 seconds
+    const maxRetries = 450; // ~15 min at 2s
+    const pollingInterval = 2000;
 
-      try {
-        // Check watershed job status
-        const statusResponse = await fetch(getApiUrl(`api/drn/watershed/${jobId}/status`), {
-          headers: {
-            'ngrok-skip-browser-warning': 'true',
-          },
-        });
-
-        const statusResult = await statusResponse.json();
-
-        if (!statusResponse.ok) {
-          throw new Error(statusResult.error || 'Failed to check watershed status');
-        }
-
-        const status = statusResult.status;
-
-        if (status === 'completed') {
-          setWatershedStatus('completed');
-          // Fetch watershed results
-          fetchWatershedResults(jobId);
-        } else if (status === 'failed' || status === 'cancelled' || status === 'timeout') {
-          setWatershedStatus('failed');
-        } else if (status === 'pending' || status === 'running' || status === 'unknown') {
-          setWatershedStatus(status);
-          if (retryCount < maxRetries) {
-            setTimeout(() => poll(retryCount + 1), pollingInterval);
-          } else {
-            setWatershedStatus('timeout');
-          }
-        } else {
-          if (retryCount < maxRetries) {
-            setTimeout(() => poll(retryCount + 1), pollingInterval);
-          } else {
-            setWatershedStatus('timeout');
-          }
-        }
-      } catch (error) {
-        console.error('Error polling watershed status:', error);
-        if (retryCount < maxRetries) {
-          setTimeout(() => poll(retryCount + 1), pollingInterval);
-        } else {
-          setWatershedStatus('error');
-        }
+    const pollOnce = async (retryCount) => {
+      const statusResponse = await fetch(getApiUrl(`api/drn/watershed/${jobId}/status`), {
+        headers: { 'ngrok-skip-browser-warning': 'true' },
+      });
+      const statusResult = await statusResponse.json();
+      if (!statusResponse.ok) {
+        throw new Error(statusResult.error || 'Failed to check watershed status');
       }
+
+      const status = statusResult.status;
+      setWatershedStatus(status);
+
+      if (status === 'completed') {
+        await fetchWatershedResults(jobId);
+        return;
+      }
+      if (status === 'failed' || status === 'cancelled' || status === 'timeout') {
+        throw new Error(statusResult.error || `Watershed job ${status}`);
+      }
+      if (retryCount >= maxRetries) {
+        setWatershedStatus('timeout');
+        throw new Error('Watershed job timed out waiting on Bouchet');
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, pollingInterval));
+      return pollOnce(retryCount + 1);
     };
 
-    poll();
+    return pollOnce(0);
   };
 
   // Fetch watershed results
   const fetchWatershedResults = async (jobId) => {
-    try {
-      const response = await fetch(getApiUrl(`api/drn/watershed/${jobId}/results`), {
-        headers: {
-          'ngrok-skip-browser-warning': 'true',
-        },
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to fetch watershed results');
-      }
-
-      setWatershedResults(result.shapefiles);
-      applyComidsFromWatershedPayload(result, selectedLocations);
-    } catch (error) {
-      console.error('Error fetching watershed results:', error);
-      setWatershedStatus('error');
+    const response = await fetch(getApiUrl(`api/drn/watershed/${jobId}/results`), {
+      headers: { 'ngrok-skip-browser-warning': 'true' },
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || 'Failed to fetch watershed results');
     }
+
+    const layers = result.watersheds || result.shapefiles;
+    if (!layers || Object.keys(layers).length === 0) {
+      throw new Error('Watershed job completed but no layers were returned');
+    }
+
+    setWatershedResults(layers);
+    if (result.direction) setWatershedDirection(result.direction);
+    if (result.n_watersheds != null) setWatershedCount(result.n_watersheds);
+    if (result.watershed_summary) setWatershedSummary(result.watershed_summary);
+    applyComidsFromWatershedPayload(result, selectedLocations);
+    setWatershedStatus('completed');
   };
 
-  // Generate watersheds for selected locations
+  // Generate watersheds for selected locations (runs on Bouchet HPC)
   const generateWatersheds = async () => {
     if (selectedLocations.length === 0) {
       setWatershedError('Please select at least one location');
@@ -1658,11 +1639,11 @@ export default function DRNConfig({ savedData }) {
     setWatershedCount(null);
     setWatershedSummary(null);
     setWatershedDownloadError(null);
+    setWatershedStatus('submitting');
 
     try {
       const coordinates = selectedLocations.map(loc => [loc.lat, loc.lng]);
 
-      // Call backend to generate watersheds locally
       const response = await fetch(getApiUrl('api/drn/generate-watershed'), {
         method: 'POST',
         headers: {
@@ -1689,33 +1670,26 @@ export default function DRNConfig({ savedData }) {
         throw new Error(result.error || 'Failed to generate watersheds');
       }
 
-      // Check if watersheds are returned directly (local execution)
-      if (result.watersheds) {
+      // Sync path (legacy / local)
+      if (result.watersheds && !result.job_id) {
         setWatershedResults(result.watersheds);
-        if (result.direction) {
-          setWatershedDirection(result.direction);
-        }
-        if (result.n_watersheds != null) {
-          setWatershedCount(result.n_watersheds);
-        }
-        if (result.watershed_summary) {
-          setWatershedSummary(result.watershed_summary);
-        }
+        if (result.direction) setWatershedDirection(result.direction);
+        if (result.n_watersheds != null) setWatershedCount(result.n_watersheds);
+        if (result.watershed_summary) setWatershedSummary(result.watershed_summary);
         applyComidsFromWatershedPayload(result, selectedLocations);
         setWatershedStatus('completed');
-        console.log(
-          `Successfully generated ${Object.keys(result.watersheds).length} ${result.direction || watershedDirection} watershed layers` +
-          (result.n_watersheds != null ? ` (${result.n_watersheds} catchments)` : '')
-        );
+        return;
       }
-      // Otherwise, it's a SLURM job - poll for results
-      else if (result.job_id) {
+
+      // HPC async path
+      if (result.job_id) {
         setWatershedJobId(result.job_id);
-        setWatershedStatus('submitted');
-        pollWatershedResults(result.job_id);
-      } else {
-        throw new Error('Unexpected response format');
+        setWatershedStatus(result.status || 'submitted');
+        await pollWatershedResults(result.job_id);
+        return;
       }
+
+      throw new Error('Unexpected response format');
     } catch (error) {
       console.error('Error generating watersheds:', error);
       setWatershedError(error.message);
@@ -2351,10 +2325,17 @@ export default function DRNConfig({ savedData }) {
                           : `Generate ${watershedDirection === 'upstream' ? 'Upstream' : 'Downstream'} Watershed`}
                       </Button>
 
-                      {watershedStatus === 'submitted' && (
+                      {(watershedStatus === 'submitting' ||
+                        watershedStatus === 'submitted' ||
+                        watershedStatus === 'pending' ||
+                        watershedStatus === 'running') && (
                         <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-center">
                           <p className="text-sm text-blue-700">
-                            Watershed generation in progress...
+                            {watershedStatus === 'pending'
+                              ? 'Queued on Bouchet HPC…'
+                              : watershedStatus === 'running'
+                                ? 'Running site selection on Bouchet…'
+                                : 'Submitting watershed job to Bouchet HPC…'}
                           </p>
                         </div>
                       )}
