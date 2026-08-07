@@ -1,17 +1,21 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { fetchHpcStatus } from '@/services/hpcStatusService';
+import {
+  DEFAULT_HPC_UNAVAILABLE,
+  fetchHpcStatus,
+} from '@/services/hpcStatusService';
 
 const POLL_MS = 15000;
-const DEFAULT_UNAVAILABLE_MSG =
-  'Yale HPC is currently unavailable. Please try again later, or contact yuting.smeglin@yale.edu if the problem continues.';
+// Matches nav `h-20` (5rem) so the banner sits fully below the fixed header.
+const NAV_OFFSET_CLASS = 'top-20';
 
 /**
  * Banner for logged-in users when the shared lab Bouchet session is down.
- * Placed in normal document flow under the fixed nav (not sticky top-0).
+ * Fixed under the GOAL-A nav; stays until HPC is available again (not dismissible).
  */
 export default function HpcStatusBanner({ enabled = true }) {
   const [message, setMessage] = useState(null);
-  const [dismissed, setDismissed] = useState(false);
+  const [bannerHeight, setBannerHeight] = useState(0);
+  const bannerRef = useRef(null);
   const inFlight = useRef(false);
 
   const poll = useCallback(async () => {
@@ -22,9 +26,8 @@ export default function HpcStatusBanner({ enabled = true }) {
       const available = data?.available === true || data?.status === 'authenticated';
       if (available) {
         setMessage(null);
-        setDismissed(false);
       } else {
-        setMessage(data?.error || DEFAULT_UNAVAILABLE_MSG);
+        setMessage(DEFAULT_HPC_UNAVAILABLE);
       }
     } catch {
       // Proxy offline or CORS — don't spam the UI with a false HPC outage.
@@ -40,24 +43,40 @@ export default function HpcStatusBanner({ enabled = true }) {
     return () => clearInterval(id);
   }, [enabled, poll]);
 
-  if (!enabled || !message || dismissed) return null;
+  const visible = Boolean(enabled && message);
+
+  useEffect(() => {
+    if (!visible) {
+      setBannerHeight(0);
+      return undefined;
+    }
+    const el = bannerRef.current;
+    if (!el) return undefined;
+    const update = () => setBannerHeight(el.offsetHeight || 0);
+    update();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
+    ro?.observe(el);
+    window.addEventListener('resize', update);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, [visible, message]);
+
+  if (!visible) return null;
 
   return (
-    <div
-      role="alert"
-      className="relative z-10 mb-4 border-b border-amber-300 bg-amber-50 px-4 py-3 text-amber-950 shadow-sm"
-    >
-      <div className="mx-auto flex max-w-5xl items-start gap-3">
-        <p className="flex-1 text-sm leading-relaxed">{message}</p>
-        <button
-          type="button"
-          onClick={() => setDismissed(true)}
-          className="shrink-0 rounded px-2 py-0.5 text-sm text-amber-900/80 hover:bg-amber-100 hover:text-amber-950"
-          aria-label="Dismiss HPC status banner"
-        >
-          Dismiss
-        </button>
+    <>
+      <div
+        ref={bannerRef}
+        role="alert"
+        className={`fixed ${NAV_OFFSET_CLASS} left-0 right-0 z-40 border-b border-amber-300 bg-amber-50 px-4 py-3 text-amber-950 shadow-sm`}
+      >
+        <div className="mx-auto max-w-5xl">
+          <p className="text-sm leading-relaxed">{message}</p>
+        </div>
       </div>
-    </div>
+      <div style={{ height: bannerHeight }} aria-hidden="true" />
+    </>
   );
 }

@@ -52,6 +52,13 @@ export function formatApiError(raw, fallback = 'Request failed. Please try again
     ''
   );
   text = text.replace(/^Error in [^:]+:\s*/i, '');
+  text = text.replace(
+    /^No OpenSSH ControlMaster[^\n]*/i,
+    DEFAULT_HPC_UNAVAILABLE
+  );
+  if (/ssh_login_bouchet|ControlMaster/i.test(text)) {
+    return DEFAULT_HPC_UNAVAILABLE;
+  }
 
   return text.trim() || fallback;
 }
