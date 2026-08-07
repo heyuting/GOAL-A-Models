@@ -7,7 +7,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from '@/contexts/AuthContext';
 import userService from '@/services/userService';
-import { notifyHpcSshPending } from '@/services/hpcMfaService';
 
 // API base URL configuration - Use relative URLs for local development (proxied through Vite)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
@@ -314,8 +313,6 @@ export default function SCEPTERDRNConfig({ savedData }) {
         user_id: user?.id || 'anonymous'
       };
 
-      // Call backend proxy API (SSH/Duo may prompt — wake MFA modal)
-      notifyHpcSshPending();
       const response = await fetch(getApiUrl('api/run-job'), {
         method: 'POST',
         headers: {

@@ -13,7 +13,6 @@ import {
   getLocationLimit,
   hasUnlimitedLocations,
 } from "@/config/userTiers";
-import { notifyHpcSshPending } from "@/services/hpcMfaService";
 
 // API base URL configuration - Use relative URLs for local development (proxied through Vite)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
@@ -521,7 +520,6 @@ export default function DRNConfig({ savedData }) {
 
     try {
       const coordinates = locations.map((loc) => [loc.lat, loc.lng]);
-      notifyHpcSshPending();
       const response = await fetch(getApiUrl('api/drn/check-outlet-compatibility'), {
         method: 'POST',
         headers: {
@@ -792,8 +790,6 @@ export default function DRNConfig({ savedData }) {
       });
 
       // No timeout needed - backend returns immediately with job_id
-      // Background SSH may prompt Duo — wake the MFA modal poller.
-      notifyHpcSshPending();
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
@@ -1452,7 +1448,6 @@ export default function DRNConfig({ savedData }) {
       const coordinates = selectedLocations.map(loc => [loc.lat, loc.lng]);
 
       // Submit the check - backend now runs synchronously and returns results immediately
-      notifyHpcSshPending();
       const response = await fetch(getApiUrl('api/drn/check-outlet-compatibility'), {
         method: 'POST',
         headers: {
@@ -1667,7 +1662,6 @@ export default function DRNConfig({ savedData }) {
       const coordinates = selectedLocations.map(loc => [loc.lat, loc.lng]);
 
       // Call backend to generate watersheds locally
-      notifyHpcSshPending();
       const response = await fetch(getApiUrl('api/drn/generate-watershed'), {
         method: 'POST',
         headers: {
