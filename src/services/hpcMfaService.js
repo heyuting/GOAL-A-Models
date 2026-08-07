@@ -10,13 +10,21 @@ const defaultHeaders = {
   'ngrok-skip-browser-warning': 'true',
 };
 
-/** Tell the Duo MFA watcher to poll more aggressively (e.g. right after job submit). */
+/**
+ * Tell the HPC SSH status watcher to poll more aggressively
+ * (e.g. right after a job submit that needs Bouchet).
+ */
 export function notifyHpcSshPending() {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('hpc-ssh-pending'));
   }
 }
 
+/**
+ * Poll OpenSSH ControlMaster status from the proxy.
+ * When status is mfa_required / failed, an operator must run
+ * ./ssh_login_bouchet.sh on the API host (browser Duo is not used).
+ */
 export async function fetchMfaStatus() {
   const response = await fetch(getApiUrl('api/auth/mfa-status'), {
     cache: 'no-store',
@@ -30,23 +38,4 @@ export async function fetchMfaStatus() {
     throw new Error(`MFA status failed (${response.status})`);
   }
   return response.json();
-}
-
-export async function submitMfaResponse({ choice, authId }) {
-  const response = await fetch(getApiUrl('api/auth/mfa-response'), {
-    method: 'POST',
-    headers: {
-      ...defaultHeaders,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      choice,
-      auth_id: authId,
-    }),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data.error || `MFA response failed (${response.status})`);
-  }
-  return data;
 }
