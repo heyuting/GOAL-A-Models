@@ -191,7 +191,7 @@ export default function App() {
       </nav>
 
       <div className="pt-24">
-      <HpcStatusBanner enabled={!!user} />
+        <HpcStatusBanner enabled={!!user} />
         <Routes>
         {/* Public Routes */}
         <Route path="/login" element={<LoginPage />} />
