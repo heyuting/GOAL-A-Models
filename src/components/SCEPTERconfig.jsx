@@ -16,6 +16,7 @@ import {
   getLocationLimit,
   hasUnlimitedLocations,
 } from '@/config/userTiers';
+import { formatApiError } from '@/services/hpcStatusService';
 
 // API base URL configuration - Use relative URLs for local development (proxied through Vite)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
@@ -2523,7 +2524,9 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
         }
       }
       if (!response.ok) {
-        let msg = result?.error || result?.message || text || `Request failed (${response.status})`;
+        let msg = formatApiError(
+          result?.error || result?.message || text || `Request failed (${response.status})`
+        );
         if (Number.isFinite(result?.index)) {
           msg = `${msg} (location index ${result.index})`;
         }
@@ -2559,7 +2562,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
       }
     } catch (err) {
       console.error('SCEPTER run error:', err);
-      setSpinupError(err.message || 'Failed to run SCEPTER model. Please try again.');
+      setSpinupError(formatApiError(err.message || 'Failed to run SCEPTER model. Please try again.'));
     } finally {
       setIsSubmittingRunModel(false);
     }
@@ -2928,7 +2931,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
         const { status, error } = mergeBaselineStatusRows(rows);
         setBaselineStatus(status);
         if (status === 'failed') {
-          setBaselineError(error);
+          setBaselineError(error ? formatApiError(error) : null);
           return;
         }
         setBaselineError(null);
@@ -3088,7 +3091,9 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
         }
       }
       if (!response.ok) {
-        const msg = result?.error || result?.message || text || `Request failed (${response.status})`;
+        const msg = formatApiError(
+          result?.error || result?.message || text || `Request failed (${response.status})`
+        );
         setBaselineError(msg);
         setBaselineStatus('failed');
         return { ok: false, reason: 'request_failed', jobIds: [] };
@@ -3194,7 +3199,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
       return { ok: true, reason: 'submitted', jobIds: [jobId] };
     } catch (err) {
       console.error('Baseline simulation error:', err);
-      setBaselineError(err.message);
+      setBaselineError(formatApiError(err.message));
       setBaselineStatus('failed');
       return { ok: false, reason: 'request_failed', jobIds: [] };
     } finally {
@@ -3217,8 +3222,12 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
       if (!ids.length && batchId) {
         const { response, result, text } = await fetchBaselineBatchStatusPair(batchId);
         if (!response.ok) {
-          const msg =
-            result?.error || result?.message || text || `Baseline batch status check failed (${response.status})`;
+          const msg = formatApiError(
+            result?.error ||
+              result?.message ||
+              text ||
+              `Baseline batch status check failed (${response.status})`
+          );
           setBaselineError(msg);
           setBaselineCheckInfo(`Checked ${checkedAt}: baseline batch status request failed.`);
           return;
@@ -3228,7 +3237,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
           (result?.status != null ? normalizeBaselineStatusToken(String(result.status)) : '') ||
           'unknown';
         setBaselineStatus(status);
-        setBaselineError(result?.error || null);
+        setBaselineError(result?.error ? formatApiError(result.error) : null);
         setBaselineCheckInfo(`Checked ${checkedAt}: ${status}${result?.error ? ` — ${result.error}` : ''}.`);
         return;
       }
@@ -3249,7 +3258,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
       }
       const { status, error } = mergeBaselineStatusRows(rows);
       setBaselineStatus(status);
-      setBaselineError(error);
+      setBaselineError(error ? formatApiError(error) : null);
       setBaselineJobUsage(aggregateUsageFromStatusRows(rows));
       if (status === 'unknown' && rows[0]?.result && typeof rows[0].result === 'object') {
         const keys = Object.keys(rows[0].result).filter((k) => !k.startsWith('_')).slice(0, 12);
@@ -3269,7 +3278,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
       if (err?.name === 'AbortError') {
         setBaselineError('Status check timed out. Try again or confirm the API is reachable.');
       } else {
-        setBaselineError(err.message || 'Status check failed.');
+        setBaselineError(formatApiError(err.message || 'Status check failed.'));
       }
       setBaselineCheckInfo(`Checked ${checkedAt}: request failed.`);
     } finally {
@@ -3291,8 +3300,9 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
         ? await fetchRunScepterModelBatchStatusPair(batchId)
         : await fetchRunScepterModelStatusPair(jobId);
       if (!response.ok) {
-        const msg =
-          result?.error || result?.message || text || `Status check failed (${response.status})`;
+        const msg = formatApiError(
+          result?.error || result?.message || text || `Status check failed (${response.status})`
+        );
         setSpinupError(msg);
         const failedStatus = normalizeBaselineStatusToken(String(result?.status || ''));
         setSpinupStatus(failedStatus || 'error');
@@ -3305,7 +3315,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
         (result?.status != null ? normalizeBaselineStatusToken(String(result.status)) : '') ||
         'unknown';
       setSpinupStatus(status);
-      setSpinupError(result?.error || null);
+      setSpinupError(result?.error ? formatApiError(result.error) : null);
       if (batchId && result?.usage_summary) {
         setModelRunUsage({
           resources: {

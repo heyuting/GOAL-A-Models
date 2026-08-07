@@ -7,7 +7,7 @@ const DEFAULT_UNAVAILABLE_MSG =
 
 /**
  * Banner for logged-in users when the shared lab Bouchet session is down.
- * No Duo / SSH prompts — operators restore the session on the API host.
+ * Placed in normal document flow under the fixed nav (not sticky top-0).
  */
 export default function HpcStatusBanner({ enabled = true }) {
   const [message, setMessage] = useState(null);
@@ -45,7 +45,7 @@ export default function HpcStatusBanner({ enabled = true }) {
   return (
     <div
       role="alert"
-      className="sticky top-0 z-[90] border-b border-amber-300 bg-amber-50 px-4 py-3 text-amber-950 shadow-sm"
+      className="relative z-10 mb-4 border-b border-amber-300 bg-amber-50 px-4 py-3 text-amber-950 shadow-sm"
     >
       <div className="mx-auto flex max-w-5xl items-start gap-3">
         <p className="flex-1 text-sm leading-relaxed">{message}</p>
