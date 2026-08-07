@@ -614,12 +614,14 @@ export default function DRNConfig({ savedData }) {
     setSelectedLocations((prev) => {
       const next = [...prev, newLocation];
       setCurrentLocationIndex(next.length - 1);
-      // Look up COMID for single-location picks immediately; multi waits for outlet check / watershed
-      if (locationMode === 'single' || next.length === 1) {
-        queueMicrotask(() => lookupLocationComids(next));
-      } else {
-        setLocationComids((prevComids) => [...prevComids, null]);
-      }
+      // Do not auto-call outlet-compat/COMID lookup here: on Spinup it loads the
+      // national basin layer and often OOMs. COMIDs come from Generate Watershed
+      // (Bouchet) or the multi-location outlet check button.
+      setLocationComids((prevComids) =>
+        locationMode === 'single' ? [null] : [...prevComids, null]
+      );
+      setComidLookupStatus(null);
+      setComidLookupError(null);
       return next;
     });
   };
@@ -648,15 +650,14 @@ export default function DRNConfig({ savedData }) {
         lat: validation.lat,
         lng: validation.lng
       };
-      // Coordinates changed — COMID must be re-resolved
+      // Coordinates changed — clear COMID until watershed / multi outlet check
       setLocationComids((prevComids) => {
         const next = [...prevComids];
         next[index] = null;
         return next;
       });
-      if (locationMode === 'single' || updated.length === 1) {
-        queueMicrotask(() => lookupLocationComids(updated));
-      }
+      setComidLookupStatus(null);
+      setComidLookupError(null);
       return updated;
     });
   };
@@ -2157,12 +2158,15 @@ export default function DRNConfig({ savedData }) {
                                     <span className="font-mono">{locationComids[index].outletComid}</span>
                                   </p>
                                 )}
-                                {comidLookupStatus === 'error' && !locationComids[index] && index === 0 && (
+                                {locationMode === 'multiple' &&
+                                  comidLookupStatus === 'error' &&
+                                  !locationComids[index] &&
+                                  index === 0 && (
                                   <p className="text-amber-700">
-                                    {comidLookupError || 'COMID lookup failed.'}
-                                    {locationMode === 'single'
-                                      ? ' Try Generate Watershed to resolve.'
-                                      : ' Generate watershed or check outlet compatibility to resolve.'}
+                                    {(comidLookupError && !/exit code -9|SIGKILL|out of memory/i.test(comidLookupError)
+                                      ? comidLookupError
+                                      : 'COMID lookup failed.') +
+                                      ' Generate watershed or check outlet compatibility to resolve.'}
                                   </p>
                                 )}
                               </div>
@@ -2170,6 +2174,13 @@ export default function DRNConfig({ savedData }) {
                           </div>
                         ))}
                       </div>
+                      {locationMode === 'single' &&
+                        selectedLocations.length >= 1 &&
+                        !locationComids.some((c) => c?.comid != null) && (
+                        <p className="mt-2 text-xs text-gray-500">
+                          COMIDs appear after you generate a watershed.
+                        </p>
+                      )}
                       {locationMode === 'multiple' && selectedLocations.length >= 2 && !locationComids.some((c) => c?.comid != null) && (
                         <p className="mt-2 text-xs text-gray-500">
                           COMIDs appear after you check outlet compatibility or generate a watershed.
