@@ -20,6 +20,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      port: 3000,
       proxy: {
         // Proxy for Yale HPC job submission API
         '/api': {

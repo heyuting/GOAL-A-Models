@@ -313,6 +313,8 @@ export default function SCEPTERDRNConfig({ savedData }) {
         user_id: user?.id || 'anonymous'
       };
 
+      // Call backend proxy API (SSH/Duo may prompt — wake MFA modal)
+      notifyHpcSshPending();
       const response = await fetch(getApiUrl('api/run-job'), {
         method: 'POST',
         headers: {

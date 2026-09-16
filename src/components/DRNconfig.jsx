@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/contexts/AuthContext";
 import userService from "@/services/userService";
+import CoachTour from "@/components/CoachTour";
 import {
   formatLocationLimit,
   getLocationLimit,
@@ -1824,6 +1825,7 @@ export default function DRNConfig({ savedData }) {
 
             <div className="space-y-4">
               <button
+                data-coach-id="drn-mode-single"
                 onClick={() => handleModeSelection('single')}
                 className="w-full p-6 border-2 border-blue-500 rounded-lg hover:bg-blue-50 transition-all text-left"
               >
@@ -1841,6 +1843,7 @@ export default function DRNConfig({ savedData }) {
               </button>
 
               <button
+                data-coach-id="drn-mode-multiple"
                 onClick={() => handleModeSelection('multiple')}
                 className="w-full p-6 border-2 border-green-500 rounded-lg hover:bg-green-50 transition-all text-left"
               >
@@ -1915,6 +1918,7 @@ export default function DRNConfig({ savedData }) {
             )}
           </div>
 
+          <div data-coach-id="drn-map" className="rounded-lg">
           <MapComponent
             onLocationSelect={handleLocationSelect}
             disabled={(() => {
@@ -1934,6 +1938,7 @@ export default function DRNConfig({ savedData }) {
             overlayGeoJSON={overlayGeoJSON}
             overlayFitKey={overlayFitKey}
           />
+          </div>
 
           {/* Output Folder Section - PDFs and Download */}
           {fullPipelineJobId && (
@@ -1961,6 +1966,51 @@ export default function DRNConfig({ savedData }) {
           <h3 className="text-xl font-bold text-center mb-6 text-gray-800">DRN Model Configuration</h3>
           <Card className="mt-15 p-6 shadow-lg rounded-xl border border-gray-200">
             <CardContent>
+              {!savedData && (() => {
+                const canContinue =
+                  (locationMode === 'single' && selectedLocations.length >= 1) ||
+                  (locationMode === 'multiple' && selectedLocations.length >= 2 && outletCheckStatus === 'same');
+                const steps = [
+                  { id: 'drn-mode-single', title: 'Choose a mode', text: 'Click option A or B to start.', placement: 'right' },
+                  { id: 'drn-map', title: 'Pick a location', text: 'Click the map to place your site inside CONUS.', placement: 'right' },
+                  { id: 'drn-outlet-check', title: 'Check outlets', text: 'Click here to confirm sites share the same outlet.', placement: 'left' },
+                  { id: 'drn-continue', title: 'Continue', text: 'Click Continue to set model parameters.', placement: 'left' },
+                  { id: 'drn-run', title: 'Run the model', text: 'When parameters look good, click Run DRN Model.', placement: 'left' },
+                  { id: 'drn-check-status', title: 'Check progress', text: 'Click Check Status while the job runs.', placement: 'left' },
+                  { id: 'drn-download', title: 'Download results', text: 'Job finished — click to download your ZIP.', placement: 'left' },
+                  { id: 'drn-save', title: 'Save this run', text: 'Save so you can reopen it from Account → My Models.', placement: 'left' },
+                ];
+                let activeId = null;
+                if (showModeSelection || !locationMode) activeId = 'drn-mode-single';
+                else if (currentPage === 1 && selectedLocations.length === 0) activeId = 'drn-map';
+                else if (
+                  currentPage === 1 &&
+                  locationMode === 'multiple' &&
+                  selectedLocations.length >= 2 &&
+                  outletCheckStatus !== 'same'
+                ) activeId = 'drn-outlet-check';
+                else if (currentPage === 1 && canContinue) activeId = 'drn-continue';
+                else if (currentPage === 2 && !fullPipelineJobId) activeId = 'drn-run';
+                else if (
+                  fullPipelineJobId &&
+                  fullPipelineStatus !== 'completed' &&
+                  fullPipelineStatus !== 'failed'
+                ) activeId = 'drn-check-status';
+                else if (fullPipelineStatus === 'completed' && !isModelSaved) activeId = 'drn-download';
+                else if (fullPipelineStatus === 'completed') activeId = 'drn-save';
+
+                const stepIndex = Math.max(0, steps.findIndex((s) => s.id === activeId));
+                const step = steps[stepIndex] || null;
+                return (
+                  <CoachTour
+                    storageKey="drn_coach_tour_dismissed"
+                    step={step}
+                    stepNumber={stepIndex + 1}
+                    stepCount={steps.length}
+                  />
+                );
+              })()}
+
               {/* Saved Job Restore Section - Only show when viewing from Account → My Models */}
               {!fullPipelineJobId && savedData && (() => {
                 const latestJobId = localStorage.getItem('drn_latest_job_id');
@@ -2193,6 +2243,7 @@ export default function DRNConfig({ savedData }) {
                   {locationMode === 'multiple' && selectedLocations.length >= 2 && (
                     <div className="mb-4">
                       <Button
+                        data-coach-id="drn-outlet-check"
                         onClick={checkOutletCompatibility}
                         disabled={outletCheckStatus === 'checking'}
                         className="w-full bg-purple-500 hover:bg-purple-600 text-white py-2 rounded-md font-semibold disabled:opacity-50"
@@ -2416,6 +2467,7 @@ export default function DRNConfig({ savedData }) {
                   {currentPage === 1 && (
                     <div className="mt-6">
                       <Button
+                        data-coach-id="drn-continue"
                         onClick={() => setCurrentPage(2)}
                         disabled={
                           !(
@@ -2545,6 +2597,7 @@ export default function DRNConfig({ savedData }) {
                   <div className="space-y-4">
                     {!fullPipelineJobId ? (
                       <Button
+                        data-coach-id="drn-run"
                         onClick={submitFullPipeline}
                         className="w-full bg-blue-500 text-white hover:bg-blue-600 rounded-md p-3 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                         disabled={selectedLocations.length < 1 || isSubmittingFullPipeline}
@@ -2555,6 +2608,7 @@ export default function DRNConfig({ savedData }) {
                       <div className="space-y-2">
                         <div className="flex gap-2">
                           <Button
+                            data-coach-id="drn-check-status"
                             onClick={() => checkFullPipelineStatus(fullPipelineJobId)}
                             className="flex-1 bg-yellow-500 text-white hover:bg-yellow-600 rounded-md p-2 disabled:opacity-50"
                             disabled={isCheckingFullPipelineStatus}
@@ -2594,6 +2648,7 @@ export default function DRNConfig({ savedData }) {
                     {/* Save Model Run Button for Page 2 */}
                     <div className="mb-4">
                       <Button
+                        data-coach-id="drn-save"
                         onClick={handleSaveModelClick}
                         disabled={!fullPipelineJobId || isSavingModel || isModelSaved || !user || !user.id}
                         className={`w-full py-2 rounded-md font-semibold ${!fullPipelineJobId || isSavingModel || isModelSaved || !user || !user.id
@@ -2704,6 +2759,7 @@ export default function DRNConfig({ savedData }) {
 
                         {fullPipelineStatus === 'completed' && fullPipelineJobId && (
                           <Button
+                            data-coach-id="drn-download"
                             onClick={() => downloadFullPipelineResults(fullPipelineJobId)}
                             disabled={isDownloading}
                             className={`w-full mt-2 text-sm font-semibold rounded-md p-3 ${isDownloading

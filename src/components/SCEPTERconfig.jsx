@@ -17,6 +17,7 @@ import {
   hasUnlimitedLocations,
 } from '@/config/userTiers';
 import { formatApiError } from '@/services/hpcStatusService';
+import CoachTour from '@/components/CoachTour';
 
 // API base URL configuration - Use relative URLs for local development (proxied through Vite)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
@@ -4244,6 +4245,40 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
           <h2 className="text-xl font-bold text-center text-gray-800">SCEPTER Model Configuration</h2>
           <Card className="mt-5 rounded-2xl shadow-lg p-6">
             <CardContent className="space-y-6">
+              {!savedData && (() => {
+                const steps = [
+                  { id: 'scepter-add-sites', title: 'Add a site', text: 'Click the map, paste coordinates, or choose Use USGS sites to add at least one site.', placement: 'left' },
+                  { id: 'scepter-continue', title: 'Run Spin-Up', text: 'Click “Run Spin-Up and Continue” to start spin-up. Status appears below the button.', placement: 'left' },
+                  { id: 'scepter-spinup-status', title: 'Check spin-up', text: 'Click Check status below until spin-up is completed.', placement: 'left' },
+                  { id: 'scepter-run', title: 'Run Model', text: 'Set practice variables, then click Run Model after spin-up finishes.', placement: 'left' },
+                  { id: 'scepter-model-status', title: 'Check model', text: 'Click Check status while the model run is in progress.', placement: 'left' },
+                  { id: 'scepter-download', title: 'Download results', text: 'Model finished — click Download for your ZIP.', placement: 'left' },
+                  { id: 'scepter-save', title: 'Save this run', text: 'Save so you can reopen it from Account → My Models.', placement: 'left' },
+                ];
+                let activeId = null;
+                if (currentPage === 1 && selectedLocations.length < 1) activeId = 'scepter-add-sites';
+                else if (currentPage === 1 && canContinueToStep2 && !hasSubmittedSpinup) activeId = 'scepter-continue';
+                else if (currentPage === 1 && hasSubmittedSpinup && !spinupIsCompleted) activeId = 'scepter-spinup-status';
+                else if (currentPage === 1 && spinupIsCompleted) activeId = 'scepter-continue';
+                else if (currentPage === 2 && spinupIsCompleted && canSubmitModelRun) activeId = 'scepter-run';
+                else if (currentPage === 2 && modelRunInProgress) activeId = 'scepter-model-status';
+                else if (currentPage === 2 && modelRunCompleted) activeId = 'scepter-download';
+                else if (currentPage === 2 && hasModelRunIds && !modelRunCompleted) activeId = 'scepter-model-status';
+                else if (currentPage === 2 && spinupIsCompleted) activeId = 'scepter-save';
+                else if (currentPage === 2 && !spinupIsCompleted) activeId = 'scepter-continue';
+
+                const stepIndex = Math.max(0, steps.findIndex((s) => s.id === activeId));
+                const step = activeId ? steps[stepIndex] : null;
+                return (
+                  <CoachTour
+                    storageKey="scepter_coach_tour_dismissed"
+                    step={step}
+                    stepNumber={activeId ? stepIndex + 1 : steps.length}
+                    stepCount={steps.length}
+                  />
+                );
+              })()}
+
               {/* Two-page navigation presenting the 3-step SCEPTER flow */}
               <div className="flex items-stretch mb-6 pb-4 border-b">
                 <button
@@ -4372,7 +4407,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                         </div>
                       ) : null}
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" data-coach-id="scepter-add-sites">
                       <button
                         type="button"
                         onClick={() => {
@@ -4579,14 +4614,129 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                     </div>
                   ) : null}
 
-                  <Button
-                    type="button"
-                    onClick={() => setCurrentPage(2)}
-                    disabled={!canContinueToStep2}
-                    className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-md font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Continue to Next Step 
-                  </Button>
+                  <div className="space-y-3">
+                    <Button
+                      type="button"
+                      data-coach-id="scepter-continue"
+                      onClick={async () => {
+                        if (!hasSubmittedSpinup && !isSubmittingBaseline) {
+                          await handleBaselineSimulation();
+                          return;
+                        }
+                        setCurrentPage(2);
+                      }}
+                      disabled={!canContinueToStep2 || isSubmittingBaseline}
+                      className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-md font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isSubmittingBaseline
+                        ? 'Submitting Spin-Up...'
+                        : hasSubmittedSpinup
+                          ? 'Continue to Practice Variables'
+                          : 'Run Spin-Up and Continue'}
+                    </Button>
+
+                    {(hasSubmittedSpinup || isSubmittingBaseline || baselineStatus || baselineError) && (
+                      <div className={`p-3 rounded-lg text-sm ${baselineStatus === 'completed' ? 'bg-green-100 text-green-700' : baselineStatus === 'running' || baselineStatus === 'submitting' || isSubmittingBaseline ? 'bg-blue-100 text-blue-700' : baselineStatus === 'failed' ? 'bg-red-100 text-red-700' : baselineStatus === 'pending' || baselineStatus === 'submitted' || baselineStatus === 'queued' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
+                        <div className="min-w-0">
+                          {baselineBatchId?.trim() ? (
+                            <div className="text-sm mt-1">
+                              <span className="font-semibold">Spin-Up batch id:</span>{' '}
+                              <span className="text-sm">{baselineBatchId}</span>
+                            </div>
+                          ) : null}
+                          <div className="text-sm">
+                            <span className="font-semibold">Spin-Up Status:</span>{' '}
+                            <span className="text-sm">{isSubmittingBaseline ? 'submitting' : (baselineStatus || 'idle')}</span>
+                          </div>
+                          {baselineCheckInfo && <div className="sr-only">{baselineCheckInfo}</div>}
+                          {baselineNotice && <div className="text-xs mt-1">{baselineNotice}</div>}
+                          {baselineError && <div className="mt-1">{baselineError}</div>}
+                          {spinupIsCompleted && (
+                            <div className="text-xs mt-2 text-green-800">
+                              Spin-up complete. Click “Continue to Practice Variables” to set parameters and run the model.
+                            </div>
+                          )}
+                          <JobUsageSummary usage={baselineJobUsage} label="Spin-up usage" />
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            data-coach-id="scepter-spinup-status"
+                            onClick={handleCheckBaselineStatus}
+                            disabled={isCheckingBaselineStatus || (!hasSubmittedSpinup && !isSubmittingBaseline)}
+                            className="bg-yellow-500 text-white hover:bg-yellow-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
+                          >
+                            {isCheckingBaselineStatus ? 'Checking...' : 'Check status'}
+                          </Button>
+                          {normalizeBaselineStatusToken(String(baselineStatus || '')) === 'failed' && (
+                            <Button
+                              type="button"
+                              onClick={async () => {
+                                baselinePollGenerationRef.current += 1;
+                                setBaselineJobId(null);
+                                setBaselineJobIds([]);
+                                setBaselineBatchId('');
+                                setBaselineStatus(null);
+                                setBaselineError(null);
+                                setBaselineNotice(null);
+                                setBaselineJobUsage(null);
+                                try {
+                                  localStorage.removeItem('scepter_baseline_job_id');
+                                  localStorage.removeItem('scepter_baseline_job_ids');
+                                  localStorage.removeItem('scepter_baseline_batch_id');
+                                  localStorage.removeItem('scepter_baseline_status');
+                                  localStorage.removeItem('scepter_spinup_checkpoint');
+                                } catch {
+                                  // ignore
+                                }
+                                await handleBaselineSimulation();
+                              }}
+                              disabled={isSubmittingBaseline || selectedLocations.length < 1}
+                              className="bg-orange-500 text-white hover:bg-orange-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
+                            >
+                              {isSubmittingBaseline ? 'Submitting...' : 'Retry Spin-Up'}
+                            </Button>
+                          )}
+                          {normalizeBaselineStatusToken(String(baselineStatus || '')) === 'completed' && (
+                            <Button
+                              type="button"
+                              onClick={handleDownloadSpinupResults}
+                              disabled={isDownloadingSpinup}
+                              className="bg-green-500 text-white hover:bg-green-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {isDownloadingSpinup ? 'Downloading…' : 'Download'}
+                            </Button>
+                          )}
+                        </div>
+                        {(isDownloadingSpinup || spinupDownloadStatus) ? (
+                          <div className="mt-2 space-y-1">
+                            <p className="text-xs text-gray-800 break-words">
+                              {spinupDownloadStatus || 'Preparing download…'}
+                            </p>
+                            <div className="h-2 w-full rounded-full bg-gray-200 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-300 ${
+                                  spinupDownloadPercent == null
+                                    ? 'w-1/3 animate-pulse bg-green-400'
+                                    : 'bg-green-500'
+                                }`}
+                                style={
+                                  spinupDownloadPercent == null
+                                    ? undefined
+                                    : { width: `${Math.max(2, Math.min(100, spinupDownloadPercent))}%` }
+                                }
+                              />
+                            </div>
+                            {spinupDownloadPercent == null && isDownloadingSpinup ? (
+                              <p className="text-[11px] text-gray-600">
+                                Server is preparing or streaming the file. Size unknown until transfer finishes — keep this tab open.
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
                 </>
               )}
 
@@ -4595,9 +4745,9 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                 <form onSubmit={(e) => e.preventDefault()} className="space-y-6">
                   <div className="space-y-2">
                     <div>
-                      <h4 className="text-md font-semibold">Step 2: Set practice variables</h4>
+                      <h4 className="text-md font-semibold">Step 2: Set practice variables & run model</h4>
                       <p className="text-sm text-gray-600 mt-1">
-                        Configure feedstock and application settings for each selected site, then run Spin-Up and Model Run as one flow.
+                        Configure feedstock and application settings, then run the model. Spin-up status is on Step 1 under “Run Spin-Up and Continue”.
                       </p>
                     </div>
                     {selectedLocations.length > 1 ? (
@@ -4735,98 +4885,10 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                   </div>
 
                   <div className="space-y-2">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="space-y-3">
+                    <div className="space-y-3">
                         <Button
                           type="button"
-                          disabled={
-                            isSubmittingBaseline ||
-                            hasSubmittedSpinup ||
-                            selectedLocations.length < 1
-                          }
-                          onClick={handleBaselineSimulation}
-                          className="w-full bg-green-500 text-white hover:bg-green-600 rounded-md p-2 disabled:opacity-50"
-                        >
-                          {isSubmittingBaseline
-                            ? 'Submitting Spin-Up...'
-                            : hasSubmittedSpinup
-                              ? 'Spin-Up submitted'
-                              : 'Run Spin-Up'}
-                        </Button>
-                        <div className={`p-3 rounded-lg text-sm ${baselineStatus === 'completed' ? 'bg-green-100 text-green-700' : baselineStatus === 'running' || baselineStatus === 'submitting' ? 'bg-blue-100 text-blue-700' : baselineStatus === 'failed' ? 'bg-red-100 text-red-700' : baselineStatus === 'pending' || baselineStatus === 'submitted' || baselineStatus === 'queued' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
-                          <div className="min-w-0">
-                            {baselineBatchId?.trim() ? (
-                              <div className="text-sm mt-1">
-                                <span className="font-semibold">Spin-Up batch id:</span>{' '}
-                                <span className="text-sm">{baselineBatchId}</span>
-                              </div>
-                            ) : null}
-                            <div className="text-sm">
-                              <span className="font-semibold">Spin-Up Status:</span>{' '}
-                              <span className="text-sm">{isSubmittingBaseline ? 'submitting' : (baselineStatus || 'idle')}</span>
-                            </div>
-                            {baselineCheckInfo && <div className="sr-only">{baselineCheckInfo}</div>}
-                            {baselineNotice && <div className="text-xs mt-1">{baselineNotice}</div>}
-                            {baselineError && <div className="mt-1">{baselineError}</div>}
-                            {spinupIsCompleted && (
-                              <div className="text-xs mt-2 text-green-800">
-                                Spin-up complete. Progress is saved — you can run the model or return later without re-running spin-up.
-                              </div>
-                            )}
-                            <JobUsageSummary usage={baselineJobUsage} label="Spin-up usage" />
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <Button
-                              type="button"
-                              onClick={handleCheckBaselineStatus}
-                              disabled={isCheckingBaselineStatus}
-                              className="bg-yellow-500 text-white hover:bg-yellow-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
-                            >
-                              {isCheckingBaselineStatus ? 'Checking...' : 'Check status'}
-                            </Button>
-                            {normalizeBaselineStatusToken(String(baselineStatus || '')) === 'completed' && (
-                              <Button
-                                type="button"
-                                onClick={handleDownloadSpinupResults}
-                                disabled={isDownloadingSpinup}
-                                className="bg-green-500 text-white hover:bg-green-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {isDownloadingSpinup ? 'Downloading…' : 'Download'}
-                              </Button>
-                            )}
-                          </div>
-                          {(isDownloadingSpinup || spinupDownloadStatus) ? (
-                            <div className="mt-2 space-y-1">
-                              <p className="text-xs text-gray-800 break-words">
-                                {spinupDownloadStatus || 'Preparing download…'}
-                              </p>
-                              <div className="h-2 w-full rounded-full bg-gray-200 overflow-hidden">
-                                <div
-                                  className={`h-full rounded-full transition-all duration-300 ${
-                                    spinupDownloadPercent == null
-                                      ? 'w-1/3 animate-pulse bg-green-400'
-                                      : 'bg-green-500'
-                                  }`}
-                                  style={
-                                    spinupDownloadPercent == null
-                                      ? undefined
-                                      : { width: `${Math.max(2, Math.min(100, spinupDownloadPercent))}%` }
-                                  }
-                                />
-                              </div>
-                              {spinupDownloadPercent == null && isDownloadingSpinup ? (
-                                <p className="text-[11px] text-gray-600">
-                                  Server is preparing or streaming the file. Size unknown until transfer finishes — keep this tab open.
-                                </p>
-                              ) : null}
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <div className="space-y-3">
-                        <Button
-                          type="button"
+                          data-coach-id="scepter-run"
                           disabled={!canSubmitModelRun}
                           onClick={(e) => (needsModelRunResubmit ? handleRetryModelRun(e) : handleRunModel(e))}
                           className="w-full bg-blue-600 text-white hover:bg-blue-700 rounded-md p-2 disabled:opacity-50"
@@ -4875,6 +4937,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                           <div className="mt-2 flex flex-wrap gap-2">
                             <Button
                               type="button"
+                              data-coach-id="scepter-model-status"
                               onClick={handleCheckSpinupStatus}
                               disabled={isCheckingSpinupStatus || (!hasModelRunIds && !modelRunFailed)}
                               className="bg-yellow-500 text-white hover:bg-yellow-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
@@ -4898,6 +4961,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                             {(normalizeBaselineStatusToken(String(spinupStatus || '')) === 'completed' || !!runModelBatchId?.trim()) && (
                               <Button
                                 type="button"
+                                data-coach-id="scepter-download"
                                 onClick={handleDownloadResults}
                                 disabled={isDownloadingModel}
                                 className={`rounded-md py-1.5 px-3 text-sm font-semibold ${isDownloadingModel ? 'bg-gray-400 text-white cursor-not-allowed' : 'bg-green-500 text-white hover:bg-green-600'}`}
@@ -4934,7 +4998,6 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                           ) : null}
                         </div>
                       </div>
-                    </div>
                     {!hasAnyRunTrackingId && (
                       <p className="text-xs text-gray-500">
                         Save unlocks after spin-up or model run creates a tracking ID.
@@ -4943,6 +5006,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <Button
                         type="button"
+                        data-coach-id="scepter-save"
                         onClick={handleSaveModelClick}
                         disabled={isSaving || !hasAnyLocation || !hasAnyRunTrackingId}
                         title={!hasAnyRunTrackingId ? 'Save is enabled after run tracking ID is available.' : undefined}
