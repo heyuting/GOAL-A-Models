@@ -17,6 +17,7 @@ import {
   hasUnlimitedLocations,
 } from '@/config/userTiers';
 import { notifyHpcSshPending } from '@/services/hpcMfaService';
+import CoachTour from '@/components/CoachTour';
 
 // API base URL configuration - Use relative URLs for local development (proxied through Vite)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
@@ -4237,6 +4238,40 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
           <h2 className="text-xl font-bold text-center text-gray-800">SCEPTER Model Configuration</h2>
           <Card className="mt-5 rounded-2xl shadow-lg p-6">
             <CardContent className="space-y-6">
+              {!savedData && (() => {
+                const steps = [
+                  { id: 'scepter-add-sites', title: 'Add a site', text: 'Click the map, paste coordinates, or choose Use USGS sites to add at least one site.', placement: 'left' },
+                  { id: 'scepter-continue', title: 'Continue', text: 'Click Continue to set practice variables and run spin-up.', placement: 'left' },
+                  { id: 'scepter-spinup', title: 'Run Spin-Up', text: 'Fill practice variables, then click Run Spin-Up first.', placement: 'left' },
+                  { id: 'scepter-spinup-status', title: 'Check spin-up', text: 'Click Check status until spin-up is completed.', placement: 'left' },
+                  { id: 'scepter-run', title: 'Run Model', text: 'Spin-up is done — click Run Model.', placement: 'left' },
+                  { id: 'scepter-model-status', title: 'Check model', text: 'Click Check status while the model run is in progress.', placement: 'left' },
+                  { id: 'scepter-download', title: 'Download results', text: 'Model finished — click Download for your ZIP.', placement: 'left' },
+                  { id: 'scepter-save', title: 'Save this run', text: 'Save so you can reopen it from Account → My Models.', placement: 'left' },
+                ];
+                let activeId = null;
+                if (currentPage === 1 && selectedLocations.length < 1) activeId = 'scepter-add-sites';
+                else if (currentPage === 1 && canContinueToStep2) activeId = 'scepter-continue';
+                else if (currentPage === 2 && !hasSubmittedSpinup && !spinupIsCompleted) activeId = 'scepter-spinup';
+                else if (currentPage === 2 && hasSubmittedSpinup && !spinupIsCompleted) activeId = 'scepter-spinup-status';
+                else if (currentPage === 2 && spinupIsCompleted && canSubmitModelRun) activeId = 'scepter-run';
+                else if (currentPage === 2 && modelRunInProgress) activeId = 'scepter-model-status';
+                else if (currentPage === 2 && modelRunCompleted) activeId = 'scepter-download';
+                else if (currentPage === 2 && hasModelRunIds && !modelRunCompleted) activeId = 'scepter-model-status';
+                else if (currentPage === 2 && spinupIsCompleted) activeId = 'scepter-save';
+
+                const stepIndex = Math.max(0, steps.findIndex((s) => s.id === activeId));
+                const step = activeId ? steps[stepIndex] : null;
+                return (
+                  <CoachTour
+                    storageKey="scepter_coach_tour_dismissed"
+                    step={step}
+                    stepNumber={activeId ? stepIndex + 1 : steps.length}
+                    stepCount={steps.length}
+                  />
+                );
+              })()}
+
               {/* Two-page navigation presenting the 3-step SCEPTER flow */}
               <div className="flex items-stretch mb-6 pb-4 border-b">
                 <button
@@ -4365,7 +4400,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                         </div>
                       ) : null}
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" data-coach-id="scepter-add-sites">
                       <button
                         type="button"
                         onClick={() => {
@@ -4574,6 +4609,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
 
                   <Button
                     type="button"
+                    data-coach-id="scepter-continue"
                     onClick={() => setCurrentPage(2)}
                     disabled={!canContinueToStep2}
                     className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-md font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
@@ -4732,6 +4768,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                       <div className="space-y-3">
                         <Button
                           type="button"
+                          data-coach-id="scepter-spinup"
                           disabled={
                             isSubmittingBaseline ||
                             hasSubmittedSpinup ||
@@ -4771,6 +4808,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                           <div className="mt-2 flex flex-wrap gap-2">
                             <Button
                               type="button"
+                              data-coach-id="scepter-spinup-status"
                               onClick={handleCheckBaselineStatus}
                               disabled={isCheckingBaselineStatus}
                               className="bg-yellow-500 text-white hover:bg-yellow-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
@@ -4820,6 +4858,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                       <div className="space-y-3">
                         <Button
                           type="button"
+                          data-coach-id="scepter-run"
                           disabled={!canSubmitModelRun}
                           onClick={(e) => (needsModelRunResubmit ? handleRetryModelRun(e) : handleRunModel(e))}
                           className="w-full bg-blue-600 text-white hover:bg-blue-700 rounded-md p-2 disabled:opacity-50"
@@ -4868,6 +4907,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                           <div className="mt-2 flex flex-wrap gap-2">
                             <Button
                               type="button"
+                              data-coach-id="scepter-model-status"
                               onClick={handleCheckSpinupStatus}
                               disabled={isCheckingSpinupStatus || (!hasModelRunIds && !modelRunFailed)}
                               className="bg-yellow-500 text-white hover:bg-yellow-600 rounded-md py-1.5 px-3 text-sm disabled:opacity-50"
@@ -4891,6 +4931,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                             {(normalizeBaselineStatusToken(String(spinupStatus || '')) === 'completed' || !!runModelBatchId?.trim()) && (
                               <Button
                                 type="button"
+                                data-coach-id="scepter-download"
                                 onClick={handleDownloadResults}
                                 disabled={isDownloadingModel}
                                 className={`rounded-md py-1.5 px-3 text-sm font-semibold ${isDownloadingModel ? 'bg-gray-400 text-white cursor-not-allowed' : 'bg-green-500 text-white hover:bg-green-600'}`}
@@ -4936,6 +4977,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <Button
                         type="button"
+                        data-coach-id="scepter-save"
                         onClick={handleSaveModelClick}
                         disabled={isSaving || !hasAnyLocation || !hasAnyRunTrackingId}
                         title={!hasAnyRunTrackingId ? 'Save is enabled after run tracking ID is available.' : undefined}
