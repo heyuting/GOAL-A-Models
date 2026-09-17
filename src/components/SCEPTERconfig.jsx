@@ -4248,7 +4248,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
               {!savedData && (() => {
                 const steps = [
                   { id: 'scepter-add-sites', title: 'Add a site', text: 'Click the map, paste coordinates, or choose Use USGS sites to add at least one site.', placement: 'left' },
-                  { id: 'scepter-continue', title: 'Run Spin-Up', text: 'Click “Run Spin-Up and Continue” to start spin-up. Status appears below the button.', placement: 'left' },
+                  { id: 'scepter-continue', title: 'Run Spin-Up', text: 'Click “Run Spin-Up and Continue” to start spin-up.', placement: 'left' },
                   { id: 'scepter-spinup-status', title: 'Check spin-up', text: 'Click Check status below until spin-up is completed.', placement: 'left' },
                   { id: 'scepter-run', title: 'Run Model', text: 'Set practice variables, then click Run Model after spin-up finishes.', placement: 'left' },
                   { id: 'scepter-model-status', title: 'Check model', text: 'Click Check status while the model run is in progress.', placement: 'left' },
