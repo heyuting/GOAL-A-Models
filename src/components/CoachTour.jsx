@@ -144,13 +144,13 @@ export default function CoachTour({
 
   const arrowByPlacement = {
     left:
-      'absolute top-1/2 -right-2 h-0 w-0 -translate-y-1/2 border-y-8 border-y-transparent border-l-8 border-l-amber-100',
+      'absolute top-1/2 -right-2 h-0 w-0 -translate-y-1/2 border-y-8 border-y-transparent border-l-8 border-l-green-50',
     right:
-      'absolute top-1/2 -left-2 h-0 w-0 -translate-y-1/2 border-y-8 border-y-transparent border-r-8 border-r-amber-100',
+      'absolute top-1/2 -left-2 h-0 w-0 -translate-y-1/2 border-y-8 border-y-transparent border-r-8 border-r-green-50',
     top:
-      'absolute -bottom-2 left-1/2 h-0 w-0 -translate-x-1/2 border-x-8 border-x-transparent border-t-8 border-t-amber-100',
+      'absolute -bottom-2 left-1/2 h-0 w-0 -translate-x-1/2 border-x-8 border-x-transparent border-t-8 border-t-green-50',
     bottom:
-      'absolute -top-2 left-1/2 h-0 w-0 -translate-x-1/2 border-x-8 border-x-transparent border-b-8 border-b-amber-100',
+      'absolute -top-2 left-1/2 h-0 w-0 -translate-x-1/2 border-x-8 border-x-transparent border-b-8 border-b-green-50',
   };
 
   const balloon = createPortal(
@@ -164,29 +164,29 @@ export default function CoachTour({
       role="status"
       aria-live="polite"
     >
-      <div className="pointer-events-auto relative max-w-[240px] rounded-xl border border-amber-300 bg-amber-100 px-3 py-2.5 shadow-lg">
+      <div className="pointer-events-auto relative max-w-[240px] rounded-xl border border-green-200 bg-green-50 px-3 py-2.5 shadow-lg">
         <div className={arrowByPlacement[coords.placement] || arrowByPlacement.left} />
         <div className="mb-1 flex items-start justify-between gap-2">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-900/70">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-green-800/70">
             Step {stepNumber} of {stepCount}
           </div>
           <button
             type="button"
             onClick={dismiss}
-            className="rounded p-0.5 text-amber-900/70 hover:bg-amber-200 hover:text-amber-950"
+            className="rounded p-0.5 text-green-800/70 hover:bg-green-100 hover:text-green-900"
             aria-label="Skip guide"
           >
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
         {step.title ? (
-          <div className="mb-0.5 text-sm font-semibold text-amber-950">{step.title}</div>
+          <div className="mb-0.5 text-sm font-semibold text-green-900">{step.title}</div>
         ) : null}
-        <p className="text-sm leading-snug text-amber-950/90">{step.text}</p>
+        <p className="text-sm leading-snug text-green-900/90">{step.text}</p>
         <button
           type="button"
           onClick={dismiss}
-          className="mt-2 text-xs font-medium text-amber-900 underline hover:text-amber-950"
+          className="mt-2 text-xs font-medium text-green-800 underline hover:text-green-900"
         >
           Skip guide
         </button>
@@ -198,7 +198,7 @@ export default function CoachTour({
   return (
     <>
       <div className="mb-3 flex items-center justify-between gap-2">
-        <span className="text-xs text-amber-900/80">
+        <span className="text-xs text-green-900/80">
           Follow the balloon — it points to what to click next.
         </span>
         <button type="button" onClick={dismiss} className="text-xs text-gray-500 hover:underline">
@@ -208,9 +208,9 @@ export default function CoachTour({
       {balloon}
       <style>{`
         .${HIGHLIGHT_CLASS} {
-          outline: 3px solid #f59e0b !important;
+          outline: 3px solid #22c55e !important;
           outline-offset: 3px;
-          box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.25) !important;
+          box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.25) !important;
           position: relative;
           z-index: 20;
         }
