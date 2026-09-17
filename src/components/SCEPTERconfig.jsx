@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
@@ -1797,6 +1798,8 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
   const lastRunTrackingSnapshotRef = useRef('');
   const [showNameModal, setShowNameModal] = useState(false);
   const [modelName, setModelName] = useState('');
+  /** Step 2 save always creates a new saved model dataset. */
+  const [saveAsNewModel, setSaveAsNewModel] = useState(false);
   const [baselineJobUsage, setBaselineJobUsage] = useState(null);
   const [modelRunUsage, setModelRunUsage] = useState(null);
   /** User chose "Select on map" — Option 1 stays light blue until they choose USGS. */
@@ -3602,24 +3605,33 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
     }
   };
 
-  const getDefaultScepterModelName = useCallback(() => {
-    if (savedModelName && String(savedModelName).trim()) {
-      return String(savedModelName).trim();
-    }
-    if (savedData?.name && String(savedData.name).trim()) {
-      return String(savedData.name).trim();
+  const getDefaultScepterModelName = useCallback((options = {}) => {
+    const { includeSpinup = false, preferExistingName = false } = options;
+
+    if (preferExistingName) {
+      if (savedModelName && String(savedModelName).trim()) {
+        return String(savedModelName).trim();
+      }
+      if (savedData?.name && String(savedData.name).trim()) {
+        return String(savedData.name).trim();
+      }
     }
 
-    return selectedLocations.length > 0
-      ? `SCEPTER_${selectedLocations.map((l) => l.label).join('_').replace(/\s+/g, '_')}`
-      : 'SCEPTER_Custom_Location';
+    const locationPart =
+      selectedLocations.length > 0
+        ? selectedLocations.map((l) => l.label).join('_').replace(/\s+/g, '_')
+        : 'Custom_Location';
+
+    return includeSpinup
+      ? `SCEPTER_spinup_${locationPart}`
+      : `SCEPTER_${locationPart}`;
   }, [savedModelName, savedData, selectedLocations]);
 
   const buildScepterModelDataPayload = useCallback((nameOverride) => {
     const defaultName =
       nameOverride && String(nameOverride).trim()
         ? String(nameOverride).trim()
-        : getDefaultScepterModelName();
+        : getDefaultScepterModelName({ includeSpinup: true, preferExistingName: true });
 
     return {
       name: defaultName,
@@ -3664,11 +3676,18 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
     selectedSite,
   ]);
 
-  const handleSaveModelClick = () => {
-    if (!user || !hasAnyLocation || !hasAnyRunTrackingId) {
+  const handleSaveModelClick = ({ asNew = false } = {}) => {
+    if (!user || !hasAnyLocation) {
       return;
     }
-    setModelName(getDefaultScepterModelName());
+    setSaveAsNewModel(asNew);
+    setModelName(
+      getDefaultScepterModelName(
+        asNew
+          ? { includeSpinup: false, preferExistingName: false }
+          : { includeSpinup: true, preferExistingName: Boolean(activeModelId) }
+      )
+    );
     setShowNameModal(true);
   };
 
@@ -3686,13 +3705,14 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
     }
 
     const trimmedName = String(nameOverride).trim();
+    const createNew = saveAsNewModel || !activeModelId;
     setIsSaving(true);
     setShowNameModal(false);
 
     try {
       const modelData = buildScepterModelDataPayload(trimmedName);
 
-      if (activeModelId) {
+      if (!createNew && activeModelId) {
         // Update existing model (including name)
         const updated = await userService.updateUserModel(user.id, activeModelId, modelData);
         if (!updated) {
@@ -3719,6 +3739,7 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
       console.error('Error saving model:', error);
       alert(error?.message || 'Failed to save model. Please try again.');
     } finally {
+      setSaveAsNewModel(false);
       setIsSaving(false);
     }
   };
@@ -4117,58 +4138,61 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
 
   return (
     <div className="space-y-6">
-      {showNameModal && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 bg-gray-900/40">
-          <div className="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">
-            <h2 className="text-2xl font-bold mb-4 text-center text-gray-800">
-              Name Your Model Run
-            </h2>
-            <p className="text-gray-600 mb-4 text-center text-sm">
-              Enter a name to identify this model run in your saved models
-            </p>
+      {showNameModal &&
+        createPortal(
+          <div className="fixed inset-0 flex items-center justify-center z-[10000] bg-gray-900/40">
+            <div className="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">
+              <h2 className="text-2xl font-bold mb-4 text-center text-gray-800">
+                Name Your Model Run
+              </h2>
+              <p className="text-gray-600 mb-4 text-center text-sm">
+                Enter a name to identify this model run in your saved models
+              </p>
 
-            <div className="mb-6">
-              <Label htmlFor="modelName" className="text-sm font-medium text-gray-700 mb-2 block">
-                Model Name
-              </Label>
-              <Input
-                id="modelName"
-                type="text"
-                value={modelName}
-                onChange={(e) => setModelName(e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-md"
-                placeholder="Enter model name"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && modelName.trim()) {
-                    handleSaveModel(modelName);
-                  }
-                }}
-                autoFocus
-              />
-            </div>
+              <div className="mb-6">
+                <Label htmlFor="modelName" className="text-sm font-medium text-gray-700 mb-2 block">
+                  Model Name
+                </Label>
+                <Input
+                  id="modelName"
+                  type="text"
+                  value={modelName}
+                  onChange={(e) => setModelName(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-md"
+                  placeholder="Enter model name"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && modelName.trim()) {
+                      handleSaveModel(modelName);
+                    }
+                  }}
+                  autoFocus
+                />
+              </div>
 
-            <div className="flex gap-3">
-              <Button
-                onClick={() => handleSaveModel(modelName)}
-                disabled={!modelName.trim() || isSaving}
-                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white"
-              >
-                {isSaving ? 'Saving...' : 'Save'}
-              </Button>
-              <Button
-                onClick={() => {
-                  setShowNameModal(false);
-                  setModelName('');
-                }}
-                disabled={isSaving}
-                className="flex-1 bg-gray-500 hover:bg-gray-600 text-white"
-              >
-                Cancel
-              </Button>
+              <div className="flex gap-3">
+                <Button
+                  onClick={() => handleSaveModel(modelName)}
+                  disabled={!modelName.trim() || isSaving}
+                  className="flex-1 bg-blue-500 hover:bg-blue-600 text-white"
+                >
+                  {isSaving ? 'Saving...' : 'Save'}
+                </Button>
+                <Button
+                  onClick={() => {
+                    setShowNameModal(false);
+                    setSaveAsNewModel(false);
+                    setModelName('');
+                  }}
+                  disabled={isSaving}
+                  className="flex-1 bg-gray-500 hover:bg-gray-600 text-white"
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
       <div className="flex gap-6">
         <div className="w-3/5 min-w-0">
           <h2 className="text-xl font-bold text-center mb-6 text-gray-800">SCEPTER Area of Interest</h2>
@@ -4248,23 +4272,24 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
               {!savedData && (() => {
                 const steps = [
                   { id: 'scepter-add-sites', title: 'Add a site', text: 'Click the map, paste coordinates, or choose Use USGS sites to add at least one site.', placement: 'left' },
+                  { id: 'scepter-save', title: 'Save Model', text: 'Click Save Model so you can reopen this run later from Account → My Models.', placement: 'left' },
                   { id: 'scepter-continue', title: 'Run Spin-Up', text: 'Click “Run Spin-Up and Continue” to start spin-up.', placement: 'left' },
                   { id: 'scepter-spinup-status', title: 'Check spin-up', text: 'Click Check status below until spin-up is completed.', placement: 'left' },
                   { id: 'scepter-run', title: 'Run Model', text: 'Set practice variables, then click Run Model after spin-up finishes.', placement: 'left' },
-                  { id: 'scepter-model-status', title: 'Check model', text: 'Click Check status while the model run is in progress.', placement: 'left' },
+                  { id: 'scepter-model-status', title: 'Check model status', text: 'Click Check status while the model run is in progress.', placement: 'left' },
                   { id: 'scepter-download', title: 'Download results', text: 'Model finished — click Download for your ZIP.', placement: 'left' },
-                  { id: 'scepter-save', title: 'Save this run', text: 'Save so you can reopen it from Account → My Models.', placement: 'left' },
                 ];
                 let activeId = null;
                 if (currentPage === 1 && selectedLocations.length < 1) activeId = 'scepter-add-sites';
+                else if (currentPage === 1 && canContinueToStep2 && !activeModelId) activeId = 'scepter-save';
                 else if (currentPage === 1 && canContinueToStep2 && !hasSubmittedSpinup) activeId = 'scepter-continue';
                 else if (currentPage === 1 && hasSubmittedSpinup && !spinupIsCompleted) activeId = 'scepter-spinup-status';
                 else if (currentPage === 1 && spinupIsCompleted) activeId = 'scepter-continue';
+                else if (currentPage === 2 && !activeModelId && hasAnyLocation) activeId = 'scepter-save';
                 else if (currentPage === 2 && spinupIsCompleted && canSubmitModelRun) activeId = 'scepter-run';
                 else if (currentPage === 2 && modelRunInProgress) activeId = 'scepter-model-status';
                 else if (currentPage === 2 && modelRunCompleted) activeId = 'scepter-download';
                 else if (currentPage === 2 && hasModelRunIds && !modelRunCompleted) activeId = 'scepter-model-status';
-                else if (currentPage === 2 && spinupIsCompleted) activeId = 'scepter-save';
                 else if (currentPage === 2 && !spinupIsCompleted) activeId = 'scepter-continue';
 
                 const stepIndex = Math.max(0, steps.findIndex((s) => s.id === activeId));
@@ -4615,6 +4640,17 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                   ) : null}
 
                   <div className="space-y-3">
+                    <Button
+                      type="button"
+                      data-coach-id="scepter-save"
+                      onClick={() => handleSaveModelClick()}
+                      disabled={isSaving || !hasAnyLocation || !user}
+                      title={!user ? 'Log in to save a model.' : !hasAnyLocation ? 'Add at least one site before saving.' : undefined}
+                      className="w-full bg-purple-500 hover:bg-purple-600 text-white py-2 rounded-md font-semibold disabled:opacity-50"
+                    >
+                      {isSaving ? 'Saving...' : activeModelId ? 'Update Model' : 'Save Model'}
+                    </Button>
+
                     <Button
                       type="button"
                       data-coach-id="scepter-continue"
@@ -4998,21 +5034,19 @@ export default function SCEPTERConfig({ savedData, freshSession = false }) {
                           ) : null}
                         </div>
                       </div>
-                    {!hasAnyRunTrackingId && (
-                      <p className="text-xs text-gray-500">
-                        Save unlocks after spin-up or model run creates a tracking ID.
-                      </p>
-                    )}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <p className="text-xs text-gray-500">
+                      Tip: save here to create a new model with practice variables (or save on Step 1 before spin-up).
+                    </p>
+                    <div className="grid grid-cols-1 gap-3">
                       <Button
                         type="button"
                         data-coach-id="scepter-save"
-                        onClick={handleSaveModelClick}
-                        disabled={isSaving || !hasAnyLocation || !hasAnyRunTrackingId}
-                        title={!hasAnyRunTrackingId ? 'Save is enabled after run tracking ID is available.' : undefined}
+                        onClick={() => handleSaveModelClick({ asNew: true })}
+                        disabled={isSaving || !hasAnyLocation || !user}
+                        title={!user ? 'Log in to save a model.' : !hasAnyLocation ? 'Add at least one site before saving.' : undefined}
                         className="w-full bg-purple-500 hover:bg-purple-600 text-white py-2 rounded-md font-semibold disabled:opacity-50"
                       >
-                        {isSaving ? 'Saving...' : savedData ? 'Update Model' : 'Save Model'}
+                        {isSaving ? 'Saving...' : 'Save Model'}
                       </Button>
                       <Button
                         type="button"
